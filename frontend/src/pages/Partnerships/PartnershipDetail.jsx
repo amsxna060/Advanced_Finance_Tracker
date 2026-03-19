@@ -10,6 +10,7 @@ function PartnershipDetail() {
   const queryClient = useQueryClient();
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
+  const [settleResult, setSettleResult] = useState(null);
   const [memberForm, setMemberForm] = useState({
     contact_id: "",
     is_self: false,
@@ -69,10 +70,10 @@ function PartnershipDetail() {
       const response = await api.put(`/api/partnerships/${id}/settle`, payload);
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["partnership", id] });
       queryClient.invalidateQueries({ queryKey: ["partnerships"] });
-      setShowSettleModal(false);
+      setSettleResult(data.summary);
     },
     onError: (err) => {
       alert(err?.response?.data?.detail || "Failed to settle partnership");
@@ -183,7 +184,7 @@ function PartnershipDetail() {
             </button>
             {partnership.status !== "settled" && (
               <button
-                onClick={() => setShowSettleModal(true)}
+                onClick={() => { setSettleResult(null); setShowSettleModal(true); }}
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
               >
                 Record Deal Receipt
@@ -549,124 +550,154 @@ function PartnershipDetail() {
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-1">
-              Record Deal Receipt
-            </h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Enter the total amount received from this deal. Profit will be
-              distributed after returning all advances.
-            </p>
-
-            {settleForm.total_received &&
-              members.length > 0 &&
-              (() => {
-                const received = Number(settleForm.total_received);
-                const calculatedProfit = Math.max(0, received - totalAdvance);
-                return (
-                  <div className="bg-gray-50 rounded-lg p-4 mb-4 text-sm">
-                    <div className="font-medium text-gray-700 mb-2">
-                      Distribution Preview
-                    </div>
-                    <div className="space-y-1">
-                      {members.map(({ member, contact }) => {
-                        const advance = Number(member.advance_contributed || 0);
-                        const share = Number(member.share_percentage || 0);
-                        const pShare = (share / 100) * calculatedProfit;
-                        const due = advance + pShare;
-                        return (
-                          <div key={member.id} className="flex justify-between">
-                            <span className="text-gray-600">
-                              {member.is_self
-                                ? "Self"
-                                : contact?.name || "Unknown"}{" "}
-                              ({share}%)
-                            </span>
-                            <span className="font-medium text-gray-900">
-                              {formatCurrency(due)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      <div className="flex justify-between pt-1 border-t border-gray-200 font-semibold">
-                        <span>Total</span>
-                        <span>{formatCurrency(received)}</span>
-                      </div>
-                    </div>
+            {settleResult ? (
+              <>
+                <h2 className="text-xl font-bold text-gray-900 mb-4">✅ Partnership Settled!</h2>
+                <div className="space-y-2 mb-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Invested</span>
+                    <span className="font-semibold">{formatCurrency(settleResult.our_investment)}</span>
                   </div>
-                );
-              })()}
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Received</span>
+                    <span className="font-semibold">{formatCurrency(settleResult.total_received)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t pt-2">
+                    <span>Net P&amp;L</span>
+                    <span className={Number(settleResult.our_pnl) >= 0 ? "text-green-600" : "text-red-600"}>
+                      {Number(settleResult.our_pnl) >= 0 ? "+" : ""}{formatCurrency(settleResult.our_pnl)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowSettleModal(false)}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl font-bold text-gray-900 mb-1">
+                  Record Deal Receipt
+                </h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  Enter the total amount received from this deal. Profit will be
+                  distributed after returning all advances.
+                </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Amount Received
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="e.g. 5000000"
-                  value={settleForm.total_received}
-                  onChange={(e) =>
-                    setSettleForm((prev) => ({
-                      ...prev,
-                      total_received: e.target.value,
-                    }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Deal Close Date
-                </label>
-                <input
-                  type="date"
-                  value={settleForm.actual_end_date}
-                  onChange={(e) =>
-                    setSettleForm((prev) => ({
-                      ...prev,
-                      actual_end_date: e.target.value,
-                    }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes (optional)
-                </label>
-                <textarea
-                  rows="2"
-                  placeholder="Any settlement notes"
-                  value={settleForm.notes}
-                  onChange={(e) =>
-                    setSettleForm((prev) => ({
-                      ...prev,
-                      notes: e.target.value,
-                    }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowSettleModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={submitSettlement}
-                disabled={
-                  !settleForm.total_received || settleMutation.isPending
-                }
-                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
-              >
-                {settleMutation.isPending ? "Saving..." : "Confirm Receipt"}
-              </button>
-            </div>
+                {settleForm.total_received &&
+                  members.length > 0 &&
+                  (() => {
+                    const received = Number(settleForm.total_received);
+                    const calculatedProfit = Math.max(0, received - totalAdvance);
+                    return (
+                      <div className="bg-gray-50 rounded-lg p-4 mb-4 text-sm">
+                        <div className="font-medium text-gray-700 mb-2">
+                          Distribution Preview
+                        </div>
+                        <div className="space-y-1">
+                          {members.map(({ member, contact }) => {
+                            const advance = Number(member.advance_contributed || 0);
+                            const share = Number(member.share_percentage || 0);
+                            const pShare = (share / 100) * calculatedProfit;
+                            const due = advance + pShare;
+                            return (
+                              <div key={member.id} className="flex justify-between">
+                                <span className="text-gray-600">
+                                  {member.is_self
+                                    ? "Self"
+                                    : contact?.name || "Unknown"}{" "}
+                                  ({share}%)
+                                </span>
+                                <span className="font-medium text-gray-900">
+                                  {formatCurrency(due)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div className="flex justify-between pt-1 border-t border-gray-200 font-semibold">
+                            <span>Total</span>
+                            <span>{formatCurrency(received)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Total Amount Received
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 5000000"
+                      value={settleForm.total_received}
+                      onChange={(e) =>
+                        setSettleForm((prev) => ({
+                          ...prev,
+                          total_received: e.target.value,
+                        }))
+                      }
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Deal Close Date
+                    </label>
+                    <input
+                      type="date"
+                      value={settleForm.actual_end_date}
+                      onChange={(e) =>
+                        setSettleForm((prev) => ({
+                          ...prev,
+                          actual_end_date: e.target.value,
+                        }))
+                      }
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Notes (optional)
+                    </label>
+                    <textarea
+                      rows="2"
+                      placeholder="Any settlement notes"
+                      value={settleForm.notes}
+                      onChange={(e) =>
+                        setSettleForm((prev) => ({
+                          ...prev,
+                          notes: e.target.value,
+                        }))
+                      }
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => setShowSettleModal(false)}
+                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitSettlement}
+                    disabled={
+                      !settleForm.total_received || settleMutation.isPending
+                    }
+                    className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                  >
+                    {settleMutation.isPending ? "Saving..." : "Confirm Receipt"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

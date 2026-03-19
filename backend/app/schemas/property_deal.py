@@ -104,6 +104,14 @@ class PropertyTransactionCreate(BaseModel):
     description: Optional[str] = None
 
 
+class PropertySettleRequest(BaseModel):
+    actual_registry_date: Optional[date] = None
+    total_buyer_value: Optional[Decimal] = None
+    total_seller_value: Optional[Decimal] = None
+    broker_commission: Optional[Decimal] = None
+    other_expenses: Decimal = Decimal("0")
+
+
 class PropertyTransactionOut(BaseModel):
     id: int
     property_deal_id: int

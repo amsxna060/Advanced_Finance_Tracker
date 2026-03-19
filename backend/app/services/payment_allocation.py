@@ -1,8 +1,10 @@
 from decimal import Decimal
 from datetime import date
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import Dict
-from app.services.interest import calculate_outstanding
+from app.models.loan import Loan, LoanPayment
+from app.services.interest import calculate_outstanding, generate_emi_schedule
 
 
 def allocate_payment(
@@ -13,10 +15,15 @@ def allocate_payment(
 ) -> Dict[str, Decimal]:
     """
     Allocate a payment amount to overdue interest, current interest, and principal.
-    Fixed allocation order:
-      1. Overdue interest (interest that was due before today and unpaid)
-      2. Current period interest (interest accrued up to payment_date)
-      3. Principal reduction
+
+    For EMI loans:
+      Uses carry-forward credit balance approach.
+      Clears overdue EMI balance first, then any excess stored as current.
+
+    For interest_only and short_term loans:
+      Fixed allocation order:
+        1. All outstanding interest (combined overdue + current)
+        2. Principal reduction
 
     Returns: {
         allocated_to_overdue_interest,
@@ -25,34 +32,89 @@ def allocate_payment(
         unallocated
     }
     """
-    # Calculate outstanding amounts as of payment date
-    outstanding = calculate_outstanding(loan_id, payment_date, db)
+    loan = db.query(Loan).filter(Loan.id == loan_id).first()
+    if not loan:
+        return {
+            "allocated_to_overdue_interest": Decimal("0"),
+            "allocated_to_current_interest": Decimal("0"),
+            "allocated_to_principal": Decimal("0"),
+            "unallocated": payment_amount,
+        }
 
-    remaining = payment_amount
-    allocated_overdue_interest = Decimal("0")
-    allocated_current_interest = Decimal("0")
-    allocated_principal = Decimal("0")
+    if loan.loan_type == "emi":
+        # For EMI loans: use carry-forward logic
+        schedule = generate_emi_schedule(loan)
+        if not schedule:
+            # No schedule — treat entire payment as current
+            return {
+                "allocated_to_overdue_interest": Decimal("0"),
+                "allocated_to_current_interest": payment_amount,
+                "allocated_to_principal": Decimal("0"),
+                "unallocated": Decimal("0"),
+            }
 
-    # For simplicity, treat all interest as current interest
-    # In production, would need to track overdue vs current based on due dates
-    interest_outstanding = outstanding["interest_outstanding"]
-    principal_outstanding = outstanding["principal_outstanding"]
+        emi_amount = Decimal(str(loan.emi_amount))
 
-    # Step 1: Allocate to interest first (combining overdue and current for simplicity)
-    if remaining > 0 and interest_outstanding > 0:
-        interest_payment = min(remaining, interest_outstanding)
-        allocated_current_interest = interest_payment
-        remaining -= interest_payment
+        # Total EMIs due up to and including payment_date
+        emis_due_count = sum(1 for e in schedule if e["due_date"] <= payment_date)
+        total_due = emi_amount * emis_due_count
 
-    # Step 2: Allocate remaining to principal
-    if remaining > 0 and principal_outstanding > 0:
-        principal_payment = min(remaining, principal_outstanding)
-        allocated_principal = principal_payment
-        remaining -= principal_payment
+        # Payments made BEFORE the current payment (exclude same-date current payment),
+        # ordered by payment ID to ensure deterministic allocation on same-day payments
+        previous_total = db.query(func.sum(LoanPayment.amount_paid)).filter(
+            LoanPayment.loan_id == loan_id,
+            LoanPayment.payment_date < payment_date,
+        ).scalar() or Decimal("0")
+        previous_total = Decimal(str(previous_total))
 
-    return {
-        "allocated_to_overdue_interest": allocated_overdue_interest,
-        "allocated_to_current_interest": allocated_current_interest,
-        "allocated_to_principal": allocated_principal,
-        "unallocated": remaining
-    }
+        overdue_emi_balance = max(total_due - previous_total, Decimal("0"))
+        remaining = payment_amount
+        allocated_overdue = Decimal("0")
+        allocated_current = Decimal("0")
+        allocated_principal = Decimal("0")
+
+        # Clear overdue EMI balance first (stored as overdue_interest for tracking)
+        if remaining > 0 and overdue_emi_balance > 0:
+            pay = min(remaining, overdue_emi_balance)
+            allocated_overdue = pay
+            remaining -= pay
+
+        # Any excess goes towards future EMIs (stored as current_interest)
+        if remaining > 0:
+            allocated_current = remaining
+            remaining = Decimal("0")
+
+        return {
+            "allocated_to_overdue_interest": allocated_overdue,
+            "allocated_to_current_interest": allocated_current,
+            "allocated_to_principal": allocated_principal,
+            "unallocated": remaining,
+        }
+
+    else:
+        # For interest_only and short_term: interest first, then principal
+        outstanding = calculate_outstanding(loan_id, payment_date, db)
+        interest_outstanding = outstanding["interest_outstanding"]
+        principal_outstanding = outstanding["principal_outstanding"]
+
+        remaining = payment_amount
+        allocated_overdue = Decimal("0")
+        allocated_current = Decimal("0")
+        allocated_principal = Decimal("0")
+
+        if remaining > 0 and interest_outstanding > 0:
+            interest_payment = min(remaining, interest_outstanding)
+            allocated_current = interest_payment
+            remaining -= interest_payment
+
+        if remaining > 0 and principal_outstanding > 0:
+            principal_payment = min(remaining, principal_outstanding)
+            allocated_principal = principal_payment
+            remaining -= principal_payment
+
+        return {
+            "allocated_to_overdue_interest": allocated_overdue,
+            "allocated_to_current_interest": allocated_current,
+            "allocated_to_principal": allocated_principal,
+            "unallocated": remaining,
+        }

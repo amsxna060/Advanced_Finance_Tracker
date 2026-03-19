@@ -73,8 +73,10 @@ function ContactForm() {
       return response.data;
     },
     onSuccess: (data) => {
+      // Remove stale cache so detail page does a clean fetch
+      queryClient.removeQueries({ queryKey: ["contact", String(id)] });
+      queryClient.removeQueries({ queryKey: ["contact", id] });
       queryClient.invalidateQueries({ queryKey: ["contacts"] });
-      queryClient.invalidateQueries({ queryKey: ["contact", id] });
       navigate(`/contacts/${data.id || id}`);
     },
     onError: (error) => {

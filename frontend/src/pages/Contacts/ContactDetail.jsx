@@ -30,6 +30,8 @@ export default function ContactDetail() {
       const response = await api.get(`/api/contacts/${id}`);
       return response.data;
     },
+    staleTime: 0,
+    gcTime: 0,
     retry: 2,
   });
 
