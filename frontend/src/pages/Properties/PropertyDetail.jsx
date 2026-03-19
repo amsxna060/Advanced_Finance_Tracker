@@ -9,6 +9,16 @@ function PropertyDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const [showSettleModal, setShowSettleModal] = useState(false);
+  const [settleForm, setSettleForm] = useState({
+    actual_registry_date: new Date().toISOString().split("T")[0],
+    total_buyer_value: "",
+    total_seller_value: "",
+    broker_commission: "",
+    other_expenses: "0",
+  });
+  const [settleResult, setSettleResult] = useState(null);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["property", id],
     queryFn: async () => {
@@ -31,11 +41,50 @@ function PropertyDetail() {
     },
   });
 
+  const settleMutation = useMutation({
+    mutationFn: async (payload) => {
+      const response = await api.post(`/api/properties/${id}/settle`, payload);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      setSettleResult(data.settlement_summary);
+    },
+    onError: (err) => {
+      alert(err?.response?.data?.detail || "Failed to settle deal");
+    },
+  });
+
   const handleDelete = () => {
     if (window.confirm("Delete this property deal? This cannot be undone.")) {
       deletePropertyMutation.mutate();
     }
   };
+
+  const handleSettle = () => {
+    const payload = {
+      actual_registry_date: settleForm.actual_registry_date || null,
+      total_buyer_value: settleForm.total_buyer_value ? parseFloat(settleForm.total_buyer_value) : null,
+      total_seller_value: settleForm.total_seller_value ? parseFloat(settleForm.total_seller_value) : null,
+      broker_commission: settleForm.broker_commission ? parseFloat(settleForm.broker_commission) : null,
+      other_expenses: settleForm.other_expenses ? parseFloat(settleForm.other_expenses) : 0,
+    };
+    settleMutation.mutate(payload);
+  };
+
+  // Live calculation for settle modal
+  const liveGross = (() => {
+    const buyer = parseFloat(settleForm.total_buyer_value || (data?.property?.total_buyer_value || 0));
+    const seller = parseFloat(settleForm.total_seller_value || (data?.property?.total_seller_value || 0));
+    return isNaN(buyer) || isNaN(seller) ? null : buyer - seller;
+  })();
+  const liveNet = (() => {
+    if (liveGross === null) return null;
+    const broker = parseFloat(settleForm.broker_commission || (data?.property?.broker_commission || 0));
+    const other = parseFloat(settleForm.other_expenses || 0);
+    return liveGross - (isNaN(broker) ? 0 : broker) - (isNaN(other) ? 0 : other);
+  })();
 
   if (isLoading) {
     return (
@@ -89,6 +138,14 @@ function PropertyDetail() {
             </p>
           </div>
           <div className="flex gap-3">
+            {property.status !== "settled" && (
+              <button
+                onClick={() => { setSettleResult(null); setShowSettleModal(true); }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                ✅ Settle Deal
+              </button>
+            )}
             <button
               onClick={() => navigate(`/properties/${id}/edit`)}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -288,6 +345,143 @@ function PropertyDetail() {
           </div>
         </div>
       </div>
+
+      {/* Settle Deal Modal */}
+      {showSettleModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+            {settleResult ? (
+              <>
+                <h2 className="text-xl font-bold text-gray-900 mb-4">✅ Deal Settled!</h2>
+                <div className="space-y-3 mb-6">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Gross Profit</span>
+                    <span className="font-semibold">{formatCurrency(settleResult.gross_profit)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Total Expenses</span>
+                    <span className="font-semibold text-red-600">- {formatCurrency(settleResult.total_expenses)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold border-t pt-2">
+                    <span>Net Profit</span>
+                    <span className="text-green-600">{formatCurrency(settleResult.net_profit)}</span>
+                  </div>
+                  {settleResult.partner_settlements?.length > 0 && (
+                    <div className="mt-4">
+                      <div className="text-sm font-medium text-gray-700 mb-2">Partner Distribution</div>
+                      {settleResult.partner_settlements.map((ps, i) => (
+                        <div key={i} className="flex justify-between text-sm py-1 border-b border-gray-100 last:border-0">
+                          <span className="text-gray-700">{ps.contact_name} ({ps.share_percentage}%)</span>
+                          <span className="font-semibold">{formatCurrency(ps.total_to_receive)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setShowSettleModal(false)}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl font-bold text-gray-900 mb-1">Settle Deal</h2>
+                <p className="text-sm text-gray-500 mb-4">Enter final values to settle this property deal and distribute profit.</p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Registry Date</label>
+                    <input
+                      type="date"
+                      value={settleForm.actual_registry_date}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, actual_registry_date: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Final Buyer Value (₹) <span className="text-gray-400 text-xs">pre-filled if available</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={property.total_buyer_value || "Enter buyer value"}
+                      value={settleForm.total_buyer_value}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, total_buyer_value: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Final Seller Value (₹)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={property.total_seller_value || "Enter seller value"}
+                      value={settleForm.total_seller_value}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, total_seller_value: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Broker Commission (₹)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={property.broker_commission || "0"}
+                      value={settleForm.broker_commission}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, broker_commission: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Other Expenses (₹)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={settleForm.other_expenses}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, other_expenses: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                  {/* Live calc */}
+                  {liveGross !== null && (
+                    <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Gross Profit</span>
+                        <span className="font-semibold">{formatCurrency(liveGross)}</span>
+                      </div>
+                      {liveNet !== null && (
+                        <div className="flex justify-between font-bold border-t pt-1">
+                          <span>Net Profit</span>
+                          <span className={liveNet >= 0 ? "text-green-600" : "text-red-600"}>{formatCurrency(liveNet)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => setShowSettleModal(false)}
+                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSettle}
+                    disabled={settleMutation.isPending}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {settleMutation.isPending ? "Settling..." : "Confirm Settlement"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

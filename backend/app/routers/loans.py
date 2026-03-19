@@ -14,7 +14,11 @@ from app.schemas.loan import (
     OutstandingResponse, PaymentPreviewResponse, CapitalizeRequest, ContactBrief
 )
 from app.schemas.collateral import CollateralOut
-from app.services.interest import calculate_outstanding, generate_emi_schedule, check_capitalization_due
+from app.services.interest import (
+    calculate_outstanding, generate_emi_schedule, check_capitalization_due,
+    calculate_emi_interest_summary, get_emi_schedule_with_payments,
+    generate_monthly_interest_schedule,
+)
 from app.services.payment_allocation import allocate_payment
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -117,20 +121,23 @@ def get_loan(
     # Check capitalization status
     cap_status = check_capitalization_due(loan, db)
 
-    # Generate EMI schedule with paid status (cross-referenced with payments)
+    # Generate EMI schedule with paid status using carry-forward logic
     schedule = []
+    emi_interest_summary = None
     if loan.loan_type == "emi":
-        raw_schedule = generate_emi_schedule(loan)
-        # payments are ordered desc; count total payments for simple paid tracking
-        paid_count = db.query(LoanPayment).filter(LoanPayment.loan_id == loan_id).count()
-        for entry in raw_schedule:
-            status = "paid" if entry["emi_number"] <= paid_count else "pending"
-            schedule.append({
-                "emi_number": entry["emi_number"],
-                "due_date": str(entry["due_date"]),
-                "due_amount": float(entry["due_amount"]),
-                "status": status,
-            })
+        schedule = get_emi_schedule_with_payments(loan, db)
+        # Calculate EMI interest summary
+        if loan.principal_amount and loan.emi_amount and loan.tenure_months:
+            from decimal import Decimal as D
+            emi_interest_summary = calculate_emi_interest_summary(
+                D(str(loan.principal_amount)),
+                D(str(loan.emi_amount)),
+                loan.tenure_months,
+            )
+            # Convert Decimal values to float for JSON serialization
+            emi_interest_summary = {
+                k: float(v) for k, v in emi_interest_summary.items()
+            }
 
     return {
         "loan": LoanOut.model_validate(loan),
@@ -140,6 +147,7 @@ def get_loan(
         "collaterals": [CollateralOut.model_validate(c) for c in collaterals],
         "capitalization_status": cap_status,
         "emi_schedule": schedule,
+        "emi_interest_summary": emi_interest_summary,
     }
 
 
@@ -398,3 +406,22 @@ def get_emi_schedule(
     
     schedule = generate_emi_schedule(loan)
     return {"schedule": schedule}
+
+
+@router.get("/{loan_id}/monthly-interest-schedule")
+def get_monthly_interest_schedule(
+    loan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get monthly interest/EMI schedule showing payment status per month.
+    Status: 'paid' | 'partial' | 'unpaid' | 'future'
+    For EMI loans, interest_due represents the full EMI amount.
+    """
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    schedule = generate_monthly_interest_schedule(loan, db)
+    return {"schedule": schedule, "loan_type": loan.loan_type}

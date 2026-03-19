@@ -53,3 +53,8 @@ export function getDaysOverdue(dueDate) {
   const diff = Math.floor((today - due) / (1000 * 60 * 60 * 24));
   return diff > 0 ? diff : 0;
 }
+
+export function monthlyRateToAnnual(monthlyRate) {
+  if (!monthlyRate && monthlyRate !== 0) return null;
+  return (parseFloat(monthlyRate) * 12).toFixed(2);
+}

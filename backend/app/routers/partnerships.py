@@ -277,21 +277,34 @@ def settle_partnership(
     current_user: User = Depends(require_admin),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
+
+    total_received = _decimal(request.total_received) if request.total_received is not None else _decimal(partnership.total_received)
+
     partnership.status = "settled"
-    if request.total_received is not None:
-        partnership.total_received = request.total_received
+    partnership.total_received = total_received
     partnership.actual_end_date = request.actual_end_date
     if request.notes:
         existing_notes = partnership.notes or ""
         separator = "\n\n" if existing_notes else ""
         partnership.notes = f"{existing_notes}{separator}Settlement notes: {request.notes}"
 
-    db.commit()
-    db.refresh(partnership)
-
+    # Distribute total_received among members based on their advances + profit share
     members = db.query(PartnershipMember).filter(
         PartnershipMember.partnership_id == partnership_id,
     ).all()
+
+    total_advance = sum(_decimal(m.advance_contributed) for m in members)
+    profit = max(total_received - total_advance, Decimal("0"))
+
+    for member in members:
+        share_pct = _decimal(member.share_percentage)
+        advance = _decimal(member.advance_contributed)
+        profit_share = profit * (share_pct / Decimal("100"))
+        member.total_received = advance + profit_share
+
+    db.commit()
+    db.refresh(partnership)
+
     transactions = db.query(PartnershipTransaction).filter(
         PartnershipTransaction.partnership_id == partnership_id,
     ).all()

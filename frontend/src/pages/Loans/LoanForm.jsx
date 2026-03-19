@@ -166,8 +166,10 @@ function LoanForm() {
       return response.data;
     },
     onSuccess: (data) => {
+      // Remove stale cache so detail page does a clean fetch
+      queryClient.removeQueries({ queryKey: ["loan", String(id)] });
+      queryClient.removeQueries({ queryKey: ["loan", id] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan", id] });
       navigate(`/loans/${data.id || id}`);
     },
     onError: (error) => {

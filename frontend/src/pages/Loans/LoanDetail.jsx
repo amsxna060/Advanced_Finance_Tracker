@@ -6,6 +6,7 @@ import {
   formatCurrency,
   formatDate,
   getLoanStatusColor,
+  monthlyRateToAnnual,
 } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -46,6 +47,8 @@ function LoanDetail() {
       const response = await api.get(`/api/loans/${id}`);
       return response.data;
     },
+    staleTime: 0,
+    gcTime: 0,
     retry: 2,
   });
 
@@ -55,6 +58,19 @@ function LoanDetail() {
   const payments = loanData?.payments || [];
   const collaterals = loanData?.collaterals || [];
   const emiSchedule = loanData?.emi_schedule || [];
+  const emiInterestSummary = loanData?.emi_interest_summary || null;
+
+  // Monthly interest schedule (lazy-loaded)
+  const [showMonthlySchedule, setShowMonthlySchedule] = useState(false);
+  const { data: monthlyScheduleData, isLoading: monthlyScheduleLoading } = useQuery({
+    queryKey: ["loan-monthly-schedule", id],
+    queryFn: async () => {
+      const response = await api.get(`/api/loans/${id}/monthly-interest-schedule`);
+      return response.data;
+    },
+    enabled: showMonthlySchedule,
+    staleTime: 0,
+  });
 
   // Fetch payment preview
   const fetchPreview = async (amount) => {
@@ -328,12 +344,40 @@ function LoanDetail() {
                     {formatCurrency(loan.principal_amount)}
                   </div>
                 </div>
-                {loan.interest_rate && (
+                {loan.loan_type !== "short_term" && loan.interest_rate && (
                   <div>
                     <div className="text-sm text-gray-600">Interest Rate</div>
                     <div className="text-lg font-semibold text-gray-900">
-                      {loan.interest_rate}% per annum
+                      {monthlyRateToAnnual(loan.interest_rate)}% p.a.
                     </div>
+                  </div>
+                )}
+                {loan.loan_type === "short_term" && (
+                  <div>
+                    <div className="text-sm text-gray-600">Post-Due Rate</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {loan.post_due_interest_rate
+                        ? `${monthlyRateToAnnual(loan.post_due_interest_rate)}% p.a.`
+                        : "—"}
+                    </div>
+                    {loan.interest_free_till && (() => {
+                      const today = new Date();
+                      const freeTill = new Date(loan.interest_free_till);
+                      const isActive = today > freeTill;
+                      const daysLeft = Math.ceil((freeTill - today) / (1000 * 60 * 60 * 24));
+                      if (isActive) {
+                        return (
+                          <span className="inline-block mt-1 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">
+                            ⚠️ Interest Active
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="inline-block mt-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                          ✅ Interest-Free Period ({daysLeft} days left)
+                        </span>
+                      );
+                    })()}
                   </div>
                 )}
                 <div>
@@ -384,7 +428,35 @@ function LoanDetail() {
                     </div>
                   </div>
                 )}
+                {loan.interest_free_till && (
+                  <div>
+                    <div className="text-sm text-gray-600">Interest Free Till</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {formatDate(loan.interest_free_till)}
+                    </div>
+                  </div>
+                )}
               </div>
+              {/* EMI Interest Summary */}
+              {loan.loan_type === "emi" && emiInterestSummary && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-sm font-medium text-gray-700 mb-2">EMI Interest Summary</div>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="bg-blue-50 rounded-lg p-3">
+                      <div className="text-gray-500">Total Repayment</div>
+                      <div className="font-semibold text-gray-900">{formatCurrency(emiInterestSummary.total_repayment)}</div>
+                    </div>
+                    <div className="bg-orange-50 rounded-lg p-3">
+                      <div className="text-gray-500">Total Interest</div>
+                      <div className="font-semibold text-gray-900">{formatCurrency(emiInterestSummary.total_interest_embedded)}</div>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-3">
+                      <div className="text-gray-500">Effective Rate</div>
+                      <div className="font-semibold text-gray-900">~{emiInterestSummary.effective_annual_rate_pct}% p.a.</div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {loan.notes && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <div className="text-sm text-gray-600">Notes</div>
@@ -414,7 +486,10 @@ function LoanDetail() {
                           Due Date
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Amount
+                          EMI Due
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Outstanding
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                           Status
@@ -426,32 +501,41 @@ function LoanDetail() {
                         <tr
                           key={entry.emi_number}
                           className={
-                            entry.status === "paid" ? "bg-green-50" : ""
+                            entry.status === "paid"
+                              ? "bg-green-50"
+                              : entry.is_current_month
+                                ? "bg-yellow-50"
+                                : ""
                           }
                         >
-                          <td
-                            className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                          >
+                          <td className="px-4 py-3 text-sm text-gray-900">
                             {entry.emi_number}
                           </td>
-                          <td
-                            className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                          >
+                          <td className="px-4 py-3 text-sm text-gray-900">
                             {formatDate(entry.due_date)}
                           </td>
-                          <td
-                            className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                          >
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">
                             {formatCurrency(entry.due_amount)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {entry.outstanding > 0 ? formatCurrency(entry.outstanding) : "—"}
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {entry.status === "paid" ? (
                               <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
                                 ✓ Paid
                               </span>
-                            ) : (
+                            ) : entry.status === "partial" ? (
                               <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
-                                Pending
+                                ⚡ Partial
+                              </span>
+                            ) : entry.status === "future" ? (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">
+                                Future
+                              </span>
+                            ) : (
+                              <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                                ✗ Unpaid
                               </span>
                             )}
                           </td>
@@ -618,6 +702,80 @@ function LoanDetail() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+
+            {/* Monthly Interest / EMI Schedule */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {loan.loan_type === "emi" ? "Monthly EMI Tracking" : "Monthly Interest Schedule"}
+                </h2>
+                <button
+                  onClick={() => setShowMonthlySchedule((prev) => !prev)}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  {showMonthlySchedule ? "Hide" : "Show"}
+                </button>
+              </div>
+              {showMonthlySchedule && (
+                monthlyScheduleLoading ? (
+                  <div className="text-gray-500 text-center py-4">Loading schedule...</div>
+                ) : monthlyScheduleData?.schedule?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                            {loan.loan_type === "emi" ? "EMI Due" : "Interest Due"}
+                          </th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Outstanding</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {monthlyScheduleData.schedule.map((entry, idx) => (
+                          <tr
+                            key={idx}
+                            className={
+                              entry.is_current_month
+                                ? "bg-yellow-50"
+                                : entry.status === "paid"
+                                  ? "bg-green-50"
+                                  : ""
+                            }
+                          >
+                            <td className="px-4 py-2 font-medium text-gray-900">{entry.month_label}</td>
+                            <td className="px-4 py-2 text-right text-gray-700">
+                              {entry.interest_due > 0 ? formatCurrency(entry.interest_due) : "—"}
+                            </td>
+                            <td className="px-4 py-2 text-right text-gray-700">
+                              {entry.interest_paid > 0 ? formatCurrency(entry.interest_paid) : "—"}
+                            </td>
+                            <td className="px-4 py-2 text-right text-gray-700">
+                              {entry.interest_outstanding > 0 ? formatCurrency(entry.interest_outstanding) : "—"}
+                            </td>
+                            <td className="px-4 py-2">
+                              {entry.status === "paid" ? (
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">🟢 Paid</span>
+                              ) : entry.status === "partial" ? (
+                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">🟡 Partial</span>
+                              ) : entry.status === "future" ? (
+                                <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">⚪ Future</span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">🔴 Unpaid</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-4">No schedule available yet</p>
+                )
               )}
             </div>
           </div>
