@@ -328,25 +328,25 @@ function LoanDetail() {
                 </h2>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <div className="text-sm opacity-90">Principal</div>
+                    <div className="text-sm opacity-90">
+                      {loan.loan_type === "emi" ? "Principal Lent" : "Principal"}
+                    </div>
                     <div className="text-2xl font-bold">
                       {formatCurrency(outstanding.principal_outstanding)}
                     </div>
                   </div>
                   <div>
                     <div className="text-sm opacity-90">
-                      {loan.loan_type === "emi" ? "Total Interest" : "Interest"}
+                      {loan.loan_type === "emi" ? "Overdue" : "Interest"}
                     </div>
                     <div className="text-2xl font-bold">
-                      {formatCurrency(
-                        loan.loan_type === "emi" && emiInterestSummary
-                          ? emiInterestSummary.total_interest_embedded
-                          : outstanding.interest_outstanding
-                      )}
+                      {formatCurrency(outstanding.interest_outstanding)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-sm opacity-90">Total Due</div>
+                    <div className="text-sm opacity-90">
+                      {loan.loan_type === "emi" ? "Total to Receive" : "Total Due"}
+                    </div>
                     <div className="text-3xl font-bold">
                       {formatCurrency(outstanding.total_outstanding)}
                     </div>

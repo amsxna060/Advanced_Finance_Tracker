@@ -47,47 +47,32 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     # Calculate interest
     interest_outstanding = Decimal("0")
 
-    # For EMI loans, split outstanding into principal vs interest using embedded ratio
+    # For EMI loans: walk the schedule with carry-forward credit
     if loan.loan_type == "emi":
         emi_amount = Decimal(str(loan.emi_amount or 0))
-        tenure = loan.tenure_months or 0
         principal = Decimal(str(loan.principal_amount))
-        total_emi_repayment = emi_amount * tenure
-
-        # Generate schedule to find how many EMIs are due up to as_of_date
         schedule = generate_emi_schedule(loan)
-        emis_due_count = sum(1 for e in schedule if e["due_date"] <= as_of_date)
-        total_due_so_far = emi_amount * emis_due_count
-
-        # Total paid (all payments up to as_of_date, already fetched above)
         total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
 
-        # Overall overdue unpaid amount (what's due but not yet paid)
-        total_overdue_unpaid = max(total_due_so_far - total_paid, Decimal("0"))
-
-        # Split into interest vs principal using embedded ratio
-        if total_emi_repayment > Decimal("0"):
-            total_interest_embedded = total_emi_repayment - principal
-            interest_ratio = total_interest_embedded / total_emi_repayment
-            principal_ratio = principal / total_emi_repayment
-        else:
-            interest_ratio = Decimal("0")
-            principal_ratio = Decimal("1")
-
-        # interest_outstanding: interest portion of currently overdue (unpaid-due) EMIs.
-        # principal_outstanding: total principal not yet repaid (covers both past and future EMIs).
-        # These two serve different purposes and are not double-counting:
-        #   - interest_outstanding shows the penalty/cost of late EMIs visible in the blue bar.
-        #   - principal_outstanding tracks the full remaining loan balance.
-        interest_outstanding = (total_overdue_unpaid * interest_ratio).quantize(Decimal("0.01"))
-        # Principal outstanding = total principal minus principal portions already paid
-        principal_paid = (total_paid * principal_ratio).quantize(Decimal("0.01"))
-        principal_outstanding = max(principal - principal_paid, Decimal("0"))
+        # Apply carry-forward: credit covers EMIs in order, find what's unpaid
+        credit = total_paid
+        overdue_outstanding = Decimal("0")
+        future_outstanding = Decimal("0")
+        for entry in schedule:
+            remaining_on_emi = max(emi_amount - credit, Decimal("0"))
+            credit = max(credit - emi_amount, Decimal("0"))
+            if entry["due_date"] <= as_of_date:
+                overdue_outstanding += remaining_on_emi
+            else:
+                future_outstanding += remaining_on_emi
 
         return {
-            "principal_outstanding": principal_outstanding,
-            "interest_outstanding": interest_outstanding,
-            "total_outstanding": principal_outstanding + interest_outstanding,
+            # principal_outstanding = original loan amount ("Principal Lent" in UI — never changes)
+            "principal_outstanding": principal,
+            # interest_outstanding = past-due unpaid EMI amount ("Overdue" in UI)
+            "interest_outstanding": overdue_outstanding,
+            # total_outstanding = everything still to collect (overdue + all future EMIs)
+            "total_outstanding": overdue_outstanding + future_outstanding,
             "as_of_date": as_of_date,
         }
 
