@@ -100,6 +100,7 @@ function LoanDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loan", id] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
+      queryClient.invalidateQueries({ queryKey: ["loan-monthly-schedule", id] });
       setShowPaymentModal(false);
       setPaymentAmount("");
       setPaymentNotes("");
@@ -115,6 +116,7 @@ function LoanDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loan", id] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
+      queryClient.invalidateQueries({ queryKey: ["loan-monthly-schedule", id] });
     },
   });
 
@@ -154,19 +156,6 @@ function LoanDetail() {
   const deleteCollateralMutation = useMutation({
     mutationFn: async (collateralId) => {
       await api.delete(`/api/collaterals/${collateralId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["loan", id] });
-    },
-  });
-
-  // Capitalize interest
-  const capitalizeMutation = useMutation({
-    mutationFn: async () => {
-      const response = await api.post(`/api/loans/${id}/capitalize`, {
-        event_date: new Date().toISOString().split("T")[0],
-      });
-      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loan", id] });
@@ -245,16 +234,6 @@ function LoanDetail() {
   const handleDeleteCollateral = (collateralId) => {
     if (window.confirm("Remove this collateral?")) {
       deleteCollateralMutation.mutate(collateralId);
-    }
-  };
-
-  const handleCapitalize = () => {
-    if (
-      window.confirm(
-        "Capitalize outstanding interest? This adds it to the principal.",
-      )
-    ) {
-      capitalizeMutation.mutate();
     }
   };
 
@@ -801,6 +780,7 @@ function LoanDetail() {
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {monthlyScheduleData.schedule.map((entry, idx) => (
+                          <>
                           <tr
                             key={idx}
                             className={
@@ -853,6 +833,14 @@ function LoanDetail() {
                               )}
                             </td>
                           </tr>
+                          {entry.capitalized && (
+                            <tr key={`cap-${idx}`} className="bg-purple-50 border-t-2 border-purple-300">
+                              <td colSpan={5} className="px-4 py-2 text-sm text-purple-700 font-medium">
+                                🔄 Interest Capitalized: {formatCurrency(entry.capitalized_amount)} added to principal → New Principal: {formatCurrency(entry.new_principal_after)}
+                              </td>
+                            </tr>
+                          )}
+                          </>
                         ))}
                       </tbody>
                     </table>
@@ -886,19 +874,7 @@ function LoanDetail() {
                 >
                   ✏️ Edit Loan
                 </button>
-                {user?.role === "admin" &&
-                  loan.status === "active" &&
-                  outstanding?.interest_outstanding > 0 && (
-                    <button
-                      onClick={handleCapitalize}
-                      disabled={capitalizeMutation.isPending}
-                      className="w-full px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium disabled:opacity-50"
-                    >
-                      {capitalizeMutation.isPending
-                        ? "Processing..."
-                        : "🔄 Capitalize Interest"}
-                    </button>
-                  )}
+
                 <button
                   onClick={() => navigate(`/contacts/${loan.contact_id}`)}
                   className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"

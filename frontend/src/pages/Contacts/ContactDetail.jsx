@@ -220,16 +220,28 @@ export default function ContactDetail() {
                     {formatCurrency(summary?.total_borrowed || 0)}
                   </p>
                 </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <p className="text-sm text-orange-600 mb-1">Interest Due (Today)</p>
+                  <p className="text-2xl font-bold text-orange-900">
+                    {formatCurrency(summary?.total_interest_due || 0)}
+                  </p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm text-red-600 mb-1">Total Outstanding</p>
+                  <p className="text-2xl font-bold text-red-900">
+                    {formatCurrency(summary?.total_outstanding || 0)}
+                  </p>
+                </div>
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-600 mb-1">Active Loans</p>
                   <p className="text-2xl font-bold text-blue-900">
                     {summary?.active_loans_count || 0}
                   </p>
                 </div>
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">Total Loans</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {summary?.total_loans_count || 0}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-sm text-yellow-700 mb-1">Total Collateral Value</p>
+                  <p className="text-2xl font-bold text-yellow-900">
+                    {formatCurrency(summary?.total_collateral_value || 0)}
                   </p>
                 </div>
               </div>

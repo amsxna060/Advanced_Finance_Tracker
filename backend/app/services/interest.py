@@ -79,11 +79,14 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
         }
 
     # Compute interest using the same period-based monthly formula as the schedule.
-    # Always use the fixed principal (post-cap, NOT post-payment) so the blue bar
-    # stays in sync with generate_monthly_interest_schedule.
-    calc_principal = Decimal(str(loan.principal_amount))
-    for event in cap_events:
-        calc_principal = Decimal(str(event.new_principal))
+    # For auto-cap loans: start calc_principal from original principal (ignore old DB cap events).
+    # For non-auto-cap loans: apply DB cap events as starting point.
+    if loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0:
+        calc_principal = Decimal(str(loan.principal_amount))
+    else:
+        calc_principal = Decimal(str(loan.principal_amount))
+        for event in cap_events:
+            calc_principal = Decimal(str(event.new_principal))
 
     if loan.loan_type == "short_term" and loan.interest_free_till:
         if as_of_date <= loan.interest_free_till:
@@ -111,34 +114,72 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
 
     monthly_interest_full = calc_principal * (calc_rate / Decimal("100") / Decimal("12"))
     interest_accrued = Decimal("0")
-    cur = interest_start_calc
-    while cur <= as_of_date:
-        period_end = cur + relativedelta(months=1)
-        if period_end <= as_of_date:
-            interest_accrued += monthly_interest_full
-        else:
-            days_elapsed = (as_of_date - cur).days
-            days_in_period = (period_end - cur).days
-            if days_elapsed > 0 and days_in_period > 0:
-                interest_accrued += (
-                    monthly_interest_full
-                    * Decimal(str(days_elapsed))
-                    / Decimal(str(days_in_period))
-                )
-        cur = period_end
+
+    # Auto-capitalization: every cap_every months, unpaid interest rolls into principal
+    cap_enabled = loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0
+    cap_every = loan.capitalization_after_months or 0
+    month_count = 0
+    unpaid_carried = Decimal("0")
 
     interest_paid_total = sum(
         Decimal(str(p.allocated_to_current_interest)) + Decimal(str(p.allocated_to_overdue_interest))
         for p in payments
     )
-    interest_outstanding = max(interest_accrued - interest_paid_total, Decimal("0"))
+    interest_paid_remaining = interest_paid_total
 
-    principal_outstanding = max(principal_outstanding, Decimal("0"))
+    cur = interest_start_calc
+    while cur <= as_of_date:
+        period_end = cur + relativedelta(months=1)
+        month_count += 1
+        monthly_interest_full = calc_principal * (calc_rate / Decimal("100") / Decimal("12"))
+        is_cap_month = cap_enabled and (month_count % cap_every == 0)
+
+        if period_end <= as_of_date:
+            mi = monthly_interest_full
+        else:
+            days_elapsed = (as_of_date - cur).days
+            days_in_period = (period_end - cur).days
+            if days_elapsed > 0 and days_in_period > 0:
+                mi = monthly_interest_full * Decimal(str(days_elapsed)) / Decimal(str(days_in_period))
+            else:
+                cur = period_end
+                continue
+
+        interest_accrued += mi
+
+        if interest_paid_remaining >= mi:
+            interest_paid_remaining -= mi
+            unpaid_carried = Decimal("0")
+        elif interest_paid_remaining > 0:
+            unpaid_carried += (mi - interest_paid_remaining)
+            interest_paid_remaining = Decimal("0")
+        else:
+            unpaid_carried += mi
+
+        # Capitalize at end of cycle (only for full completed periods)
+        if is_cap_month and unpaid_carried > Decimal("0") and period_end <= as_of_date:
+            calc_principal += unpaid_carried
+            # The capitalized interest is now principal, reset accrued tracking
+            interest_accrued -= unpaid_carried
+            interest_paid_total -= Decimal("0")  # no change needed
+            unpaid_carried = Decimal("0")
+            month_count = 0
+
+        cur = period_end
+
+    interest_outstanding = max(interest_accrued - interest_paid_total, Decimal("0")).quantize(Decimal("0.01"))
+
+    # For auto-cap loans: principal_outstanding reflects compounded principal
+    # For non-auto-cap loans: principal_outstanding reflects original minus repayments
+    if cap_enabled:
+        principal_outstanding = calc_principal.quantize(Decimal("0.01"))
+    else:
+        principal_outstanding = max(principal_outstanding, Decimal("0")).quantize(Decimal("0.01"))
 
     return {
         "principal_outstanding": principal_outstanding,
         "interest_outstanding": interest_outstanding,
-        "total_outstanding": principal_outstanding + interest_outstanding,
+        "total_outstanding": (principal_outstanding + interest_outstanding).quantize(Decimal("0.01")),
         "as_of_date": as_of_date,
     }
 
@@ -431,15 +472,9 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         return []
 
     principal = Decimal(str(loan.principal_amount))
-
-    # Apply capitalization events
-    cap_events = db.query(LoanCapitalizationEvent).filter(
-        LoanCapitalizationEvent.loan_id == loan.id
-    ).order_by(LoanCapitalizationEvent.event_date).all()
-    for event in cap_events:
-        principal = Decimal(str(event.new_principal))
-
     rate = Decimal(str(loan.interest_rate or 0))
+    cap_enabled = loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0
+    cap_every = loan.capitalization_after_months or 0
 
     payments = db.query(LoanPayment).filter(
         LoanPayment.loan_id == loan.id
@@ -453,9 +488,14 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     cur = interest_start
     interest_paid_remaining = total_interest_paid
     entries = []
+    month_count = 0  # how many full periods completed in current cap cycle
+    unpaid_interest_carried = Decimal("0")  # interest not yet paid, may capitalize
 
     while cur <= today:
         period_end = cur + relativedelta(months=1)
+        month_count += 1
+        is_cap_month = cap_enabled and (month_count % cap_every == 0)
+
         if period_end <= today:
             # Full period
             monthly_interest = principal * (rate / Decimal("100") / Decimal("12"))
@@ -476,20 +516,23 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             paid = monthly_interest
             interest_paid_remaining -= monthly_interest
             status = "paid"
+            unpaid_interest_carried = Decimal("0")
         elif interest_paid_remaining > 0:
             paid = interest_paid_remaining
             interest_paid_remaining = Decimal("0")
             status = "partial"
+            unpaid_interest_carried += (monthly_interest - paid)
         else:
             paid = Decimal("0")
             status = "unpaid"
+            unpaid_interest_carried += monthly_interest
 
         outstanding = monthly_interest - paid
         is_current = period_end > today
         period_end_label = today.strftime("%d %b %Y") if is_current else period_end.strftime("%d %b %Y")
         month_label = f"{cur.strftime('%d %b')} – {period_end_label}"
 
-        entries.append({
+        entry = {
             "month": cur.strftime("%Y-%m-%d"),
             "month_label": month_label,
             "interest_due": float(monthly_interest),
@@ -497,7 +540,20 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             "interest_outstanding": float(outstanding),
             "status": status,
             "is_current_month": is_current,
-        })
+            "capitalized": False,
+        }
+
+        # At end of cap cycle: unpaid interest rolls into principal for next cycle
+        if is_cap_month and unpaid_interest_carried > Decimal("0") and not is_current:
+            capitalized_amount = unpaid_interest_carried
+            entry["capitalized"] = True
+            entry["capitalized_amount"] = float(capitalized_amount)
+            entry["new_principal_after"] = float(principal + capitalized_amount)
+            principal = principal + capitalized_amount
+            unpaid_interest_carried = Decimal("0")
+            month_count = 0  # reset cycle counter
+
+        entries.append(entry)
         cur = period_end
 
     return entries

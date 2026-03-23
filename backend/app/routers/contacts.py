@@ -3,13 +3,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
 from decimal import Decimal
+from datetime import date
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.models.contact import Contact
 from app.models.loan import Loan
+from app.models.collateral import Collateral
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
+from app.services.interest import calculate_outstanding
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -100,19 +103,44 @@ def get_contact(
     
     total_lent = sum(Decimal(str(loan.principal_amount)) for loan in loans_given)
     total_borrowed = sum(Decimal(str(loan.principal_amount)) for loan in loans_taken)
-    
+
     active_loans_count = len([l for l in loans_given + loans_taken if l.status == "active"])
-    
-    # Note: Outstanding calculation would need the interest service
-    # For now, just return basic info
-    
+
+    # Calculate outstanding interest due and overdue across all active loans for this contact
+    today = date.today()
+    total_interest_due = Decimal("0")
+    total_overdue = Decimal("0")
+    for loan in loans_given + loans_taken:
+        if loan.status != "active":
+            continue
+        try:
+            out = calculate_outstanding(loan.id, today, db)
+            total_interest_due += Decimal(str(out.get("interest_outstanding", 0)))
+            total_overdue += Decimal(str(out.get("total_outstanding", 0)))
+        except Exception:
+            pass
+
+    # Total collateral value across all loans for this contact
+    all_loan_ids = [l.id for l in loans_given + loans_taken]
+    total_collateral = Decimal("0")
+    if all_loan_ids:
+        collaterals = db.query(Collateral).filter(
+            Collateral.loan_id.in_(all_loan_ids)
+        ).all()
+        total_collateral = sum(
+            Decimal(str(c.estimated_value)) for c in collaterals if c.estimated_value
+        )
+
     return {
         "contact": ContactOut.model_validate(contact),
         "summary": {
             "total_lent": float(total_lent),
             "total_borrowed": float(total_borrowed),
             "active_loans_count": active_loans_count,
-            "total_loans_count": len(loans_given) + len(loans_taken)
+            "total_loans_count": len(loans_given) + len(loans_taken),
+            "total_interest_due": float(total_interest_due),
+            "total_outstanding": float(total_overdue),
+            "total_collateral_value": float(total_collateral),
         }
     }
 
