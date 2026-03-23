@@ -223,9 +223,21 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
         is_future = due_date > today
 
         if is_future:
-            status = "future"
-            paid_amount = Decimal("0")
-            outstanding = emi_amount
+            # Apply carry-forward to future EMIs too (pre-paid)
+            if credit_balance >= emi_amount:
+                status = "paid"
+                paid_amount = emi_amount
+                outstanding = Decimal("0")
+                credit_balance -= emi_amount
+            elif credit_balance > 0:
+                status = "partial"
+                paid_amount = credit_balance
+                outstanding = emi_amount - credit_balance
+                credit_balance = Decimal("0")
+            else:
+                status = "future"
+                paid_amount = Decimal("0")
+                outstanding = emi_amount
         else:
             if credit_balance >= emi_amount:
                 status = "paid"
@@ -316,12 +328,28 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             for p in payments
         )
 
-        # Generate monthly schedule
-        cur = date(start_month.year, start_month.month, 1)
+        # Generate monthly schedule using loan-disbursement-day based periods
+        cur = start_month
         interest_paid_remaining = total_interest_paid
 
         while cur <= today:
-            monthly_interest = principal * (rate / Decimal("100"))
+            period_end = cur + relativedelta(months=1)
+            if period_end <= today:
+                # Full period
+                monthly_interest = principal * (rate / Decimal("100") / Decimal("12"))
+            else:
+                # Partial current period — accrue up to today
+                days_elapsed = (today - cur).days
+                days_in_period = (period_end - cur).days
+                if days_elapsed > 0 and days_in_period > 0:
+                    monthly_interest = (
+                        principal * (rate / Decimal("100") / Decimal("12"))
+                        * Decimal(str(days_elapsed)) / Decimal(str(days_in_period))
+                    )
+                else:
+                    cur = period_end
+                    continue  # skip 0-day period
+
             if interest_paid_remaining >= monthly_interest:
                 paid = monthly_interest
                 interest_paid_remaining -= monthly_interest
@@ -335,18 +363,20 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 status = "unpaid"
 
             outstanding = monthly_interest - paid
-            is_current = (cur.year == today.year and cur.month == today.month)
+            is_current = period_end > today
+            period_end_label = today.strftime("%d %b %Y") if is_current else period_end.strftime("%d %b %Y")
+            month_label = f"{cur.strftime('%d %b')} – {period_end_label}"
 
             entries.append({
-                "month": cur.strftime("%Y-%m"),
-                "month_label": cur.strftime("%B %Y"),
+                "month": cur.strftime("%Y-%m-%d"),
+                "month_label": month_label,
                 "interest_due": float(monthly_interest),
                 "interest_paid": float(paid),
                 "interest_outstanding": float(outstanding),
-                "status": "future" if cur > today else status,
+                "status": status,
                 "is_current_month": is_current,
             })
-            cur = (cur + relativedelta(months=1))
+            cur = period_end
 
         return entries
 
@@ -375,12 +405,28 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         for p in payments
     )
 
-    cur = date(interest_start.year, interest_start.month, 1)
+    cur = interest_start
     interest_paid_remaining = total_interest_paid
     entries = []
 
     while cur <= today:
-        monthly_interest = principal * (rate / Decimal("100"))
+        period_end = cur + relativedelta(months=1)
+        if period_end <= today:
+            # Full period
+            monthly_interest = principal * (rate / Decimal("100") / Decimal("12"))
+        else:
+            # Partial current period — accrue up to today
+            days_elapsed = (today - cur).days
+            days_in_period = (period_end - cur).days
+            if days_elapsed > 0 and days_in_period > 0:
+                monthly_interest = (
+                    principal * (rate / Decimal("100") / Decimal("12"))
+                    * Decimal(str(days_elapsed)) / Decimal(str(days_in_period))
+                )
+            else:
+                cur = period_end
+                continue  # skip 0-day period (just started today)
+
         if interest_paid_remaining >= monthly_interest:
             paid = monthly_interest
             interest_paid_remaining -= monthly_interest
@@ -394,17 +440,19 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             status = "unpaid"
 
         outstanding = monthly_interest - paid
-        is_current = (cur.year == today.year and cur.month == today.month)
+        is_current = period_end > today
+        period_end_label = today.strftime("%d %b %Y") if is_current else period_end.strftime("%d %b %Y")
+        month_label = f"{cur.strftime('%d %b')} – {period_end_label}"
 
         entries.append({
-            "month": cur.strftime("%Y-%m"),
-            "month_label": cur.strftime("%B %Y"),
+            "month": cur.strftime("%Y-%m-%d"),
+            "month_label": month_label,
             "interest_due": float(monthly_interest),
             "interest_paid": float(paid),
             "interest_outstanding": float(outstanding),
-            "status": "future" if cur > today else status,
+            "status": status,
             "is_current_month": is_current,
         })
-        cur = (cur + relativedelta(months=1))
+        cur = period_end
 
     return entries

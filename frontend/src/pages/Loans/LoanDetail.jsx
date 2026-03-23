@@ -348,7 +348,7 @@ function LoanDetail() {
                   <div>
                     <div className="text-sm text-gray-600">Interest Rate</div>
                     <div className="text-lg font-semibold text-gray-900">
-                      {monthlyRateToAnnual(loan.interest_rate)}% p.a.
+                      {loan.interest_rate}% p.a.
                     </div>
                   </div>
                 )}
@@ -357,7 +357,7 @@ function LoanDetail() {
                     <div className="text-sm text-gray-600">Post-Due Rate</div>
                     <div className="text-lg font-semibold text-gray-900">
                       {loan.post_due_interest_rate
-                        ? `${monthlyRateToAnnual(loan.post_due_interest_rate)}% p.a.`
+                        ? `${loan.post_due_interest_rate}% p.a.`
                         : "—"}
                     </div>
                     {loan.interest_free_till && (() => {
@@ -508,13 +508,14 @@ function LoanDetail() {
                                 : ""
                           }
                         >
-                          <td className="px-4 py-3 text-sm text-gray-900">
+
+                          <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>
                             {entry.emi_number}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-900">
+                          <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>
                             {formatDate(entry.due_date)}
                           </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                          <td className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>
                             {formatCurrency(entry.due_amount)}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600">
@@ -740,15 +741,15 @@ function LoanDetail() {
                           <tr
                             key={idx}
                             className={
-                              entry.is_current_month
-                                ? "bg-yellow-50"
-                                : entry.status === "paid"
-                                  ? "bg-green-50"
+                              entry.status === "paid"
+                                ? "bg-green-50"
+                                : entry.is_current_month
+                                  ? "bg-yellow-50"
                                   : ""
                             }
                           >
-                            <td className="px-4 py-2 font-medium text-gray-900">{entry.month_label}</td>
-                            <td className="px-4 py-2 text-right text-gray-700">
+                            <td className={`px-4 py-2 font-medium ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>{entry.month_label}</td>
+                            <td className={`px-4 py-2 text-right ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-700"}`}>
                               {entry.interest_due > 0 ? formatCurrency(entry.interest_due) : "—"}
                             </td>
                             <td className="px-4 py-2 text-right text-gray-700">
