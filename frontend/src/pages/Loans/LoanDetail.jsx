@@ -6,7 +6,6 @@ import {
   formatCurrency,
   formatDate,
   getLoanStatusColor,
-  monthlyRateToAnnual,
 } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -171,6 +170,21 @@ function LoanDetail() {
     },
   });
 
+  // Mark as Closed
+  const markClosedMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.put(`/api/loans/${id}`, {
+        status: "closed",
+        actual_end_date: new Date().toISOString().split("T")[0],
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["loan", id] });
+      queryClient.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+
   const handlePaymentAmountChange = (value) => {
     setPaymentAmount(value);
     fetchPreview(value);
@@ -192,8 +206,14 @@ function LoanDetail() {
   };
 
   const handleDeleteLoan = () => {
-    if (window.confirm("Delete this loan? This action cannot be undone.")) {
+    if (window.confirm("Are you sure you want to delete this loan? This action cannot be undone.")) {
       deleteLoanMutation.mutate();
+    }
+  };
+
+  const handleMarkClosed = () => {
+    if (window.confirm("Are you sure you want to mark this loan as closed?")) {
+      markClosedMutation.mutate();
     }
   };
 
@@ -821,7 +841,16 @@ function LoanDetail() {
                 >
                   👤 View Contact
                 </button>
-                {user?.role === "admin" && loan.status !== "active" && (
+                {user?.role === "admin" && loan.status === "active" && (
+                  <button
+                    onClick={handleMarkClosed}
+                    disabled={markClosedMutation.isPending}
+                    className="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium disabled:opacity-50"
+                  >
+                    {markClosedMutation.isPending ? "Closing..." : "✅ Mark as Closed"}
+                  </button>
+                )}
+                {user?.role === "admin" && (
                   <button
                     onClick={handleDeleteLoan}
                     disabled={deleteLoanMutation.isPending}

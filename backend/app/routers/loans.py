@@ -193,12 +193,6 @@ def delete_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     
-    if loan.status == "active":
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot delete active loan. Close the loan first by marking status as 'closed'."
-        )
-    
     loan.is_deleted = True
     db.commit()
     return {"message": "Loan deleted successfully"}
@@ -246,6 +240,22 @@ def record_payment(
     db.add(new_payment)
     db.commit()
     db.refresh(new_payment)
+
+    # Auto-close check: if fully paid, mark loan as closed
+    payment_date = payment_data.payment_date
+    if loan.loan_type == "emi" and loan.status == "active":
+        schedule = get_emi_schedule_with_payments(loan, db)
+        if schedule and all(e["status"] == "paid" for e in schedule):
+            loan.status = "closed"
+            loan.actual_end_date = payment_date
+            db.commit()
+    elif loan.loan_type in ("interest_only", "short_term") and loan.status == "active":
+        outstanding = calculate_outstanding(loan_id, payment_date, db)
+        if outstanding["principal_outstanding"] <= Decimal("0.01"):
+            loan.status = "closed"
+            loan.actual_end_date = payment_date
+            db.commit()
+
     return new_payment
 
 

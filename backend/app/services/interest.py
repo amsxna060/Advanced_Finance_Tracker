@@ -1,3 +1,4 @@
+import calendar
 from decimal import Decimal
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -46,6 +47,50 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     # Calculate interest
     interest_outstanding = Decimal("0")
 
+    # For EMI loans, split outstanding into principal vs interest using embedded ratio
+    if loan.loan_type == "emi":
+        emi_amount = Decimal(str(loan.emi_amount or 0))
+        tenure = loan.tenure_months or 0
+        principal = Decimal(str(loan.principal_amount))
+        total_emi_repayment = emi_amount * tenure
+
+        # Generate schedule to find how many EMIs are due up to as_of_date
+        schedule = generate_emi_schedule(loan)
+        emis_due_count = sum(1 for e in schedule if e["due_date"] <= as_of_date)
+        total_due_so_far = emi_amount * emis_due_count
+
+        # Total paid (all payments up to as_of_date, already fetched above)
+        total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
+
+        # Overall overdue unpaid amount (what's due but not yet paid)
+        total_overdue_unpaid = max(total_due_so_far - total_paid, Decimal("0"))
+
+        # Split into interest vs principal using embedded ratio
+        if total_emi_repayment > Decimal("0"):
+            total_interest_embedded = total_emi_repayment - principal
+            interest_ratio = total_interest_embedded / total_emi_repayment
+            principal_ratio = principal / total_emi_repayment
+        else:
+            interest_ratio = Decimal("0")
+            principal_ratio = Decimal("1")
+
+        # interest_outstanding: interest portion of currently overdue (unpaid-due) EMIs.
+        # principal_outstanding: total principal not yet repaid (covers both past and future EMIs).
+        # These two serve different purposes and are not double-counting:
+        #   - interest_outstanding shows the penalty/cost of late EMIs visible in the blue bar.
+        #   - principal_outstanding tracks the full remaining loan balance.
+        interest_outstanding = (total_overdue_unpaid * interest_ratio).quantize(Decimal("0.01"))
+        # Principal outstanding = total principal minus principal portions already paid
+        principal_paid = (total_paid * principal_ratio).quantize(Decimal("0.01"))
+        principal_outstanding = max(principal - principal_paid, Decimal("0"))
+
+        return {
+            "principal_outstanding": principal_outstanding,
+            "interest_outstanding": interest_outstanding,
+            "total_outstanding": principal_outstanding + interest_outstanding,
+            "as_of_date": as_of_date,
+        }
+
     # For interest calculation, we need to track principal changes over time
     # Simplified approach: calculate daily interest from last_cap_date to as_of_date
     # accounting for principal reductions from payments
@@ -90,44 +135,36 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     }
 
 
+def _clamp_day_to_month(year: int, month: int, day: int) -> date:
+    """Return a date with `day` clamped to the last valid day of the given month."""
+    max_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(day, max_day))
+
+
 def generate_emi_schedule(loan: Loan) -> List[Dict[str, Any]]:
     """
     Generate expected EMI schedule for EMI-type loans.
     Returns list of {due_date, due_amount, status}
+    First EMI is always due in the month AFTER disbursement.
     """
     if loan.loan_type != "emi" or not loan.tenure_months or not loan.emi_amount:
         return []
 
     schedule = []
-    current_date = loan.disbursed_date
+    disbursed = loan.disbursed_date
     emi_day = loan.emi_day_of_month or 1
 
-    for i in range(loan.tenure_months):
-        # Calculate due date for this EMI
-        # Move to next month
-        if i == 0:
-            # First EMI
-            due_date = date(current_date.year, current_date.month, emi_day)
-            if due_date < current_date:
-                # Move to next month if emi_day already passed
-                if current_date.month == 12:
-                    due_date = date(current_date.year + 1, 1, emi_day)
-                else:
-                    due_date = date(current_date.year, current_date.month + 1, emi_day)
-        else:
-            # Subsequent EMIs
-            month = due_date.month
-            year = due_date.year
-            if month == 12:
-                due_date = date(year + 1, 1, emi_day)
-            else:
-                due_date = date(year, month + 1, emi_day)
+    # First EMI is always the month AFTER disbursement month
+    first_emi_month = disbursed + relativedelta(months=1)
 
+    for i in range(loan.tenure_months):
+        due_month = first_emi_month + relativedelta(months=i)
+        due_date = _clamp_day_to_month(due_month.year, due_month.month, emi_day)
         schedule.append({
             "emi_number": i + 1,
             "due_date": due_date,
             "due_amount": loan.emi_amount,
-            "status": "pending"  # Would need to check payments to determine actual status
+            "status": "pending",
         })
 
     return schedule
