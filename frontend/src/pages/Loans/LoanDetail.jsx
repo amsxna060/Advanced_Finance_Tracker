@@ -334,9 +334,15 @@ function LoanDetail() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-sm opacity-90">Interest</div>
+                    <div className="text-sm opacity-90">
+                      {loan.loan_type === "emi" ? "Total Interest" : "Interest"}
+                    </div>
                     <div className="text-2xl font-bold">
-                      {formatCurrency(outstanding.interest_outstanding)}
+                      {formatCurrency(
+                        loan.loan_type === "emi" && emiInterestSummary
+                          ? emiInterestSummary.total_interest_embedded
+                          : outstanding.interest_outstanding
+                      )}
                     </div>
                   </div>
                   <div>
