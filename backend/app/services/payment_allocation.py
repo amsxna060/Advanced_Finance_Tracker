@@ -92,7 +92,6 @@ def allocate_payment(
         }
 
     else:
-        # For interest_only and short_term: interest first, then principal
         outstanding = calculate_outstanding(loan_id, payment_date, db)
         interest_outstanding = outstanding["interest_outstanding"]
         principal_outstanding = outstanding["principal_outstanding"]
@@ -102,15 +101,25 @@ def allocate_payment(
         allocated_current = Decimal("0")
         allocated_principal = Decimal("0")
 
+        # Clear all outstanding interest first
         if remaining > 0 and interest_outstanding > 0:
             interest_payment = min(remaining, interest_outstanding)
             allocated_current = interest_payment
             remaining -= interest_payment
 
-        if remaining > 0 and principal_outstanding > 0:
-            principal_payment = min(remaining, principal_outstanding)
-            allocated_principal = principal_payment
-            remaining -= principal_payment
+        if loan.loan_type == "interest_only":
+            # Interest-only: principal is a bullet repayment at loan end.
+            # Any excess after covering outstanding interest is stored as an
+            # advance credit towards future months — never reduces principal.
+            if remaining > 0:
+                allocated_current += remaining
+                remaining = Decimal("0")
+        else:
+            # short_term: excess after interest reduces principal
+            if remaining > 0 and principal_outstanding > 0:
+                principal_payment = min(remaining, principal_outstanding)
+                allocated_principal = principal_payment
+                remaining -= principal_payment
 
         return {
             "allocated_to_overdue_interest": allocated_overdue,

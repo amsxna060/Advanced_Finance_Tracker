@@ -91,47 +91,68 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
             "as_of_date": as_of_date,
         }
 
-    # For interest calculation, we need to track principal changes over time
-    # Simplified approach: calculate daily interest from last_cap_date to as_of_date
-    # accounting for principal reductions from payments
+    # Compute interest using the same period-based monthly formula as the schedule.
+    # Always use the fixed principal (post-cap, NOT post-payment) so the blue bar
+    # stays in sync with generate_monthly_interest_schedule.
+    calc_principal = Decimal(str(loan.principal_amount))
+    for event in cap_events:
+        calc_principal = Decimal(str(event.new_principal))
 
     if loan.loan_type == "short_term" and loan.interest_free_till:
-        # Interest only starts after interest_free_till date
         if as_of_date <= loan.interest_free_till:
-            interest_outstanding = Decimal("0")
-        else:
-            # Calculate from interest_free_till + 1 day to as_of_date
-            interest_start = loan.interest_free_till + timedelta(days=1)
-            rate_to_use = Decimal(str(loan.post_due_interest_rate or 0))
-            days = (as_of_date - interest_start).days + 1
-            if days > 0:
-                interest_outstanding = principal_outstanding * (rate_to_use / Decimal("100") / Decimal("12") / Decimal("30")) * Decimal(str(days))
+            principal_outstanding = max(principal_outstanding, Decimal("0"))
+            return {
+                "principal_outstanding": principal_outstanding,
+                "interest_outstanding": Decimal("0"),
+                "total_outstanding": principal_outstanding,
+                "as_of_date": as_of_date,
+            }
+        interest_start_calc = loan.interest_free_till + timedelta(days=1)
+        calc_rate = Decimal(str(loan.post_due_interest_rate or 0))
     else:
-        # Regular interest calculation
-        interest_start = loan.interest_start_date or loan.disbursed_date
-        if as_of_date >= interest_start:
-            # Calculate from interest_start to as_of_date
-            # For simplicity, using current principal and rate
-            # In production, would need to account for principal changes over time
-            days = (as_of_date - max(interest_start, last_cap_date)).days + 1
-            if days > 0:
-                daily_rate = current_rate / Decimal("100") / Decimal("12") / Decimal("30")
-                interest_outstanding = principal_outstanding * daily_rate * Decimal(str(days))
+        interest_start_calc = loan.interest_start_date or loan.disbursed_date
+        calc_rate = current_rate
 
-    # Subtract all interest payments
-    for payment in payments:
-        interest_outstanding -= Decimal(str(payment.allocated_to_overdue_interest))
-        interest_outstanding -= Decimal(str(payment.allocated_to_current_interest))
+    if as_of_date < interest_start_calc:
+        principal_outstanding = max(principal_outstanding, Decimal("0"))
+        return {
+            "principal_outstanding": principal_outstanding,
+            "interest_outstanding": Decimal("0"),
+            "total_outstanding": principal_outstanding,
+            "as_of_date": as_of_date,
+        }
 
-    # Ensure non-negative
+    monthly_interest_full = calc_principal * (calc_rate / Decimal("100") / Decimal("12"))
+    interest_accrued = Decimal("0")
+    cur = interest_start_calc
+    while cur <= as_of_date:
+        period_end = cur + relativedelta(months=1)
+        if period_end <= as_of_date:
+            interest_accrued += monthly_interest_full
+        else:
+            days_elapsed = (as_of_date - cur).days
+            days_in_period = (period_end - cur).days
+            if days_elapsed > 0 and days_in_period > 0:
+                interest_accrued += (
+                    monthly_interest_full
+                    * Decimal(str(days_elapsed))
+                    / Decimal(str(days_in_period))
+                )
+        cur = period_end
+
+    interest_paid_total = sum(
+        Decimal(str(p.allocated_to_current_interest)) + Decimal(str(p.allocated_to_overdue_interest))
+        for p in payments
+    )
+    interest_outstanding = max(interest_accrued - interest_paid_total, Decimal("0"))
+
     principal_outstanding = max(principal_outstanding, Decimal("0"))
-    interest_outstanding = max(interest_outstanding, Decimal("0"))
 
     return {
         "principal_outstanding": principal_outstanding,
         "interest_outstanding": interest_outstanding,
         "total_outstanding": principal_outstanding + interest_outstanding,
-        "as_of_date": as_of_date
+        "as_of_date": as_of_date,
     }
 
 
