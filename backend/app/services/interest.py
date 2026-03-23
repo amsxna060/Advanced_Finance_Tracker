@@ -47,32 +47,34 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     # Calculate interest
     interest_outstanding = Decimal("0")
 
-    # For EMI loans: walk the schedule with carry-forward credit
+    # For EMI loans: principal and interest both reduce proportionally with payments.
+    # principal_ratio = principal / total_repayment (e.g. 45000/60000 = 0.75)
+    # interest_ratio  = total_interest / total_repayment (e.g. 15000/60000 = 0.25)
+    # Each rupee paid reduces principal and interest by their respective shares.
     if loan.loan_type == "emi":
         emi_amount = Decimal(str(loan.emi_amount or 0))
+        tenure = loan.tenure_months or 0
         principal = Decimal(str(loan.principal_amount))
-        schedule = generate_emi_schedule(loan)
+        total_repayment = (emi_amount * tenure).quantize(Decimal("0.01"))
+        total_interest = max(total_repayment - principal, Decimal("0"))
         total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
+        total_paid = min(total_paid, total_repayment)
+        total_remaining = max(total_repayment - total_paid, Decimal("0"))
 
-        # Apply carry-forward: credit covers EMIs in order, find what's unpaid
-        credit = total_paid
-        overdue_outstanding = Decimal("0")
-        future_outstanding = Decimal("0")
-        for entry in schedule:
-            remaining_on_emi = max(emi_amount - credit, Decimal("0"))
-            credit = max(credit - emi_amount, Decimal("0"))
-            if entry["due_date"] <= as_of_date:
-                overdue_outstanding += remaining_on_emi
-            else:
-                future_outstanding += remaining_on_emi
+        if total_repayment > Decimal("0"):
+            principal_ratio = principal / total_repayment
+            interest_ratio = total_interest / total_repayment
+        else:
+            principal_ratio = Decimal("1")
+            interest_ratio = Decimal("0")
+
+        principal_outstanding = (total_remaining * principal_ratio).quantize(Decimal("0.01"))
+        interest_outstanding = (total_remaining * interest_ratio).quantize(Decimal("0.01"))
 
         return {
-            # principal_outstanding = original loan amount ("Principal Lent" in UI — never changes)
-            "principal_outstanding": principal,
-            # interest_outstanding = past-due unpaid EMI amount ("Overdue" in UI)
-            "interest_outstanding": overdue_outstanding,
-            # total_outstanding = everything still to collect (overdue + all future EMIs)
-            "total_outstanding": overdue_outstanding + future_outstanding,
+            "principal_outstanding": principal_outstanding,
+            "interest_outstanding": interest_outstanding,
+            "total_outstanding": total_remaining,
             "as_of_date": as_of_date,
         }
 

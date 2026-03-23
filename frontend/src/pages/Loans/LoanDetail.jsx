@@ -61,15 +61,18 @@ function LoanDetail() {
 
   // Monthly interest schedule (lazy-loaded)
   const [showMonthlySchedule, setShowMonthlySchedule] = useState(false);
-  const { data: monthlyScheduleData, isLoading: monthlyScheduleLoading } = useQuery({
-    queryKey: ["loan-monthly-schedule", id],
-    queryFn: async () => {
-      const response = await api.get(`/api/loans/${id}/monthly-interest-schedule`);
-      return response.data;
-    },
-    enabled: showMonthlySchedule,
-    staleTime: 0,
-  });
+  const { data: monthlyScheduleData, isLoading: monthlyScheduleLoading } =
+    useQuery({
+      queryKey: ["loan-monthly-schedule", id],
+      queryFn: async () => {
+        const response = await api.get(
+          `/api/loans/${id}/monthly-interest-schedule`,
+        );
+        return response.data;
+      },
+      enabled: showMonthlySchedule,
+      staleTime: 0,
+    });
 
   // Fetch payment preview
   const fetchPreview = async (amount) => {
@@ -206,7 +209,11 @@ function LoanDetail() {
   };
 
   const handleDeleteLoan = () => {
-    if (window.confirm("Are you sure you want to delete this loan? This action cannot be undone.")) {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this loan? This action cannot be undone.",
+      )
+    ) {
       deleteLoanMutation.mutate();
     }
   };
@@ -328,25 +335,19 @@ function LoanDetail() {
                 </h2>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <div className="text-sm opacity-90">
-                      {loan.loan_type === "emi" ? "Principal Lent" : "Principal"}
-                    </div>
+                    <div className="text-sm opacity-90">Principal</div>
                     <div className="text-2xl font-bold">
                       {formatCurrency(outstanding.principal_outstanding)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-sm opacity-90">
-                      {loan.loan_type === "emi" ? "Overdue" : "Interest"}
-                    </div>
+                    <div className="text-sm opacity-90">Interest</div>
                     <div className="text-2xl font-bold">
                       {formatCurrency(outstanding.interest_outstanding)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-sm opacity-90">
-                      {loan.loan_type === "emi" ? "Total to Receive" : "Total Due"}
-                    </div>
+                    <div className="text-sm opacity-90">Total Due</div>
                     <div className="text-3xl font-bold">
                       {formatCurrency(outstanding.total_outstanding)}
                     </div>
@@ -386,24 +387,27 @@ function LoanDetail() {
                         ? `${loan.post_due_interest_rate}% p.a.`
                         : "—"}
                     </div>
-                    {loan.interest_free_till && (() => {
-                      const today = new Date();
-                      const freeTill = new Date(loan.interest_free_till);
-                      const isActive = today > freeTill;
-                      const daysLeft = Math.ceil((freeTill - today) / (1000 * 60 * 60 * 24));
-                      if (isActive) {
+                    {loan.interest_free_till &&
+                      (() => {
+                        const today = new Date();
+                        const freeTill = new Date(loan.interest_free_till);
+                        const isActive = today > freeTill;
+                        const daysLeft = Math.ceil(
+                          (freeTill - today) / (1000 * 60 * 60 * 24),
+                        );
+                        if (isActive) {
+                          return (
+                            <span className="inline-block mt-1 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">
+                              ⚠️ Interest Active
+                            </span>
+                          );
+                        }
                         return (
-                          <span className="inline-block mt-1 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">
-                            ⚠️ Interest Active
+                          <span className="inline-block mt-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                            ✅ Interest-Free Period ({daysLeft} days left)
                           </span>
                         );
-                      }
-                      return (
-                        <span className="inline-block mt-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-                          ✅ Interest-Free Period ({daysLeft} days left)
-                        </span>
-                      );
-                    })()}
+                      })()}
                   </div>
                 )}
                 <div>
@@ -456,7 +460,9 @@ function LoanDetail() {
                 )}
                 {loan.interest_free_till && (
                   <div>
-                    <div className="text-sm text-gray-600">Interest Free Till</div>
+                    <div className="text-sm text-gray-600">
+                      Interest Free Till
+                    </div>
                     <div className="text-lg font-semibold text-gray-900">
                       {formatDate(loan.interest_free_till)}
                     </div>
@@ -466,19 +472,29 @@ function LoanDetail() {
               {/* EMI Interest Summary */}
               {loan.loan_type === "emi" && emiInterestSummary && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm font-medium text-gray-700 mb-2">EMI Interest Summary</div>
+                  <div className="text-sm font-medium text-gray-700 mb-2">
+                    EMI Interest Summary
+                  </div>
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div className="bg-blue-50 rounded-lg p-3">
                       <div className="text-gray-500">Total Repayment</div>
-                      <div className="font-semibold text-gray-900">{formatCurrency(emiInterestSummary.total_repayment)}</div>
+                      <div className="font-semibold text-gray-900">
+                        {formatCurrency(emiInterestSummary.total_repayment)}
+                      </div>
                     </div>
                     <div className="bg-orange-50 rounded-lg p-3">
                       <div className="text-gray-500">Total Interest</div>
-                      <div className="font-semibold text-gray-900">{formatCurrency(emiInterestSummary.total_interest_embedded)}</div>
+                      <div className="font-semibold text-gray-900">
+                        {formatCurrency(
+                          emiInterestSummary.total_interest_embedded,
+                        )}
+                      </div>
                     </div>
                     <div className="bg-purple-50 rounded-lg p-3">
                       <div className="text-gray-500">Effective Rate</div>
-                      <div className="font-semibold text-gray-900">~{emiInterestSummary.effective_annual_rate_pct}% p.a.</div>
+                      <div className="font-semibold text-gray-900">
+                        ~{emiInterestSummary.effective_annual_rate_pct}% p.a.
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -534,18 +550,25 @@ function LoanDetail() {
                                 : ""
                           }
                         >
-
-                          <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>
+                          <td
+                            className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
+                          >
                             {entry.emi_number}
                           </td>
-                          <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>
+                          <td
+                            className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
+                          >
                             {formatDate(entry.due_date)}
                           </td>
-                          <td className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>
+                          <td
+                            className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
+                          >
                             {formatCurrency(entry.due_amount)}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600">
-                            {entry.outstanding > 0 ? formatCurrency(entry.outstanding) : "—"}
+                            {entry.outstanding > 0
+                              ? formatCurrency(entry.outstanding)
+                              : "—"}
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {entry.status === "paid" ? (
@@ -736,7 +759,9 @@ function LoanDetail() {
             <div className="bg-white rounded-lg shadow-sm p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">
-                  {loan.loan_type === "emi" ? "Monthly EMI Tracking" : "Monthly Interest Schedule"}
+                  {loan.loan_type === "emi"
+                    ? "Monthly EMI Tracking"
+                    : "Monthly Interest Schedule"}
                 </h2>
                 <button
                   onClick={() => setShowMonthlySchedule((prev) => !prev)}
@@ -745,21 +770,33 @@ function LoanDetail() {
                   {showMonthlySchedule ? "Hide" : "Show"}
                 </button>
               </div>
-              {showMonthlySchedule && (
-                monthlyScheduleLoading ? (
-                  <div className="text-gray-500 text-center py-4">Loading schedule...</div>
+              {showMonthlySchedule &&
+                (monthlyScheduleLoading ? (
+                  <div className="text-gray-500 text-center py-4">
+                    Loading schedule...
+                  </div>
                 ) : monthlyScheduleData?.schedule?.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                            {loan.loan_type === "emi" ? "EMI Due" : "Interest Due"}
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                            Month
                           </th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Outstanding</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                            {loan.loan_type === "emi"
+                              ? "EMI Due"
+                              : "Interest Due"}
+                          </th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                            Paid
+                          </th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                            Outstanding
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                            Status
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -774,25 +811,45 @@ function LoanDetail() {
                                   : ""
                             }
                           >
-                            <td className={`px-4 py-2 font-medium ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}>{entry.month_label}</td>
-                            <td className={`px-4 py-2 text-right ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-700"}`}>
-                              {entry.interest_due > 0 ? formatCurrency(entry.interest_due) : "—"}
+                            <td
+                              className={`px-4 py-2 font-medium ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
+                            >
+                              {entry.month_label}
+                            </td>
+                            <td
+                              className={`px-4 py-2 text-right ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-700"}`}
+                            >
+                              {entry.interest_due > 0
+                                ? formatCurrency(entry.interest_due)
+                                : "—"}
                             </td>
                             <td className="px-4 py-2 text-right text-gray-700">
-                              {entry.interest_paid > 0 ? formatCurrency(entry.interest_paid) : "—"}
+                              {entry.interest_paid > 0
+                                ? formatCurrency(entry.interest_paid)
+                                : "—"}
                             </td>
                             <td className="px-4 py-2 text-right text-gray-700">
-                              {entry.interest_outstanding > 0 ? formatCurrency(entry.interest_outstanding) : "—"}
+                              {entry.interest_outstanding > 0
+                                ? formatCurrency(entry.interest_outstanding)
+                                : "—"}
                             </td>
                             <td className="px-4 py-2">
                               {entry.status === "paid" ? (
-                                <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">🟢 Paid</span>
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">
+                                  🟢 Paid
+                                </span>
                               ) : entry.status === "partial" ? (
-                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">🟡 Partial</span>
+                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">
+                                  🟡 Partial
+                                </span>
                               ) : entry.status === "future" ? (
-                                <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">⚪ Future</span>
+                                <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">
+                                  ⚪ Future
+                                </span>
                               ) : (
-                                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">🔴 Unpaid</span>
+                                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
+                                  🔴 Unpaid
+                                </span>
                               )}
                             </td>
                           </tr>
@@ -801,9 +858,10 @@ function LoanDetail() {
                     </table>
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-center py-4">No schedule available yet</p>
-                )
-              )}
+                  <p className="text-gray-500 text-center py-4">
+                    No schedule available yet
+                  </p>
+                ))}
             </div>
           </div>
 
@@ -853,7 +911,9 @@ function LoanDetail() {
                     disabled={markClosedMutation.isPending}
                     className="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium disabled:opacity-50"
                   >
-                    {markClosedMutation.isPending ? "Closing..." : "✅ Mark as Closed"}
+                    {markClosedMutation.isPending
+                      ? "Closing..."
+                      : "✅ Mark as Closed"}
                   </button>
                 )}
                 {user?.role === "admin" && (
