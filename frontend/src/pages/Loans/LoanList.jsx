@@ -6,7 +6,6 @@ import {
   formatCurrency,
   formatDate,
   getLoanStatusColor,
-  monthlyRateToAnnual,
 } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -304,10 +303,10 @@ function LoanList() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {loan.loan_type === "short_term"
                         ? loan.post_due_interest_rate
-                          ? `${monthlyRateToAnnual(loan.post_due_interest_rate)}% p.a.`
+                          ? `${parseFloat(loan.post_due_interest_rate).toFixed(2)}% p.a.`
                           : "—"
                         : loan.interest_rate
-                          ? `${monthlyRateToAnnual(loan.interest_rate)}% p.a.`
+                          ? `${parseFloat(loan.interest_rate).toFixed(2)}% p.a.`
                           : "—"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
