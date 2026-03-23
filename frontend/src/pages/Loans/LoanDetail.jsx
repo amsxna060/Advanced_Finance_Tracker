@@ -100,7 +100,9 @@ function LoanDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loan", id] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan-monthly-schedule", id] });
+      queryClient.invalidateQueries({
+        queryKey: ["loan-monthly-schedule", id],
+      });
       setShowPaymentModal(false);
       setPaymentAmount("");
       setPaymentNotes("");
@@ -116,7 +118,9 @@ function LoanDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loan", id] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
-      queryClient.invalidateQueries({ queryKey: ["loan-monthly-schedule", id] });
+      queryClient.invalidateQueries({
+        queryKey: ["loan-monthly-schedule", id],
+      });
     },
   });
 
@@ -781,65 +785,74 @@ function LoanDetail() {
                       <tbody className="divide-y divide-gray-100">
                         {monthlyScheduleData.schedule.map((entry, idx) => (
                           <>
-                          <tr
-                            key={idx}
-                            className={
-                              entry.status === "paid"
-                                ? "bg-green-50"
-                                : entry.is_current_month
-                                  ? "bg-yellow-50"
-                                  : ""
-                            }
-                          >
-                            <td
-                              className={`px-4 py-2 font-medium ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
+                            <tr
+                              key={idx}
+                              className={
+                                entry.status === "paid"
+                                  ? "bg-green-50"
+                                  : entry.is_current_month
+                                    ? "bg-yellow-50"
+                                    : ""
+                              }
                             >
-                              {entry.month_label}
-                            </td>
-                            <td
-                              className={`px-4 py-2 text-right ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-700"}`}
-                            >
-                              {entry.interest_due > 0
-                                ? formatCurrency(entry.interest_due)
-                                : "—"}
-                            </td>
-                            <td className="px-4 py-2 text-right text-gray-700">
-                              {entry.interest_paid > 0
-                                ? formatCurrency(entry.interest_paid)
-                                : "—"}
-                            </td>
-                            <td className="px-4 py-2 text-right text-gray-700">
-                              {entry.interest_outstanding > 0
-                                ? formatCurrency(entry.interest_outstanding)
-                                : "—"}
-                            </td>
-                            <td className="px-4 py-2">
-                              {entry.status === "paid" ? (
-                                <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">
-                                  🟢 Paid
-                                </span>
-                              ) : entry.status === "partial" ? (
-                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">
-                                  🟡 Partial
-                                </span>
-                              ) : entry.status === "future" ? (
-                                <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">
-                                  ⚪ Future
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
-                                  🔴 Unpaid
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                          {entry.capitalized && (
-                            <tr key={`cap-${idx}`} className="bg-purple-50 border-t-2 border-purple-300">
-                              <td colSpan={5} className="px-4 py-2 text-sm text-purple-700 font-medium">
-                                🔄 Interest Capitalized: {formatCurrency(entry.capitalized_amount)} added to principal → New Principal: {formatCurrency(entry.new_principal_after)}
+                              <td
+                                className={`px-4 py-2 font-medium ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
+                              >
+                                {entry.month_label}
+                              </td>
+                              <td
+                                className={`px-4 py-2 text-right ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-700"}`}
+                              >
+                                {entry.interest_due > 0
+                                  ? formatCurrency(entry.interest_due)
+                                  : "—"}
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-700">
+                                {entry.interest_paid > 0
+                                  ? formatCurrency(entry.interest_paid)
+                                  : "—"}
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-700">
+                                {entry.interest_outstanding > 0
+                                  ? formatCurrency(entry.interest_outstanding)
+                                  : "—"}
+                              </td>
+                              <td className="px-4 py-2">
+                                {entry.status === "paid" ? (
+                                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">
+                                    🟢 Paid
+                                  </span>
+                                ) : entry.status === "partial" ? (
+                                  <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">
+                                    🟡 Partial
+                                  </span>
+                                ) : entry.status === "future" ? (
+                                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">
+                                    ⚪ Future
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
+                                    🔴 Unpaid
+                                  </span>
+                                )}
                               </td>
                             </tr>
-                          )}
+                            {entry.capitalized && (
+                              <tr
+                                key={`cap-${idx}`}
+                                className="bg-purple-50 border-t-2 border-purple-300"
+                              >
+                                <td
+                                  colSpan={5}
+                                  className="px-4 py-2 text-sm text-purple-700 font-medium"
+                                >
+                                  🔄 Interest Capitalized:{" "}
+                                  {formatCurrency(entry.capitalized_amount)}{" "}
+                                  added to principal → New Principal:{" "}
+                                  {formatCurrency(entry.new_principal_after)}
+                                </td>
+                              </tr>
+                            )}
                           </>
                         ))}
                       </tbody>
