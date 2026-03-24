@@ -1,141 +1,191 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
+import { formatCurrency } from "../../lib/utils";
 
 const toNullableNumber = (value) => {
   if (value === "" || value === null || value === undefined) return null;
-  return Number(value);
+  const n = Number(value);
+  return isNaN(n) ? null : n;
 };
 
-const toNullableString = (value) => {
-  return value?.trim() ? value.trim() : null;
+const toNullableString = (value) =>
+  value?.trim() ? value.trim() : null;
+
+function PlotDiagram({ left, right, top, bottom, area }) {
+  const hasAny = left || right || top || bottom;
+  if (!hasAny) return null;
+
+  const W = 220;
+  const H = 140;
+  const PAD = 30;
+
+  return (
+    <div className="mt-3 flex justify-center">
+      <svg width={W + PAD * 2} height={H + PAD * 2} className="text-blue-700">
+        {/* Rectangle */}
+        <rect x={PAD} y={PAD} width={W} height={H} fill="#eff6ff" stroke="#3b82f6" strokeWidth={2} />
+
+        {/* Top label */}
+        <text x={PAD + W / 2} y={PAD - 8} textAnchor="middle" fontSize={12} fill="#1d4ed8">
+          {top ? `${top} ft` : "—"}
+        </text>
+        {/* Bottom label */}
+        <text x={PAD + W / 2} y={PAD + H + 18} textAnchor="middle" fontSize={12} fill="#1d4ed8">
+          {bottom ? `${bottom} ft` : "—"}
+        </text>
+        {/* Left label */}
+        <text x={PAD - 6} y={PAD + H / 2} textAnchor="end" dominantBaseline="middle" fontSize={12} fill="#1d4ed8">
+          {left ? `${left} ft` : "—"}
+        </text>
+        {/* Right label */}
+        <text x={PAD + W + 6} y={PAD + H / 2} textAnchor="start" dominantBaseline="middle" fontSize={12} fill="#1d4ed8">
+          {right ? `${right} ft` : "—"}
+        </text>
+        {/* Area in center */}
+        {area && (
+          <text x={PAD + W / 2} y={PAD + H / 2} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#1e40af" fontWeight="600">
+            {Number(area).toLocaleString()} sqft
+          </text>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+const EMPTY_FORM_PLOT = {
+  title: "",
+  location: "",
+  property_type: "plot",
+  deal_type: "middleman",
+  total_area_sqft: "",
+  side_left_ft: "",
+  side_right_ft: "",
+  side_top_ft: "",
+  side_bottom_ft: "",
+  seller_contact_id: "",
+  seller_rate_per_sqft: "",
+  total_seller_value: "",
+  advance_paid: "0",
+  advance_date: "",
+  deal_locked_date: "",
+  expected_registry_date: "",
+  broker_name: "",
+  broker_commission: "0",
+  notes: "",
+  status: "negotiating",
+  actual_registry_date: "",
 };
 
-const normalizePropertyForForm = (property) => ({
-  title: property.title || "",
-  location: property.location || "",
-  property_type: property.property_type || "",
-  total_area_sqft: property.total_area_sqft
-    ? String(property.total_area_sqft)
-    : "",
-  deal_type: property.deal_type || "middleman",
-  seller_contact_id: property.seller_contact_id
-    ? String(property.seller_contact_id)
-    : "",
-  buyer_contact_id: property.buyer_contact_id
-    ? String(property.buyer_contact_id)
-    : "",
-  seller_rate_per_sqft: property.seller_rate_per_sqft
-    ? String(property.seller_rate_per_sqft)
-    : "",
-  buyer_rate_per_sqft: property.buyer_rate_per_sqft
-    ? String(property.buyer_rate_per_sqft)
-    : "",
-  total_seller_value: property.total_seller_value
-    ? String(property.total_seller_value)
-    : "",
-  total_buyer_value: property.total_buyer_value
-    ? String(property.total_buyer_value)
-    : "",
-  advance_paid: property.advance_paid ? String(property.advance_paid) : "0",
-  advance_date: property.advance_date || "",
-  deal_locked_date: property.deal_locked_date || "",
-  expected_registry_date: property.expected_registry_date || "",
-  actual_registry_date: property.actual_registry_date || "",
-  broker_name: property.broker_name || "",
-  broker_commission: property.broker_commission
-    ? String(property.broker_commission)
-    : "0",
-  gross_profit: property.gross_profit ? String(property.gross_profit) : "",
-  net_profit: property.net_profit ? String(property.net_profit) : "",
-  purchase_price: property.purchase_price
-    ? String(property.purchase_price)
-    : "",
-  holding_cost: property.holding_cost ? String(property.holding_cost) : "0",
-  sale_price: property.sale_price ? String(property.sale_price) : "",
-  sale_date: property.sale_date || "",
-  status: property.status || "negotiating",
-  notes: property.notes || "",
-});
+const EMPTY_FORM_SITE = {
+  title: "",
+  location: "",
+  property_type: "site",
+  deal_type: "middleman",
+  total_area_sqft: "",
+  total_seller_value: "",
+  my_investment: "",
+  my_share_percentage: "",
+  site_deal_start_date: "",
+  notes: "",
+  status: "negotiating",
+};
 
-const buildPropertyPayload = (formData, isEditMode) => {
+function normalizeForForm(property) {
+  const base = {
+    title: property.title || "",
+    location: property.location || "",
+    property_type: property.property_type || "plot",
+    deal_type: property.deal_type || "middleman",
+    total_area_sqft: property.total_area_sqft ? String(property.total_area_sqft) : "",
+    side_left_ft: property.side_left_ft ? String(property.side_left_ft) : "",
+    side_right_ft: property.side_right_ft ? String(property.side_right_ft) : "",
+    side_top_ft: property.side_top_ft ? String(property.side_top_ft) : "",
+    side_bottom_ft: property.side_bottom_ft ? String(property.side_bottom_ft) : "",
+    seller_contact_id: property.seller_contact_id ? String(property.seller_contact_id) : "",
+    seller_rate_per_sqft: property.seller_rate_per_sqft ? String(property.seller_rate_per_sqft) : "",
+    total_seller_value: property.total_seller_value ? String(property.total_seller_value) : "",
+    advance_paid: property.advance_paid ? String(property.advance_paid) : "0",
+    advance_date: property.advance_date || "",
+    deal_locked_date: property.deal_locked_date || "",
+    expected_registry_date: property.expected_registry_date || "",
+    actual_registry_date: property.actual_registry_date || "",
+    broker_name: property.broker_name || "",
+    broker_commission: property.broker_commission ? String(property.broker_commission) : "0",
+    notes: property.notes || "",
+    status: property.status || "negotiating",
+    // site fields
+    my_investment: property.my_investment ? String(property.my_investment) : "",
+    my_share_percentage: property.my_share_percentage ? String(property.my_share_percentage) : "",
+    site_deal_start_date: property.site_deal_start_date || "",
+  };
+  return base;
+}
+
+function buildPayload(formData, isEditMode) {
+  const isSite = formData.property_type === "site";
+
   const payload = {
     title: formData.title.trim(),
     location: toNullableString(formData.location),
-    property_type: toNullableString(formData.property_type),
-    total_area_sqft: toNullableNumber(formData.total_area_sqft),
+    property_type: formData.property_type,
     deal_type: formData.deal_type,
-    seller_contact_id: toNullableNumber(formData.seller_contact_id),
-    buyer_contact_id: toNullableNumber(formData.buyer_contact_id),
-    seller_rate_per_sqft: toNullableNumber(formData.seller_rate_per_sqft),
-    buyer_rate_per_sqft: toNullableNumber(formData.buyer_rate_per_sqft),
-    total_seller_value: toNullableNumber(formData.total_seller_value),
-    total_buyer_value: toNullableNumber(formData.total_buyer_value),
-    advance_paid: toNullableNumber(formData.advance_paid) ?? 0,
-    advance_date: toNullableString(formData.advance_date),
-    deal_locked_date: toNullableString(formData.deal_locked_date),
-    expected_registry_date: toNullableString(formData.expected_registry_date),
-    broker_name: toNullableString(formData.broker_name),
-    broker_commission: toNullableNumber(formData.broker_commission) ?? 0,
-    gross_profit: toNullableNumber(formData.gross_profit),
-    net_profit: toNullableNumber(formData.net_profit),
-    purchase_price: toNullableNumber(formData.purchase_price),
-    holding_cost: toNullableNumber(formData.holding_cost) ?? 0,
-    sale_price: toNullableNumber(formData.sale_price),
-    sale_date: toNullableString(formData.sale_date),
     notes: toNullableString(formData.notes),
   };
 
+  if (isSite) {
+    payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
+    payload.total_seller_value = toNullableNumber(formData.total_seller_value);
+    payload.my_investment = toNullableNumber(formData.my_investment);
+    payload.my_share_percentage = toNullableNumber(formData.my_share_percentage);
+    payload.site_deal_start_date = toNullableString(formData.site_deal_start_date);
+  } else {
+    payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
+    payload.side_left_ft = toNullableNumber(formData.side_left_ft);
+    payload.side_right_ft = toNullableNumber(formData.side_right_ft);
+    payload.side_top_ft = toNullableNumber(formData.side_top_ft);
+    payload.side_bottom_ft = toNullableNumber(formData.side_bottom_ft);
+    payload.seller_contact_id = toNullableNumber(formData.seller_contact_id);
+    payload.seller_rate_per_sqft = toNullableNumber(formData.seller_rate_per_sqft);
+    payload.total_seller_value = toNullableNumber(formData.total_seller_value);
+    payload.advance_paid = toNullableNumber(formData.advance_paid) ?? 0;
+    payload.advance_date = toNullableString(formData.advance_date);
+    payload.deal_locked_date = toNullableString(formData.deal_locked_date);
+    payload.expected_registry_date = toNullableString(formData.expected_registry_date);
+    payload.broker_name = toNullableString(formData.broker_name);
+    payload.broker_commission = toNullableNumber(formData.broker_commission) ?? 0;
+    if (isEditMode) {
+      payload.actual_registry_date = toNullableString(formData.actual_registry_date);
+    }
+  }
+
   if (isEditMode) {
-    payload.actual_registry_date = toNullableString(
-      formData.actual_registry_date,
-    );
     payload.status = formData.status;
   }
 
   return payload;
-};
+}
 
-function PropertyForm() {
+export default function PropertyForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const queryClient = useQueryClient();
   const isEditMode = Boolean(id);
+
+  const [formData, setFormData] = useState({ ...EMPTY_FORM_PLOT });
   const [errors, setErrors] = useState({});
-  const [formData, setFormData] = useState({
-    title: "",
-    location: "",
-    property_type: "plot",
-    total_area_sqft: "",
-    deal_type: "middleman",
-    seller_contact_id: "",
-    buyer_contact_id: "",
-    seller_rate_per_sqft: "",
-    buyer_rate_per_sqft: "",
-    total_seller_value: "",
-    total_buyer_value: "",
-    advance_paid: "0",
-    advance_date: "",
-    deal_locked_date: "",
-    expected_registry_date: "",
-    actual_registry_date: "",
-    broker_name: "",
-    broker_commission: "0",
-    gross_profit: "",
-    net_profit: "",
-    purchase_price: "",
-    holding_cost: "0",
-    sale_price: "",
-    sale_date: "",
-    status: "negotiating",
-    notes: "",
+
+  // Load contacts
+  const { data: contacts = [] } = useQuery({
+    queryKey: ["contacts", "for-form"],
+    queryFn: async () => {
+      const res = await api.get("/api/contacts", { params: { limit: 200 } });
+      return res.data;
+    },
   });
 
-  // dataLoaded ref prevents auto-calc useEffects from overwriting
-  // server-fetched values on initial load in edit mode
-  const dataLoaded = useRef(false);
-
+  // Load existing deal for edit mode
   useQuery({
     queryKey: ["property", id],
     enabled: isEditMode,
@@ -143,608 +193,488 @@ function PropertyForm() {
     refetchOnMount: true,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const response = await api.get(`/api/properties/${id}`);
-      dataLoaded.current = false; // reset so next effect knows data just arrived
-      setFormData(normalizePropertyForForm(response.data.property));
-      // After a tick, mark as loaded so effects can run on user changes
-      setTimeout(() => {
-        dataLoaded.current = true;
-      }, 0);
-      return response.data;
-    },
-  });
-
-  const { data: contacts = [] } = useQuery({
-    queryKey: ["contacts"],
-    queryFn: async () => {
-      const response = await api.get("/api/contacts");
-      return response.data;
+      const res = await api.get(`/api/properties/${id}`);
+      setFormData(normalizeForForm(res.data.property));
+      return res.data;
     },
   });
 
   const submitMutation = useMutation({
     mutationFn: async (payload) => {
       if (isEditMode) {
-        const response = await api.put(`/api/properties/${id}`, payload);
-        return response.data;
+        const res = await api.put(`/api/properties/${id}`, payload);
+        return res.data;
       }
-      const response = await api.post("/api/properties", payload);
-      return response.data;
+      const res = await api.post("/api/properties", payload);
+      return res.data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       if (isEditMode) {
         queryClient.invalidateQueries({ queryKey: ["property", id] });
-        navigate(`/properties/${id}`);
-      } else {
-        navigate(`/properties/${data.id}`);
       }
+      navigate(`/properties/${data.id}`);
     },
-    onError: (error) => {
-      const detail = error.response?.data?.detail;
-      setErrors({
-        submit:
-          typeof detail === "string" ? detail : "Failed to save property deal",
-      });
+    onError: (err) => {
+      const detail = err?.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        const fieldErrors = {};
+        detail.forEach((e) => {
+          const field = e.loc?.[e.loc.length - 1];
+          if (field) fieldErrors[field] = e.msg;
+        });
+        setErrors(fieldErrors);
+      } else {
+        alert(detail || "Failed to save property deal");
+      }
     },
   });
 
-  const sellerOptions = useMemo(() => contacts, [contacts]);
-  const buyerOptions = useMemo(() => contacts, [contacts]);
-
-  // ── Auto-calculations ──────────────────────────────────────────────
-  // Middleman: total_seller_value = seller_rate × area, total_buyer_value = buyer_rate × area
-  //            gross_profit = buyer_total – seller_total, net_profit = gross – commission
-  useEffect(() => {
-    if (formData.deal_type !== "middleman") return;
-    // Skip auto-calc on first render after server data is loaded
-    if (!dataLoaded.current) return;
-    const area = parseFloat(formData.total_area_sqft) || 0;
-    const sellerRate = parseFloat(formData.seller_rate_per_sqft) || 0;
-    const buyerRate = parseFloat(formData.buyer_rate_per_sqft) || 0;
-    const commission = parseFloat(formData.broker_commission) || 0;
-
-    const newSellerValue =
-      area > 0 && sellerRate > 0 ? (area * sellerRate).toFixed(2) : "";
-    const newBuyerValue =
-      area > 0 && buyerRate > 0 ? (area * buyerRate).toFixed(2) : "";
-
-    const sellerVal = parseFloat(newSellerValue) || 0;
-    const buyerVal = parseFloat(newBuyerValue) || 0;
-    const newGross =
-      buyerVal > 0 && sellerVal > 0 ? (buyerVal - sellerVal).toFixed(2) : "";
-    const grossVal = parseFloat(newGross) || 0;
-    const newNet = grossVal !== 0 ? (grossVal - commission).toFixed(2) : "";
-
+  const set = (field, value) => {
     setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+      // Auto-calc total_seller_value for plot
       if (
-        prev.total_seller_value === newSellerValue &&
-        prev.total_buyer_value === newBuyerValue &&
-        prev.gross_profit === newGross &&
-        prev.net_profit === newNet
-      )
-        return prev;
-      return {
-        ...prev,
-        total_seller_value: newSellerValue,
-        total_buyer_value: newBuyerValue,
-        gross_profit: newGross,
-        net_profit: newNet,
-      };
+        updated.property_type === "plot" &&
+        (field === "seller_rate_per_sqft" || field === "total_area_sqft")
+      ) {
+        const rate = parseFloat(updated.seller_rate_per_sqft);
+        const area = parseFloat(updated.total_area_sqft);
+        if (!isNaN(rate) && !isNaN(area) && rate > 0 && area > 0) {
+          updated.total_seller_value = String(rate * area);
+        }
+      }
+      return updated;
     });
-  }, [
-    formData.deal_type,
-    formData.total_area_sqft,
-    formData.seller_rate_per_sqft,
-    formData.buyer_rate_per_sqft,
-    formData.broker_commission,
-  ]);
+  };
 
-  // In create mode, mark as ready immediately
-  useEffect(() => {
-    if (!isEditMode) dataLoaded.current = true;
-  }, [isEditMode]);
-
-  // Purchase & Hold: gross = sale_price – purchase_price, net = gross – holding_cost
-  useEffect(() => {
-    if (formData.deal_type !== "purchase_and_hold") return;
-    if (!dataLoaded.current) return;
-    const purchasePrice = parseFloat(formData.purchase_price) || 0;
-    const salePrice = parseFloat(formData.sale_price) || 0;
-    const holdingCost = parseFloat(formData.holding_cost) || 0;
-
-    const newGross =
-      salePrice > 0 && purchasePrice > 0
-        ? (salePrice - purchasePrice).toFixed(2)
-        : "";
-    const grossVal = parseFloat(newGross) || 0;
-    const newNet = grossVal !== 0 ? (grossVal - holdingCost).toFixed(2) : "";
-
-    setFormData((prev) => {
-      if (prev.gross_profit === newGross && prev.net_profit === newNet)
-        return prev;
-      return { ...prev, gross_profit: newGross, net_profit: newNet };
-    });
-  }, [
-    formData.deal_type,
-    formData.purchase_price,
-    formData.sale_price,
-    formData.holding_cost,
-  ]);
-
-  const handleChange = (event) => {
-    const { name, value } = event.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: undefined }));
+  const handlePropertyTypeChange = (newType) => {
+    if (newType === "site") {
+      setFormData((prev) => ({
+        ...EMPTY_FORM_SITE,
+        title: prev.title,
+        location: prev.location,
+        notes: prev.notes,
+        property_type: "site",
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...EMPTY_FORM_PLOT,
+        title: prev.title,
+        location: prev.location,
+        notes: prev.notes,
+        property_type: newType,
+      }));
     }
   };
 
   const validate = () => {
-    const nextErrors = {};
-    if (!formData.title.trim()) nextErrors.title = "Title is required";
-    // Seller and buyer are optional — can be added later
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    const errs = {};
+    if (!formData.title.trim()) errs.title = "Title is required";
+    if (formData.property_type === "site") {
+      if (!formData.my_investment) errs.my_investment = "My investment is required";
+      if (!formData.my_share_percentage) errs.my_share_percentage = "Share % is required";
+      if (!formData.site_deal_start_date) errs.site_deal_start_date = "Deal start date is required";
+    } else {
+      if (!formData.seller_rate_per_sqft) errs.seller_rate_per_sqft = "Seller rate is required";
+    }
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
+  const handleSubmit = (e) => {
+    e.preventDefault();
     if (!validate()) return;
-    submitMutation.mutate(buildPropertyPayload(formData, isEditMode));
+    submitMutation.mutate(buildPayload(formData, isEditMode));
   };
+
+  const isSite = formData.property_type === "site";
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-6">
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="max-w-3xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
           <button
-            onClick={() => navigate("/properties")}
-            className="text-gray-600 hover:text-gray-900 mb-3"
+            onClick={() => navigate(-1)}
+            className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200"
           >
-            ← Back to Property Deals
+            ←
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">
-            {isEditMode ? "Edit Property Deal" : "New Property Deal"}
-          </h1>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {isEditMode ? "Edit Property Deal" : "New Property Deal"}
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {isSite ? "Site — investment tracking only" : "Plot — middleman deal with partners"}
+            </p>
+          </div>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-lg shadow-sm p-6 space-y-6"
-        >
-          {errors.submit && (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-              {errors.submit}
-            </div>
-          )}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* ── Section 1: Basic Info ── */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-base font-semibold text-gray-800 mb-4">Basic Info</h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Title */}
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.title}
+                  onChange={(e) => set("title", e.target.value)}
+                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.title ? "border-red-400" : "border-gray-300"}`}
+                  placeholder="e.g. Shivaji Nagar Plot Deal"
+                />
+                {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title}</p>}
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Title *
-              </label>
-              <input
-                type="text"
-                name="title"
-                value={formData.title}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="1000 sqft plot in Sector 5"
-              />
-              {errors.title && (
-                <p className="text-sm text-red-600 mt-1">{errors.title}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Location
-              </label>
-              <input
-                type="text"
-                name="location"
-                value={formData.location}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="Green Valley, Hyderabad"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Deal Type
-              </label>
-              <select
-                name="deal_type"
-                value={formData.deal_type}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="middleman">Middleman</option>
-                <option value="purchase_and_hold">Purchase and Hold</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Property Type
-              </label>
-              <select
-                name="property_type"
-                value={formData.property_type}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="plot">Plot</option>
-                <option value="site">Site</option>
-                <option value="flat">Flat</option>
-                <option value="commercial">Commercial</option>
-                <option value="agricultural">Agricultural</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Total Area (sqft)
-              </label>
-              <input
-                type="number"
-                name="total_area_sqft"
-                value={formData.total_area_sqft}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Advance Paid
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                name="advance_paid"
-                value={formData.advance_paid}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
+              {/* Location */}
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <input
+                  type="text"
+                  value={formData.location}
+                  onChange={(e) => set("location", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Shivaji Nagar, Nagpur"
+                />
+              </div>
+
+              {/* Deal Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Deal Type</label>
+                <select
+                  value={formData.deal_type}
+                  onChange={(e) => set("deal_type", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="middleman">Middleman</option>
+                  <option value="purchase_and_hold">Purchase &amp; Hold</option>
+                </select>
+              </div>
+
+              {/* Property Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
+                <select
+                  value={formData.property_type}
+                  onChange={(e) => handlePropertyTypeChange(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isEditMode}
+                >
+                  <option value="plot">Plot</option>
+                  <option value="site">Site</option>
+                </select>
+                {isEditMode && (
+                  <p className="text-xs text-gray-400 mt-1">Property type cannot be changed after creation.</p>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-200">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Advance Date
-              </label>
-              <input
-                type="date"
-                name="advance_date"
-                value={formData.advance_date}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Deal Locked Date
-              </label>
-              <input
-                type="date"
-                name="deal_locked_date"
-                value={formData.deal_locked_date}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Expected Registry Date
-              </label>
-              <input
-                type="date"
-                name="expected_registry_date"
-                value={formData.expected_registry_date}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-
-          {formData.deal_type === "middleman" ? (
-            <div className="space-y-6 pt-4 border-t border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Middleman Details
-              </h2>
-
-              {/* Seller Side */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                  Seller Side
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Seller Contact
-                    </label>
-                    <select
-                      name="seller_contact_id"
-                      value={formData.seller_contact_id}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    >
-                      <option value="">Select seller</option>
-                      {sellerOptions.map((contact) => (
-                        <option key={contact.id} value={contact.id}>
-                          {contact.name}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.seller_contact_id && (
-                      <p className="text-sm text-red-600 mt-1">
-                        {errors.seller_contact_id}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Seller Rate / sqft
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="seller_rate_per_sqft"
-                      value={formData.seller_rate_per_sqft}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Total Seller Value
-                      <span className="text-xs text-blue-500 ml-1">
-                        (auto: rate × area)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="total_seller_value"
-                      value={formData.total_seller_value}
-                      readOnly
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Buyer Side — optional */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                  Buyer Side
-                  <span className="text-xs font-normal text-gray-400 ml-2">
-                    (optional — fill when buyer is found)
-                  </span>
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Buyer Contact
-                    </label>
-                    <select
-                      name="buyer_contact_id"
-                      value={formData.buyer_contact_id}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    >
-                      <option value="">Select buyer (optional)</option>
-                      {buyerOptions.map((contact) => (
-                        <option key={contact.id} value={contact.id}>
-                          {contact.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Buyer Rate / sqft
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="buyer_rate_per_sqft"
-                      value={formData.buyer_rate_per_sqft}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Total Buyer Value
-                      <span className="text-xs text-blue-500 ml-1">
-                        (auto: rate × area)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="total_buyer_value"
-                      value={formData.total_buyer_value}
-                      readOnly
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Broker & Profit */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                  Broker &amp; Profit
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Broker Name
-                    </label>
-                    <input
-                      type="text"
-                      name="broker_name"
-                      value={formData.broker_name}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Broker Commission
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="broker_commission"
-                      value={formData.broker_commission}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Gross Profit
-                      <span className="text-xs text-blue-500 ml-1">
-                        (auto: buyer − seller)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="gross_profit"
-                      value={formData.gross_profit}
-                      readOnly
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Net Profit
-                      <span className="text-xs text-blue-500 ml-1">
-                        (auto: gross − commission)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="net_profit"
-                      value={formData.net_profit}
-                      readOnly
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6 pt-4 border-t border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Purchase and Hold Details
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* ── SITE SECTIONS ── */}
+          {isSite && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h2 className="text-base font-semibold text-gray-800 mb-4">Site Details</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Purchase Price
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Area (sqft)</label>
+                  <input
+                    type="number"
+                    value={formData.total_area_sqft}
+                    onChange={(e) => set("total_area_sqft", e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. 50000"
+                    min="0"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Value to Seller (₹)</label>
+                  <input
+                    type="number"
+                    value={formData.total_seller_value}
+                    onChange={(e) => set("total_seller_value", e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Total amount paid to seller"
+                    min="0"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    My Investment Amount (₹) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
-                    step="0.01"
-                    name="purchase_price"
-                    value={formData.purchase_price}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    value={formData.my_investment}
+                    onChange={(e) => set("my_investment", e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.my_investment ? "border-red-400" : "border-gray-300"}`}
+                    placeholder="How much I personally invested"
+                    min="0"
                   />
+                  {errors.my_investment && <p className="text-red-500 text-xs mt-1">{errors.my_investment}</p>}
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Holding Cost
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    My Share % <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
-                    step="0.01"
-                    name="holding_cost"
-                    value={formData.holding_cost}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    value={formData.my_share_percentage}
+                    onChange={(e) => set("my_share_percentage", e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.my_share_percentage ? "border-red-400" : "border-gray-300"}`}
+                    placeholder="e.g. 10"
+                    min="0"
+                    max="100"
+                    step="0.001"
                   />
+                  {errors.my_share_percentage && <p className="text-red-500 text-xs mt-1">{errors.my_share_percentage}</p>}
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sale Price
-                    <span className="text-xs text-gray-400 ml-1">
-                      (fill later when sold)
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="sale_price"
-                    value={formData.sale_price}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sale Date
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Deal Start Date <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
-                    name="sale_date"
-                    value={formData.sale_date}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    value={formData.site_deal_start_date}
+                    onChange={(e) => set("site_deal_start_date", e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.site_deal_start_date ? "border-red-400" : "border-gray-300"}`}
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gross Profit
-                    <span className="text-xs text-blue-500 ml-1">
-                      (auto: sale − purchase)
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="gross_profit"
-                    value={formData.gross_profit}
-                    readOnly
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Net Profit
-                    <span className="text-xs text-blue-500 ml-1">
-                      (auto: gross − holding cost)
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="net_profit"
-                    value={formData.net_profit}
-                    readOnly
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
-                  />
+                  {errors.site_deal_start_date && <p className="text-red-500 text-xs mt-1">{errors.site_deal_start_date}</p>}
                 </div>
               </div>
             </div>
           )}
 
-          {isEditMode && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-200">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Status
-                </label>
+          {/* ── PLOT SECTIONS ── */}
+          {!isSite && (
+            <>
+              {/* Section 2: Plot Dimensions */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Plot Dimensions</h2>
+                <p className="text-xs text-gray-400 mb-4">Optional — fill in to see a visual diagram.</p>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <div className="sm:col-span-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Total Area (sqft)</label>
+                    <input
+                      type="number"
+                      value={formData.total_area_sqft}
+                      onChange={(e) => set("total_area_sqft", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. 1200"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Left Side (ft)</label>
+                    <input
+                      type="number"
+                      value={formData.side_left_ft}
+                      onChange={(e) => set("side_left_ft", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Left"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Right Side (ft)</label>
+                    <input
+                      type="number"
+                      value={formData.side_right_ft}
+                      onChange={(e) => set("side_right_ft", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Right"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Top Side (ft)</label>
+                    <input
+                      type="number"
+                      value={formData.side_top_ft}
+                      onChange={(e) => set("side_top_ft", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Top"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bottom Side (ft)</label>
+                    <input
+                      type="number"
+                      value={formData.side_bottom_ft}
+                      onChange={(e) => set("side_bottom_ft", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Bottom"
+                      min="0"
+                    />
+                  </div>
+                </div>
+
+                <PlotDiagram
+                  left={formData.side_left_ft}
+                  right={formData.side_right_ft}
+                  top={formData.side_top_ft}
+                  bottom={formData.side_bottom_ft}
+                  area={formData.total_area_sqft}
+                />
+              </div>
+
+              {/* Section 3: Seller Details */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-base font-semibold text-gray-800 mb-4">Seller Details</h2>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Seller Contact</label>
+                    <select
+                      value={formData.seller_contact_id}
+                      onChange={(e) => set("seller_contact_id", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">— Select Seller —</option>
+                      {contacts.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Seller Rate / sqft (₹) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.seller_rate_per_sqft}
+                      onChange={(e) => set("seller_rate_per_sqft", e.target.value)}
+                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.seller_rate_per_sqft ? "border-red-400" : "border-gray-300"}`}
+                      placeholder="e.g. 500"
+                      min="0"
+                    />
+                    {errors.seller_rate_per_sqft && <p className="text-red-500 text-xs mt-1">{errors.seller_rate_per_sqft}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Total Seller Value (₹)
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.total_seller_value}
+                      onChange={(e) => set("total_seller_value", e.target.value)}
+                      className="w-full border border-blue-200 bg-blue-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Rate × Area"
+                      min="0"
+                    />
+                    {formData.total_seller_value && (
+                      <p className="text-xs text-blue-600 mt-1">= {formatCurrency(parseFloat(formData.total_seller_value))}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Advance Paid to Seller (₹)</label>
+                    <input
+                      type="number"
+                      value={formData.advance_paid}
+                      onChange={(e) => set("advance_paid", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                      min="0"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Advance Date</label>
+                    <input
+                      type="date"
+                      value={formData.advance_date}
+                      onChange={(e) => set("advance_date", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Deal Locked Date</label>
+                    <input
+                      type="date"
+                      value={formData.deal_locked_date}
+                      onChange={(e) => set("deal_locked_date", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Expected Registry Date</label>
+                    <input
+                      type="date"
+                      value={formData.expected_registry_date}
+                      onChange={(e) => set("expected_registry_date", e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {isEditMode && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Actual Registry Date</label>
+                      <input
+                        type="date"
+                        value={formData.actual_registry_date}
+                        onChange={(e) => set("actual_registry_date", e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 4: Broker Details (only for middleman) */}
+              {formData.deal_type === "middleman" && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h2 className="text-base font-semibold text-gray-800 mb-4">Broker Details</h2>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Broker Name</label>
+                      <input
+                        type="text"
+                        value={formData.broker_name}
+                        onChange={(e) => set("broker_name", e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. Ramesh Broker"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Broker Commission (₹)</label>
+                      <input
+                        type="number"
+                        value={formData.broker_commission}
+                        onChange={(e) => set("broker_commission", e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="0"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Notes */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-base font-semibold text-gray-800 mb-4">Notes</h2>
+            {isEditMode && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select
-                  name="status"
                   value={formData.status}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  onChange={(e) => set("status", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="negotiating">Negotiating</option>
                   <option value="advance_given">Advance Given</option>
@@ -754,52 +684,31 @@ function PropertyForm() {
                   <option value="cancelled">Cancelled</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Actual Registry Date
-                </label>
-                <input
-                  type="date"
-                  name="actual_registry_date"
-                  value={formData.actual_registry_date}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="pt-4 border-t border-gray-200">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Notes
-            </label>
+            )}
             <textarea
-              name="notes"
               value={formData.notes}
-              onChange={handleChange}
-              rows="4"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              onChange={(e) => set("notes", e.target.value)}
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Any additional notes..."
             />
           </div>
 
-          <div className="flex gap-4 pt-4">
+          {/* Submit */}
+          <div className="flex gap-3 justify-end">
             <button
               type="button"
-              onClick={() => navigate("/properties")}
-              className="flex-1 px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              onClick={() => navigate(-1)}
+              className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitMutation.isPending}
-              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {submitMutation.isPending
-                ? "Saving..."
-                : isEditMode
-                  ? "Update Property Deal"
-                  : "Create Property Deal"}
+              {submitMutation.isPending ? "Saving..." : isEditMode ? "Save Changes" : "Create Deal"}
             </button>
           </div>
         </form>
@@ -807,5 +716,3 @@ function PropertyForm() {
     </div>
   );
 }
-
-export default PropertyForm;

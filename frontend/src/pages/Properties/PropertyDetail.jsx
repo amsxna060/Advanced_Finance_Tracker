@@ -1,90 +1,110 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 
-function PropertyDetail() {
+const STATUS_COLORS = {
+  negotiating: "bg-yellow-100 text-yellow-800",
+  advance_given: "bg-orange-100 text-orange-800",
+  buyer_found: "bg-blue-100 text-blue-800",
+  registry_done: "bg-purple-100 text-purple-800",
+  settled: "bg-green-100 text-green-800",
+  cancelled: "bg-red-100 text-red-800",
+};
+
+function PlotDiagram({ left, right, top, bottom, area }) {
+  const hasAny = left || right || top || bottom;
+  if (!hasAny) return null;
+  const W = 220, H = 140, PAD = 36;
+  return (
+    <svg width={W + PAD * 2} height={H + PAD * 2}>
+      <rect x={PAD} y={PAD} width={W} height={H} fill="#eff6ff" stroke="#3b82f6" strokeWidth={2} rx={2} />
+      <text x={PAD + W / 2} y={PAD - 10} textAnchor="middle" fontSize={12} fill="#1d4ed8">{top ? `${top} ft` : "—"}</text>
+      <text x={PAD + W / 2} y={PAD + H + 20} textAnchor="middle" fontSize={12} fill="#1d4ed8">{bottom ? `${bottom} ft` : "—"}</text>
+      <text x={PAD - 8} y={PAD + H / 2} textAnchor="end" dominantBaseline="middle" fontSize={12} fill="#1d4ed8">{left ? `${left} ft` : "—"}</text>
+      <text x={PAD + W + 8} y={PAD + H / 2} textAnchor="start" dominantBaseline="middle" fontSize={12} fill="#1d4ed8">{right ? `${right} ft` : "—"}</text>
+      {area && (
+        <text x={PAD + W / 2} y={PAD + H / 2} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#1e40af" fontWeight="600">
+          {Number(area).toLocaleString()} sqft
+        </text>
+      )}
+    </svg>
+  );
+}
+
+function InfoRow({ label, value }) {
+  if (!value && value !== 0) return null;
+  return (
+    <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm font-medium text-gray-900 text-right max-w-[60%]">{value}</span>
+    </div>
+  );
+}
+
+export default function PropertyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [settleForm, setSettleForm] = useState({
-    actual_registry_date: new Date().toISOString().split("T")[0],
-    total_buyer_value: "",
-    total_seller_value: "",
-    broker_commission: "",
+    registry_date: new Date().toISOString().split("T")[0],
+    buyer_rate_per_sqft: "",
     other_expenses: "0",
+    total_profit_received: "",
+    site_deal_end_date: "",
   });
   const [settleResult, setSettleResult] = useState(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["property", id],
     queryFn: async () => {
-      const response = await api.get(`/api/properties/${id}`);
-      return response.data;
+      const res = await api.get(`/api/properties/${id}`);
+      return res.data;
     },
     retry: 2,
   });
 
   const deletePropertyMutation = useMutation({
-    mutationFn: async () => {
-      await api.delete(`/api/properties/${id}`);
-    },
+    mutationFn: async () => { await api.delete(`/api/properties/${id}`); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       navigate("/properties");
     },
-    onError: (err) => {
-      alert(err?.response?.data?.detail || "Failed to delete property deal");
-    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to delete"),
   });
 
   const settleMutation = useMutation({
     mutationFn: async (payload) => {
-      const response = await api.post(`/api/properties/${id}/settle`, payload);
-      return response.data;
+      const res = await api.post(`/api/properties/${id}/settle`, payload);
+      return res.data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["property", id] });
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       setSettleResult(data.settlement_summary);
+      setShowSettleModal(false);
     },
-    onError: (err) => {
-      alert(err?.response?.data?.detail || "Failed to settle deal");
-    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to settle"),
   });
 
-  const handleDelete = () => {
-    if (window.confirm("Delete this property deal? This cannot be undone.")) {
-      deletePropertyMutation.mutate();
+  const handleSettle = () => {
+    const isSite = property?.property_type === "site";
+    if (isSite) {
+      settleMutation.mutate({
+        total_profit_received: settleForm.total_profit_received ? parseFloat(settleForm.total_profit_received) : null,
+        site_deal_end_date: settleForm.site_deal_end_date || null,
+      });
+    } else {
+      settleMutation.mutate({
+        buyer_rate_per_sqft: settleForm.buyer_rate_per_sqft ? parseFloat(settleForm.buyer_rate_per_sqft) : null,
+        registry_date: settleForm.registry_date || null,
+        other_expenses: settleForm.other_expenses ? parseFloat(settleForm.other_expenses) : 0,
+      });
     }
   };
-
-  const handleSettle = () => {
-    const payload = {
-      actual_registry_date: settleForm.actual_registry_date || null,
-      total_buyer_value: settleForm.total_buyer_value ? parseFloat(settleForm.total_buyer_value) : null,
-      total_seller_value: settleForm.total_seller_value ? parseFloat(settleForm.total_seller_value) : null,
-      broker_commission: settleForm.broker_commission ? parseFloat(settleForm.broker_commission) : null,
-      other_expenses: settleForm.other_expenses ? parseFloat(settleForm.other_expenses) : 0,
-    };
-    settleMutation.mutate(payload);
-  };
-
-  // Live calculation for settle modal
-  const liveGross = (() => {
-    const buyer = parseFloat(settleForm.total_buyer_value || (data?.property?.total_buyer_value || 0));
-    const seller = parseFloat(settleForm.total_seller_value || (data?.property?.total_seller_value || 0));
-    return isNaN(buyer) || isNaN(seller) ? null : buyer - seller;
-  })();
-  const liveNet = (() => {
-    if (liveGross === null) return null;
-    const broker = parseFloat(settleForm.broker_commission || (data?.property?.broker_commission || 0));
-    const other = parseFloat(settleForm.other_expenses || 0);
-    return liveGross - (isNaN(broker) ? 0 : broker) - (isNaN(other) ? 0 : other);
-  })();
 
   if (isLoading) {
     return (
@@ -94,396 +114,435 @@ function PropertyDetail() {
     );
   }
 
-  const property = data?.property;
-  if (isError || !property) {
+  if (isError || !data?.property) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {isError
-              ? "Failed to load property deal"
-              : "Property deal not found"}
-          </h2>
-          <button
-            onClick={() => navigate("/properties")}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            Back to Property Deals
+          <p className="text-gray-500 mb-4">Property deal not found.</p>
+          <button onClick={() => navigate("/properties")} className="text-blue-600 hover:underline">
+            ← Back to Properties
           </button>
         </div>
       </div>
     );
   }
 
-  const summary = data.summary || {};
-  const partnerships = data.partnerships || [];
+  const property = data.property;
+  const seller = data.seller;
+  const lp = data.linked_partnership;
+  const isSite = property.property_type === "site";
+  const isSettled = property.status === "settled";
+  const members = lp?.members || [];
+
+  // Live calculation for plot settle modal
+  const area = parseFloat(property.total_area_sqft || 0);
+  const sellerTotal = parseFloat(property.total_seller_value || 0);
+  const brokerComm = parseFloat(property.broker_commission || 0);
+  const liveBuyerTotal = (() => {
+    const rate = parseFloat(settleForm.buyer_rate_per_sqft);
+    return !isNaN(rate) && area > 0 ? rate * area : null;
+  })();
+  const liveGross = liveBuyerTotal !== null ? liveBuyerTotal - sellerTotal : null;
+  const liveOther = parseFloat(settleForm.other_expenses || 0);
+  const liveNet = liveGross !== null ? liveGross - brokerComm - (isNaN(liveOther) ? 0 : liveOther) : null;
+
+  const totalAdvancePool = members.reduce((sum, m) => sum + parseFloat(m.member?.advance_contributed || 0), 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 py-6 px-4">
+      <div className="max-w-4xl mx-auto space-y-5">
+
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div>
-            <button
-              onClick={() => navigate("/properties")}
-              className="text-gray-600 hover:text-gray-900 mb-3"
-            >
-              ← Back to Property Deals
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {property.title}
-            </h1>
-            <p className="text-gray-600 mt-1">
-              {property.location || "No location provided"}
-            </p>
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate("/properties")} className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200">←</button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{property.title}</h1>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[property.status] || "bg-gray-100 text-gray-700"}`}>
+                  {property.status?.replace(/_/g, " ")}
+                </span>
+                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                  {isSite ? "Site" : "Plot"} · {property.deal_type?.replace(/_/g, " ")}
+                </span>
+                {property.location && <span className="text-xs text-gray-500">📍 {property.location}</span>}
+              </div>
+            </div>
           </div>
-          <div className="flex gap-3">
-            {property.status !== "settled" && (
-              <button
-                onClick={() => { setSettleResult(null); setShowSettleModal(true); }}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                ✅ Settle Deal
-              </button>
-            )}
+          <div className="flex gap-2">
             <button
               onClick={() => navigate(`/properties/${id}/edit`)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
             >
-              Edit Deal
+              Edit
             </button>
             <button
-              onClick={handleDelete}
-              disabled={deletePropertyMutation.isPending}
-              className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50"
+              onClick={() => { if (window.confirm("Delete this deal?")) deletePropertyMutation.mutate(); }}
+              className="px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
             >
-              🗑️ Delete
+              Delete
             </button>
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Gross Profit</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(summary.gross_profit)}
+        {/* Settlement Result Banner */}
+        {settleResult && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-2xl">✅</span>
+              <h3 className="text-lg font-bold text-green-800">Deal Settled Successfully!</h3>
             </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Net Profit</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(summary.net_profit)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Advance Paid</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(property.advance_paid)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Status</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1 capitalize">
-              {property.status.replaceAll("_", " ")}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Deal Details */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Deal Details
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-gray-500">Deal Type</div>
-                  <div className="font-medium capitalize">
-                    {property.deal_type.replaceAll("_", " ")}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Property Type</div>
-                  <div className="font-medium capitalize">
-                    {property.property_type || "-"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Area (sqft)</div>
-                  <div className="font-medium">
-                    {property.total_area_sqft || "-"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Advance Paid</div>
-                  <div className="font-medium">
-                    {formatCurrency(property.advance_paid)}
-                  </div>
-                </div>
-                {property.deal_type === "middleman" && (
-                  <>
-                    <div>
-                      <div className="text-gray-500">Seller Rate/sqft</div>
-                      <div className="font-medium">
-                        {property.seller_rate_per_sqft
-                          ? formatCurrency(property.seller_rate_per_sqft)
-                          : "-"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-gray-500">Total Seller Value</div>
-                      <div className="font-medium">
-                        {property.total_seller_value
-                          ? formatCurrency(property.total_seller_value)
-                          : "-"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-gray-500">Buyer Rate/sqft</div>
-                      <div className="font-medium">
-                        {property.buyer_rate_per_sqft
-                          ? formatCurrency(property.buyer_rate_per_sqft)
-                          : "-"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-gray-500">Total Buyer Value</div>
-                      <div className="font-medium">
-                        {property.total_buyer_value
-                          ? formatCurrency(property.total_buyer_value)
-                          : "-"}
-                      </div>
-                    </div>
-                  </>
+            {settleResult.deal_type === "site" ? (
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-gray-500">My Investment:</span> <span className="font-semibold">{formatCurrency(settleResult.my_investment)}</span></div>
+                <div><span className="text-gray-500">My Profit:</span> <span className="font-semibold text-green-700">{formatCurrency(settleResult.my_profit)}</span></div>
+                <div><span className="text-gray-500">Total Returned:</span> <span className="font-semibold">{formatCurrency(settleResult.total_returned_to_me)}</span></div>
+                {settleResult.roi_per_annum_percent && (
+                  <div><span className="text-gray-500">ROI p.a.:</span> <span className="font-semibold text-blue-700">{settleResult.roi_per_annum_percent.toFixed(2)}%</span></div>
                 )}
-                <div>
-                  <div className="text-gray-500">Broker Commission</div>
-                  <div className="font-medium">
-                    {formatCurrency(property.broker_commission)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Expected Registry</div>
-                  <div className="font-medium">
-                    {formatDate(property.expected_registry_date)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Actual Registry</div>
-                  <div className="font-medium">
-                    {formatDate(property.actual_registry_date)}
-                  </div>
-                </div>
+                {settleResult.duration_months && (
+                  <div><span className="text-gray-500">Duration:</span> <span className="font-semibold">{settleResult.duration_months} months</span></div>
+                )}
               </div>
-              {property.notes && (
-                <p className="text-sm text-gray-700 mt-4 pt-4 border-t border-gray-200">
-                  {property.notes}
-                </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+                  <div><span className="text-gray-500">Buyer Total:</span> <span className="font-semibold">{formatCurrency(settleResult.total_buyer_value)}</span></div>
+                  <div><span className="text-gray-500">Seller Total:</span> <span className="font-semibold">{formatCurrency(settleResult.total_seller_value)}</span></div>
+                  <div><span className="text-gray-500">Gross Profit:</span> <span className="font-semibold">{formatCurrency(settleResult.gross_profit)}</span></div>
+                  <div><span className="text-gray-500">Net Profit:</span> <span className="font-semibold text-green-700">{formatCurrency(settleResult.net_profit)}</span></div>
+                </div>
+                {settleResult.partner_settlements?.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-green-200">
+                          <th className="text-left py-2 text-gray-600 font-medium">Partner</th>
+                          <th className="text-right py-2 text-gray-600 font-medium">Share</th>
+                          <th className="text-right py-2 text-gray-600 font-medium">Advance Back</th>
+                          <th className="text-right py-2 text-gray-600 font-medium">Profit Share</th>
+                          <th className="text-right py-2 text-gray-600 font-medium">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {settleResult.partner_settlements.map((ps, i) => (
+                          <tr key={i} className="border-b border-green-100">
+                            <td className="py-2 font-medium">{ps.contact_name}{ps.is_self && " (You)"}</td>
+                            <td className="text-right py-2">{ps.share_percentage}%</td>
+                            <td className="text-right py-2">{formatCurrency(ps.advance_returned)}</td>
+                            <td className="text-right py-2">{formatCurrency(ps.profit_share)}</td>
+                            <td className="text-right py-2 font-semibold text-green-700">{formatCurrency(ps.total_to_receive)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Main content */}
+          <div className="lg:col-span-2 space-y-5">
+
+            {/* Property Overview */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <h2 className="text-base font-semibold text-gray-800 mb-4">Property Overview</h2>
+
+              {isSite ? (
+                <>
+                  <InfoRow label="Total Area" value={property.total_area_sqft ? `${Number(property.total_area_sqft).toLocaleString()} sqft` : null} />
+                  <InfoRow label="Total Value to Seller" value={property.total_seller_value ? formatCurrency(property.total_seller_value) : null} />
+                  <InfoRow label="My Investment" value={property.my_investment ? formatCurrency(property.my_investment) : null} />
+                  <InfoRow label="My Share %" value={property.my_share_percentage ? `${property.my_share_percentage}%` : null} />
+                  <InfoRow label="Deal Start Date" value={property.site_deal_start_date ? formatDate(property.site_deal_start_date) : null} />
+                  {property.site_deal_end_date && <InfoRow label="Deal End Date" value={formatDate(property.site_deal_end_date)} />}
+                  {property.total_profit_received && (
+                    <InfoRow label="Total Profit Received" value={formatCurrency(property.total_profit_received)} />
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Plot dimensions diagram — PlotDiagram renders nothing if no dimensions set */}
+                  <div className="flex justify-center mb-4">
+                    <PlotDiagram
+                      left={property.side_left_ft}
+                      right={property.side_right_ft}
+                      top={property.side_top_ft}
+                      bottom={property.side_bottom_ft}
+                      area={property.total_area_sqft}
+                    />
+                  </div>
+                  <InfoRow label="Total Area" value={property.total_area_sqft ? `${Number(property.total_area_sqft).toLocaleString()} sqft` : null} />
+                  <InfoRow label="Seller" value={seller?.name} />
+                  <InfoRow label="Seller Rate" value={property.seller_rate_per_sqft ? `₹${Number(property.seller_rate_per_sqft).toLocaleString()}/sqft` : null} />
+                  <InfoRow label="Total Seller Value" value={property.total_seller_value ? formatCurrency(property.total_seller_value) : null} />
+                  <InfoRow label="Advance Paid" value={property.advance_paid > 0 ? formatCurrency(property.advance_paid) : null} />
+                  <InfoRow label="Broker" value={property.broker_name} />
+                  <InfoRow label="Broker Commission" value={property.broker_commission > 0 ? formatCurrency(property.broker_commission) : null} />
+                </>
               )}
             </div>
-          </div>
 
-          {/* Right Sidebar */}
-          <div className="space-y-6">
-            {/* People */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                People
-              </h2>
-              <div className="space-y-4 text-sm">
-                <div>
-                  <div className="text-gray-500">Seller</div>
-                  <div className="font-medium">{data.seller?.name || "-"}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Buyer</div>
-                  <div className="font-medium">{data.buyer?.name || "-"}</div>
-                </div>
+            {/* Timeline (plot only) */}
+            {!isSite && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-4">Timeline</h2>
+                <InfoRow label="Advance Date" value={property.advance_date ? formatDate(property.advance_date) : null} />
+                <InfoRow label="Deal Locked" value={property.deal_locked_date ? formatDate(property.deal_locked_date) : null} />
+                <InfoRow label="Expected Registry" value={property.expected_registry_date ? formatDate(property.expected_registry_date) : null} />
+                {property.actual_registry_date && <InfoRow label="Actual Registry" value={formatDate(property.actual_registry_date)} />}
               </div>
-            </div>
+            )}
 
-            {/* Linked Partnerships */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Linked Partnerships
-                </h2>
-                <button
-                  onClick={() => navigate("/partnerships/new")}
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                >
-                  + Add
-                </button>
+            {/* Settled profit details */}
+            {isSettled && !isSite && property.net_profit && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+                <h2 className="text-base font-semibold text-green-800 mb-3">Settlement Details</h2>
+                <InfoRow label="Total Buyer Value" value={property.total_buyer_value ? formatCurrency(property.total_buyer_value) : null} />
+                <InfoRow label="Total Seller Value" value={property.total_seller_value ? formatCurrency(property.total_seller_value) : null} />
+                <InfoRow label="Gross Profit" value={property.gross_profit ? formatCurrency(property.gross_profit) : null} />
+                <InfoRow label="Broker Commission" value={property.broker_commission > 0 ? formatCurrency(property.broker_commission) : null} />
+                <InfoRow label="Net Profit" value={property.net_profit ? formatCurrency(property.net_profit) : null} />
               </div>
-              {partnerships.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  No linked partnerships yet.
+            )}
+
+            {/* Partnership Info */}
+            {!isSite && lp && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-base font-semibold text-gray-800">Partnership</h2>
+                  <Link
+                    to={`/partnerships/${lp.partnership.id}`}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    View Partnership →
+                  </Link>
+                </div>
+                <p className="text-sm text-blue-700 bg-blue-50 px-3 py-2 rounded-lg mb-3">
+                  Linked to: <strong>{lp.partnership.title}</strong> ({members.length} partner{members.length !== 1 ? "s" : ""})
                 </p>
-              ) : (
-                <div className="space-y-3">
-                  {partnerships.map((partnership) => (
-                    <button
-                      key={partnership.id}
-                      onClick={() =>
-                        navigate(`/partnerships/${partnership.id}`)
-                      }
-                      className="w-full text-left border border-gray-200 rounded-lg p-3 hover:bg-gray-50"
-                    >
-                      <div className="font-medium text-gray-900">
-                        {partnership.title}
+                {members.length > 0 && (
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 text-gray-500 font-medium">Partner</th>
+                        <th className="text-right py-2 text-gray-500 font-medium">Share %</th>
+                        <th className="text-right py-2 text-gray-500 font-medium">Advance</th>
+                        {isSettled && <th className="text-right py-2 text-gray-500 font-medium">Total Received</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {members.map((m, i) => (
+                        <tr key={i} className="border-b border-gray-100">
+                          <td className="py-2 font-medium">
+                            {m.member.is_self ? "Self (You)" : m.contact?.name || "Unknown"}
+                          </td>
+                          <td className="text-right py-2">{m.member.share_percentage}%</td>
+                          <td className="text-right py-2">{formatCurrency(m.member.advance_contributed)}</td>
+                          {isSettled && (
+                            <td className="text-right py-2 text-green-700 font-semibold">
+                              {formatCurrency(m.member.total_received)}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                      <tr className="border-t border-gray-300 font-semibold">
+                        <td className="py-2">Total</td>
+                        <td className="text-right py-2"></td>
+                        <td className="text-right py-2">{formatCurrency(totalAdvancePool)}</td>
+                        {isSettled && <td className="text-right py-2"></td>}
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {/* Transactions */}
+            {data.transactions?.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-4">Transactions</h2>
+                <div className="space-y-2">
+                  {data.transactions.map((txn) => (
+                    <div key={txn.id} className="flex justify-between items-start py-2 border-b border-gray-100 last:border-0">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 capitalize">{txn.txn_type.replace(/_/g, " ")}</p>
+                        {txn.description && <p className="text-xs text-gray-400">{txn.description}</p>}
+                        <p className="text-xs text-gray-400">{formatDate(txn.txn_date)}</p>
                       </div>
-                      <div className="text-sm text-gray-500 capitalize">
-                        {partnership.status}
-                      </div>
-                    </button>
+                      <span className="text-sm font-semibold text-gray-800">{formatCurrency(txn.amount)}</span>
+                    </div>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-5">
+            {/* Settle button */}
+            {!isSettled && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-3">Actions</h2>
+                <button
+                  onClick={() => setShowSettleModal(true)}
+                  className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 text-sm"
+                >
+                  🤝 Settle Deal
+                </button>
+              </div>
+            )}
+
+            {/* Property notes */}
+            {property.notes && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-2">Notes</h2>
+                <p className="text-sm text-gray-600 whitespace-pre-wrap">{property.notes}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Settle Deal Modal */}
+      {/* Settle Modal */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
-            {settleResult ? (
-              <>
-                <h2 className="text-xl font-bold text-gray-900 mb-4">✅ Deal Settled!</h2>
-                <div className="space-y-3 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Gross Profit</span>
-                    <span className="font-semibold">{formatCurrency(settleResult.gross_profit)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Total Expenses</span>
-                    <span className="font-semibold text-red-600">- {formatCurrency(settleResult.total_expenses)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold border-t pt-2">
-                    <span>Net Profit</span>
-                    <span className="text-green-600">{formatCurrency(settleResult.net_profit)}</span>
-                  </div>
-                  {settleResult.partner_settlements?.length > 0 && (
-                    <div className="mt-4">
-                      <div className="text-sm font-medium text-gray-700 mb-2">Partner Distribution</div>
-                      {settleResult.partner_settlements.map((ps, i) => (
-                        <div key={i} className="flex justify-between text-sm py-1 border-b border-gray-100 last:border-0">
-                          <span className="text-gray-700">{ps.contact_name} ({ps.share_percentage}%)</span>
-                          <span className="font-semibold">{formatCurrency(ps.total_to_receive)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setShowSettleModal(false)}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Close
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-bold text-gray-900 mb-1">Settle Deal</h2>
-                <p className="text-sm text-gray-500 mb-4">Enter final values to settle this property deal and distribute profit.</p>
-                <div className="space-y-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900">Settle Deal</h2>
+              <p className="text-sm text-gray-500">{property.title}</p>
+            </div>
+            <div className="p-5 space-y-4">
+              {isSite ? (
+                <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Registry Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Total Profit Received (₹)</label>
+                    <input
+                      type="number"
+                      value={settleForm.total_profit_received}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, total_profit_received: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="Total profit from site deal"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Deal End Date</label>
                     <input
                       type="date"
-                      value={settleForm.actual_registry_date}
-                      onChange={(e) => setSettleForm((p) => ({ ...p, actual_registry_date: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      value={settleForm.site_deal_end_date}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, site_deal_end_date: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                  </div>
+                  {/* Site preview */}
+                  {settleForm.total_profit_received && (
+                    <div className="bg-blue-50 rounded-lg p-4 text-sm space-y-1.5">
+                      <div className="font-semibold text-blue-800 mb-2">Settlement Preview</div>
+                      <div className="flex justify-between"><span className="text-gray-600">My Investment:</span><span className="font-medium">{formatCurrency(property.my_investment)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">Total Profit (project):</span><span className="font-medium">{formatCurrency(settleForm.total_profit_received)}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-600">My Share %:</span><span className="font-medium">{property.my_share_percentage}%</span></div>
+                      <hr className="border-blue-200" />
+                      <div className="flex justify-between font-semibold text-blue-700">
+                        <span>My Profit:</span>
+                        <span>{formatCurrency(parseFloat(settleForm.total_profit_received) * parseFloat(property.my_share_percentage || 0) / 100)}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Final Registry Date</label>
+                    <input
+                      type="date"
+                      value={settleForm.registry_date}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, registry_date: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Final Buyer Value (₹) <span className="text-gray-400 text-xs">pre-filled if available</span>
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Buyer Rate per sqft (₹)</label>
                     <input
                       type="number"
-                      step="0.01"
-                      placeholder={property.total_buyer_value || "Enter buyer value"}
-                      value={settleForm.total_buyer_value}
-                      onChange={(e) => setSettleForm((p) => ({ ...p, total_buyer_value: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Final Seller Value (₹)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder={property.total_seller_value || "Enter seller value"}
-                      value={settleForm.total_seller_value}
-                      onChange={(e) => setSettleForm((p) => ({ ...p, total_seller_value: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Broker Commission (₹)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder={property.broker_commission || "0"}
-                      value={settleForm.broker_commission}
-                      onChange={(e) => setSettleForm((p) => ({ ...p, broker_commission: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      value={settleForm.buyer_rate_per_sqft}
+                      onChange={(e) => setSettleForm((p) => ({ ...p, buyer_rate_per_sqft: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="e.g. 800"
+                      min="0"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Other Expenses (₹)</label>
                     <input
                       type="number"
-                      step="0.01"
                       value={settleForm.other_expenses}
                       onChange={(e) => setSettleForm((p) => ({ ...p, other_expenses: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="0"
+                      min="0"
                     />
                   </div>
-                  {/* Live calc */}
-                  {liveGross !== null && (
-                    <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Gross Profit</span>
-                        <span className="font-semibold">{formatCurrency(liveGross)}</span>
-                      </div>
-                      {liveNet !== null && (
-                        <div className="flex justify-between font-bold border-t pt-1">
-                          <span>Net Profit</span>
-                          <span className={liveNet >= 0 ? "text-green-600" : "text-red-600"}>{formatCurrency(liveNet)}</span>
-                        </div>
+
+                  {/* Live calculation preview */}
+                  {liveBuyerTotal !== null && (
+                    <div className="bg-gray-50 rounded-lg p-4 text-sm font-mono space-y-1.5 border border-gray-200">
+                      <div className="flex justify-between"><span className="text-gray-500">Area:</span><span>{Number(area).toLocaleString()} sqft</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">Buyer Rate:</span><span>₹{Number(settleForm.buyer_rate_per_sqft).toLocaleString()}/sqft</span></div>
+                      <hr className="border-gray-300 my-1" />
+                      <div className="flex justify-between font-semibold"><span>Total from Buyer:</span><span>{formatCurrency(liveBuyerTotal)}</span></div>
+                      <div className="flex justify-between text-gray-600"><span>Total to Seller:</span><span>{formatCurrency(sellerTotal)}</span></div>
+                      <hr className="border-gray-300 my-1" />
+                      <div className="flex justify-between font-semibold"><span>Gross Profit:</span><span>{formatCurrency(liveGross)}</span></div>
+                      <div className="flex justify-between text-gray-500"><span>Broker Commission:</span><span>- {formatCurrency(brokerComm)}</span></div>
+                      <div className="flex justify-between text-gray-500"><span>Other Expenses:</span><span>- {formatCurrency(isNaN(liveOther) ? 0 : liveOther)}</span></div>
+                      <hr className="border-gray-300 my-1" />
+                      <div className="flex justify-between font-bold text-green-700 text-base"><span>Net Profit:</span><span>{formatCurrency(liveNet)}</span></div>
+                      {members.length > 0 && liveNet !== null && (
+                        <>
+                          <div className="flex justify-between text-gray-500 mt-1"><span>Total Advance Pool:</span><span>{formatCurrency(totalAdvancePool)}</span></div>
+                          <hr className="border-gray-300 my-1" />
+                          <div className="font-semibold text-gray-700 mt-1">Partner Breakdown:</div>
+                          {members.map((m, i) => {
+                            const sharePct = parseFloat(m.member.share_percentage || 0);
+                            const advance = parseFloat(m.member.advance_contributed || 0);
+                            const profit = liveNet * sharePct / 100;
+                            const total = advance + profit;
+                            const name = m.member.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+                            return (
+                              <div key={i} className="text-xs text-gray-600">
+                                • {name} ({sharePct}%) — Advance: {formatCurrency(advance)} · Profit: {formatCurrency(profit)} · <strong>Total: {formatCurrency(total)}</strong>
+                              </div>
+                            );
+                          })}
+                        </>
                       )}
                     </div>
                   )}
-                </div>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setShowSettleModal(false)}
-                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSettle}
-                    disabled={settleMutation.isPending}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {settleMutation.isPending ? "Settling..." : "Confirm Settlement"}
-                  </button>
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
+            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+              <button
+                onClick={() => { setShowSettleModal(false); setSettleResult(null); }}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSettle}
+                disabled={settleMutation.isPending}
+                className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {settleMutation.isPending ? "Settling..." : "Confirm Settlement"}
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-
-export default PropertyDetail;

@@ -29,6 +29,17 @@ class PropertyDealCreate(BaseModel):
     sale_price: Optional[Decimal] = None
     sale_date: Optional[date] = None
     notes: Optional[str] = None
+    # Plot dimension fields
+    side_left_ft: Optional[Decimal] = None
+    side_right_ft: Optional[Decimal] = None
+    side_top_ft: Optional[Decimal] = None
+    side_bottom_ft: Optional[Decimal] = None
+    # Site-type investment fields
+    my_investment: Optional[Decimal] = None
+    my_share_percentage: Optional[Decimal] = None
+    total_profit_received: Optional[Decimal] = None
+    site_deal_start_date: Optional[date] = None
+    site_deal_end_date: Optional[date] = None
 
 
 class PropertyDealUpdate(BaseModel):
@@ -58,6 +69,17 @@ class PropertyDealUpdate(BaseModel):
     sale_date: Optional[date] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+    # Plot dimension fields
+    side_left_ft: Optional[Decimal] = None
+    side_right_ft: Optional[Decimal] = None
+    side_top_ft: Optional[Decimal] = None
+    side_bottom_ft: Optional[Decimal] = None
+    # Site-type investment fields
+    my_investment: Optional[Decimal] = None
+    my_share_percentage: Optional[Decimal] = None
+    total_profit_received: Optional[Decimal] = None
+    site_deal_start_date: Optional[date] = None
+    site_deal_end_date: Optional[date] = None
 
 
 class PropertyDealOut(BaseModel):
@@ -88,6 +110,17 @@ class PropertyDealOut(BaseModel):
     sale_date: Optional[date]
     status: str
     notes: Optional[str]
+    # Plot dimension fields
+    side_left_ft: Optional[Decimal]
+    side_right_ft: Optional[Decimal]
+    side_top_ft: Optional[Decimal]
+    side_bottom_ft: Optional[Decimal]
+    # Site-type investment fields
+    my_investment: Optional[Decimal]
+    my_share_percentage: Optional[Decimal]
+    total_profit_received: Optional[Decimal]
+    site_deal_start_date: Optional[date]
+    site_deal_end_date: Optional[date]
     created_at: datetime
     updated_at: datetime
     created_by: Optional[int]
@@ -105,11 +138,20 @@ class PropertyTransactionCreate(BaseModel):
 
 
 class PropertySettleRequest(BaseModel):
-    actual_registry_date: Optional[date] = None
+    # For PLOT (middleman) settlement
+    registry_date: Optional[date] = None
+    buyer_rate_per_sqft: Optional[Decimal] = None
+    other_expenses: Optional[Decimal] = Decimal("0")
+
+    # For SITE settlement
+    total_profit_received: Optional[Decimal] = None
+    site_deal_end_date: Optional[date] = None
+
+    # Backward compatibility
     total_buyer_value: Optional[Decimal] = None
     total_seller_value: Optional[Decimal] = None
+    actual_registry_date: Optional[date] = None
     broker_commission: Optional[Decimal] = None
-    other_expenses: Decimal = Decimal("0")
 
 
 class PropertyTransactionOut(BaseModel):

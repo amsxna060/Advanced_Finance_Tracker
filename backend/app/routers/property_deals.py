@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.contact import Contact
-from app.models.partnership import Partnership
+
+# Average number of days in a month (used for duration calculations)
+_AVG_DAYS_PER_MONTH = 30.44
+from app.models.partnership import Partnership, PartnershipMember
 from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.user import User
 from app.schemas.property_deal import (
@@ -20,7 +23,7 @@ from app.schemas.property_deal import (
     PropertySettleRequest,
 )
 from app.schemas.loan import ContactBrief
-from app.schemas.partnership import PartnershipOut
+from app.schemas.partnership import PartnershipOut, PartnershipMemberOut
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -109,6 +112,35 @@ def _calculate_property_summary(
     }
 
 
+def _get_linked_partnership_data(property_id: int, db: Session) -> Optional[dict]:
+    """Return the first linked partnership with its members for the property detail endpoint."""
+    partnership = db.query(Partnership).filter(
+        Partnership.linked_property_deal_id == property_id,
+        Partnership.is_deleted == False,
+    ).first()
+    if not partnership:
+        return None
+
+    members = db.query(PartnershipMember).filter(
+        PartnershipMember.partnership_id == partnership.id,
+    ).all()
+
+    member_list = []
+    for member in members:
+        contact = None
+        if member.contact_id:
+            contact = db.query(Contact).filter(Contact.id == member.contact_id).first()
+        member_list.append({
+            "member": PartnershipMemberOut.model_validate(member),
+            "contact": ContactBrief.model_validate(contact) if contact else None,
+        })
+
+    return {
+        "partnership": PartnershipOut.model_validate(partnership),
+        "members": member_list,
+    }
+
+
 @router.get("", response_model=List[PropertyDealOut])
 def get_properties(
     status: Optional[str] = None,
@@ -147,7 +179,20 @@ def create_property(
     _ensure_contact_exists(property_data.seller_contact_id, db, "Seller")
     _ensure_contact_exists(property_data.buyer_contact_id, db, "Buyer")
 
-    property_deal = PropertyDeal(**property_data.model_dump(), created_by=current_user.id)
+    data = property_data.model_dump()
+
+    # Auto-calculate total_seller_value for plot type when rate and area are provided
+    if (
+        data.get("property_type") == "plot"
+        and data.get("seller_rate_per_sqft") is not None
+        and data.get("total_area_sqft") is not None
+        and not data.get("total_seller_value")
+    ):
+        data["total_seller_value"] = (
+            Decimal(str(data["seller_rate_per_sqft"])) * Decimal(str(data["total_area_sqft"]))
+        )
+
+    property_deal = PropertyDeal(**data, created_by=current_user.id)
     db.add(property_deal)
     db.commit()
     db.refresh(property_deal)
@@ -169,12 +214,15 @@ def get_property(
         Partnership.is_deleted == False,
     ).order_by(Partnership.created_at.desc()).all()
 
+    linked_partnership_data = _get_linked_partnership_data(property_id, db)
+
     return {
         "property": PropertyDealOut.model_validate(property_deal),
         "seller": ContactBrief.model_validate(property_deal.seller) if property_deal.seller else None,
         "buyer": ContactBrief.model_validate(property_deal.buyer) if property_deal.buyer else None,
         "transactions": [PropertyTransactionOut.model_validate(txn) for txn in transactions],
         "partnerships": [PartnershipOut.model_validate(p) for p in linked_partnerships],
+        "linked_partnership": linked_partnership_data,
         "summary": _calculate_property_summary(property_deal, transactions, linked_partnerships),
     }
 
@@ -289,93 +337,166 @@ def settle_property_deal(
     current_user: User = Depends(require_admin),
 ):
     """
-    Mark a property deal as settled and distribute profit to partners.
-    Calculation:
-      gross_profit = total_buyer_value - total_seller_value
-      net_profit = gross_profit - broker_commission - other_expenses
-    Distributes net_profit among linked partnership members.
-    If no partnership exists, 100% profit goes to self (admin user).
+    Settle a property deal. Handles two deal sub-types differently:
+
+    PLOT (middleman): buyer_rate_per_sqft, registry_date, other_expenses
+      - gross_profit = buyer_rate * area - total_seller_value
+      - net_profit = gross_profit - broker_commission - other_expenses
+      - Each partner gets: advance_returned + (net_profit * share%)
+
+    SITE: total_profit_received, site_deal_end_date
+      - my_profit = total_profit_received * (my_share_percentage / 100)
+      - ROI per annum computed from deal start/end dates
     """
     property_deal = _get_property_or_404(deal_id, db)
 
     if property_deal.status == "settled":
         raise HTTPException(status_code=400, detail="This property deal is already settled")
 
-    # Resolve values from request or fall back to deal fields
-    total_buyer_value = settle_data.total_buyer_value or _decimal(property_deal.total_buyer_value)
-    total_seller_value = settle_data.total_seller_value or _decimal(property_deal.total_seller_value)
-    broker_commission = settle_data.broker_commission if settle_data.broker_commission is not None else _decimal(property_deal.broker_commission)
+    property_type = (property_deal.property_type or "").lower()
+
+    # ── SITE settlement ────────────────────────────────────────────────────────
+    if property_type == "site":
+        total_profit_received = _decimal(
+            settle_data.total_profit_received or property_deal.total_profit_received
+        )
+        my_share_pct = _decimal(property_deal.my_share_percentage)
+        my_investment = _decimal(property_deal.my_investment)
+
+        my_profit = total_profit_received * (my_share_pct / Decimal("100")) if my_share_pct else Decimal("0")
+        total_returned = my_investment + my_profit
+
+        # Duration and ROI
+        start_date = property_deal.site_deal_start_date
+        end_date = settle_data.site_deal_end_date or property_deal.site_deal_end_date
+        duration_days = None
+        duration_months = None
+        roi_per_annum = None
+        if start_date and end_date:
+            duration_days = (end_date - start_date).days
+            duration_months = round(duration_days / _AVG_DAYS_PER_MONTH, 1)
+            if my_investment > 0 and duration_days > 0:
+                roi_per_annum = float(
+                    (my_profit / my_investment) / Decimal(str(duration_days / 365)) * Decimal("100")
+                )
+
+        # Persist
+        property_deal.status = "settled"
+        property_deal.total_profit_received = total_profit_received
+        if settle_data.site_deal_end_date:
+            property_deal.site_deal_end_date = settle_data.site_deal_end_date
+
+        db.commit()
+        db.refresh(property_deal)
+
+        return {
+            "deal": PropertyDealOut.model_validate(property_deal),
+            "settlement_summary": {
+                "deal_type": "site",
+                "my_investment": float(my_investment),
+                "total_profit_received": float(total_profit_received),
+                "my_share_percentage": float(my_share_pct),
+                "my_profit": float(my_profit),
+                "total_returned_to_me": float(total_returned),
+                "roi_per_annum_percent": roi_per_annum,
+                "duration_months": duration_months,
+            },
+        }
+
+    # ── PLOT / default settlement ───────────────────────────────────────────────
+    # Determine total_buyer_value
+    if settle_data.buyer_rate_per_sqft is not None and property_deal.total_area_sqft:
+        total_buyer_value = (
+            _decimal(settle_data.buyer_rate_per_sqft) * _decimal(property_deal.total_area_sqft)
+        )
+    else:
+        total_buyer_value = (
+            _decimal(settle_data.total_buyer_value) or _decimal(property_deal.total_buyer_value)
+        )
+
+    total_seller_value = (
+        _decimal(settle_data.total_seller_value) or _decimal(property_deal.total_seller_value)
+    )
+    broker_commission = (
+        settle_data.broker_commission
+        if settle_data.broker_commission is not None
+        else _decimal(property_deal.broker_commission)
+    )
     other_expenses = _decimal(settle_data.other_expenses)
 
     gross_profit = total_buyer_value - total_seller_value
     total_expenses = broker_commission + other_expenses
     net_profit = gross_profit - total_expenses
 
-    # Update property deal fields
-    property_deal.status = "settled"
-    property_deal.gross_profit = gross_profit
-    property_deal.net_profit = net_profit
-    property_deal.broker_commission = broker_commission
-    if settle_data.total_buyer_value is not None:
-        property_deal.total_buyer_value = total_buyer_value
-    if settle_data.total_seller_value is not None:
-        property_deal.total_seller_value = total_seller_value
-    if settle_data.actual_registry_date:
-        property_deal.actual_registry_date = settle_data.actual_registry_date
-
-    # Find linked partnerships
-    from app.models.partnership import PartnershipMember
+    # Sum of all partner advances (for summary display)
     linked_partnerships = db.query(Partnership).filter(
         Partnership.linked_property_deal_id == deal_id,
         Partnership.is_deleted == False,
     ).all()
 
+    total_advance_pool = Decimal("0")
     partner_settlements = []
 
     if linked_partnerships:
         for partnership in linked_partnerships:
-            from app.models.partnership import PartnershipMember as PM
-            members = db.query(PM).filter(
-                PM.partnership_id == partnership.id,
+            members = db.query(PartnershipMember).filter(
+                PartnershipMember.partnership_id == partnership.id,
             ).all()
 
             for member in members:
                 share_pct = _decimal(member.share_percentage)
                 advance = _decimal(member.advance_contributed)
+                total_advance_pool += advance
                 profit_share = net_profit * (share_pct / Decimal("100"))
                 total_to_receive = advance + profit_share
 
-                member.total_received = advance + profit_share
+                member.total_received = total_to_receive
 
                 contact = None
                 if member.contact_id:
-                    from app.models.contact import Contact as C
-                    contact = db.query(C).filter(C.id == member.contact_id).first()
+                    contact = db.query(Contact).filter(Contact.id == member.contact_id).first()
 
                 partner_settlements.append({
                     "member_id": member.id,
                     "contact_name": "Self" if member.is_self else (contact.name if contact else "Unknown"),
                     "is_self": member.is_self,
                     "share_percentage": float(share_pct),
+                    "advance_contributed": float(advance),
                     "advance_returned": float(advance),
                     "profit_share": float(profit_share),
                     "total_to_receive": float(total_to_receive),
                 })
 
             partnership.status = "settled"
-            if settle_data.actual_registry_date:
-                partnership.actual_end_date = settle_data.actual_registry_date
+            registry_date = settle_data.registry_date or settle_data.actual_registry_date
+            if registry_date:
+                partnership.actual_end_date = registry_date
     else:
-        # No partnership — 100% profit to self (the admin user)
+        # No partnership — 100% to self
         partner_settlements.append({
             "member_id": None,
             "contact_name": "Self",
             "is_self": True,
             "share_percentage": 100.0,
+            "advance_contributed": 0.0,
             "advance_returned": 0.0,
             "profit_share": float(net_profit),
             "total_to_receive": float(net_profit),
         })
+
+    # Persist deal fields
+    property_deal.status = "settled"
+    property_deal.gross_profit = gross_profit
+    property_deal.net_profit = net_profit
+    property_deal.broker_commission = broker_commission
+    property_deal.total_buyer_value = total_buyer_value
+    if settle_data.total_seller_value is not None:
+        property_deal.total_seller_value = total_seller_value
+    if settle_data.buyer_rate_per_sqft is not None:
+        property_deal.buyer_rate_per_sqft = settle_data.buyer_rate_per_sqft
+    registry_date = settle_data.registry_date or settle_data.actual_registry_date
+    if registry_date:
+        property_deal.actual_registry_date = registry_date
 
     db.commit()
     db.refresh(property_deal)
@@ -383,9 +504,14 @@ def settle_property_deal(
     return {
         "deal": PropertyDealOut.model_validate(property_deal),
         "settlement_summary": {
+            "deal_type": "plot",
+            "total_buyer_value": float(total_buyer_value),
+            "total_seller_value": float(total_seller_value),
             "gross_profit": float(gross_profit),
-            "total_expenses": float(total_expenses),
+            "broker_commission": float(broker_commission),
+            "other_expenses": float(other_expenses),
             "net_profit": float(net_profit),
+            "total_advance_pool": float(total_advance_pool),
             "partner_settlements": partner_settlements,
         },
     }
