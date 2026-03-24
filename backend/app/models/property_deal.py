@@ -47,6 +47,19 @@ class PropertyDeal(Base):
     sale_price = Column(Numeric(15, 2))
     sale_date = Column(Date)
 
+    # Plot dimension fields (only relevant for plot type)
+    side_left_ft = Column(Numeric(10, 2))
+    side_right_ft = Column(Numeric(10, 2))
+    side_top_ft = Column(Numeric(10, 2))
+    side_bottom_ft = Column(Numeric(10, 2))
+
+    # Site-type investment fields
+    my_investment = Column(Numeric(15, 2), default=0)
+    my_share_percentage = Column(Numeric(6, 3))
+    total_profit_received = Column(Numeric(15, 2))
+    site_deal_start_date = Column(Date)
+    site_deal_end_date = Column(Date)
+
     # Status pipeline
     status = Column(String(30), default="negotiating")
     # negotiating | advance_given | buyer_found | registry_done | settled | cancelled

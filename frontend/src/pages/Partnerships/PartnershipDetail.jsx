@@ -1,16 +1,31 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 
-function PartnershipDetail() {
+const STATUS_COLORS = {
+  active: "bg-blue-100 text-blue-800",
+  settled: "bg-green-100 text-green-800",
+  cancelled: "bg-red-100 text-red-800",
+};
+
+function InfoRow({ label, value }) {
+  if (!value && value !== 0) return null;
+  return (
+    <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm font-medium text-gray-900 text-right max-w-[60%]">{value}</span>
+    </div>
+  );
+}
+
+export default function PartnershipDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showMemberModal, setShowMemberModal] = useState(false);
-  const [showSettleModal, setShowSettleModal] = useState(false);
-  const [settleResult, setSettleResult] = useState(null);
+
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [memberForm, setMemberForm] = useState({
     contact_id: "",
     is_self: false,
@@ -18,67 +33,84 @@ function PartnershipDetail() {
     advance_contributed: "0",
     notes: "",
   });
+
+  // Standalone settle modal (only when NOT linked to property)
+  const [showSettleModal, setShowSettleModal] = useState(false);
   const [settleForm, setSettleForm] = useState({
     total_received: "",
-    actual_end_date: new Date().toISOString().split("T")[0],
+    actual_end_date: "",
     notes: "",
   });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["partnership", id],
     queryFn: async () => {
-      const response = await api.get(`/api/partnerships/${id}`);
-      return response.data;
+      const res = await api.get(`/api/partnerships/${id}`);
+      return res.data;
     },
     retry: 2,
   });
 
   const { data: contacts = [] } = useQuery({
-    queryKey: ["contacts", "partnership-members"],
+    queryKey: ["contacts", "for-form"],
     queryFn: async () => {
-      const response = await api.get("/api/contacts");
-      return response.data;
+      const res = await api.get("/api/contacts", { params: { limit: 200 } });
+      return res.data;
     },
   });
 
-  const memberMutation = useMutation({
+  const deletePartnershipMutation = useMutation({
+    mutationFn: async () => { await api.delete(`/api/partnerships/${id}`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partnerships"] });
+      navigate("/partnerships");
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to delete"),
+  });
+
+  const addMemberMutation = useMutation({
     mutationFn: async (payload) => {
-      const response = await api.post(
-        `/api/partnerships/${id}/members`,
-        payload,
-      );
-      return response.data;
+      const res = await api.post(`/api/partnerships/${id}/members`, payload);
+      return res.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["partnership", id] });
-      setShowMemberModal(false);
-      setMemberForm({
-        contact_id: "",
-        is_self: false,
-        share_percentage: "",
-        advance_contributed: "0",
-        notes: "",
-      });
+      setShowAddMemberModal(false);
+      setMemberForm({ contact_id: "", is_self: false, share_percentage: "", advance_contributed: "0", notes: "" });
     },
-    onError: (err) => {
-      alert(err?.response?.data?.detail || "Failed to add member");
-    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to add member"),
   });
 
   const settleMutation = useMutation({
     mutationFn: async (payload) => {
-      const response = await api.put(`/api/partnerships/${id}/settle`, payload);
-      return response.data;
+      const res = await api.put(`/api/partnerships/${id}/settle`, payload);
+      return res.data;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["partnership", id] });
-      queryClient.invalidateQueries({ queryKey: ["partnerships"] });
-      setSettleResult(data.summary);
+      setShowSettleModal(false);
     },
-    onError: (err) => {
-      alert(err?.response?.data?.detail || "Failed to settle partnership");
-    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to settle"),
   });
+
+  const handleAddMember = () => {
+    const payload = {
+      contact_id: memberForm.is_self ? null : (memberForm.contact_id ? parseInt(memberForm.contact_id) : null),
+      is_self: memberForm.is_self,
+      share_percentage: parseFloat(memberForm.share_percentage) || 0,
+      advance_contributed: parseFloat(memberForm.advance_contributed) || 0,
+      notes: memberForm.notes?.trim() || null,
+    };
+    addMemberMutation.mutate(payload);
+  };
+
+  const handleSettle = () => {
+    settleMutation.mutate({
+      total_received: settleForm.total_received ? parseFloat(settleForm.total_received) : null,
+      actual_end_date: settleForm.actual_end_date || null,
+      notes: settleForm.notes?.trim() || null,
+    });
+  };
 
   if (isLoading) {
     return (
@@ -88,621 +120,417 @@ function PartnershipDetail() {
     );
   }
 
-  const partnership = data?.partnership;
-  if (isError || !partnership) {
+  if (isError || !data?.partnership) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {isError ? "Failed to load partnership" : "Partnership not found"}
-          </h2>
-          <button
-            onClick={() => navigate("/partnerships")}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            Back to Partnerships
+          <p className="text-gray-500 mb-4">Partnership not found.</p>
+          <button onClick={() => navigate("/partnerships")} className="text-blue-600 hover:underline">
+            ← Back to Partnerships
           </button>
         </div>
       </div>
     );
   }
 
+  const partnership = data.partnership;
   const members = data.members || [];
+  const linkedProperty = data.linked_property;
+  const isLinkedToProperty = Boolean(partnership.linked_property_deal_id);
+  const isActive = partnership.status === "active";
+  const isSettled = partnership.status === "settled";
 
-  // Distribution calculation
-  const totalAdvance = members.reduce(
-    (sum, { member }) => sum + Number(member.advance_contributed || 0),
-    0,
-  );
-  const totalReceived = Number(partnership.total_received || 0);
-  const profit =
-    totalReceived > 0 ? Math.max(0, totalReceived - totalAdvance) : null;
+  const totalAdvance = members.reduce((sum, m) => sum + parseFloat(m.advance_contributed || 0), 0);
+  const totalReceived = members.reduce((sum, m) => sum + parseFloat(m.total_received || 0), 0);
 
-  const memberDistribution = members.map(({ member, contact }) => {
-    const advance = Number(member.advance_contributed || 0);
-    const share = Number(member.share_percentage || 0);
-    const profitShare = profit !== null ? (share / 100) * profit : null;
-    const totalDue = profit !== null ? advance + profitShare : null;
-    const totalReceivedByMember = Number(member.total_received || 0);
-    return {
-      member,
-      contact,
-      advance,
-      share,
-      profitShare,
-      totalDue,
-      totalReceivedByMember,
-    };
-  });
-
-  const submitMember = () => {
-    memberMutation.mutate({
-      contact_id: memberForm.is_self ? null : Number(memberForm.contact_id),
-      is_self: memberForm.is_self,
-      share_percentage: Number(memberForm.share_percentage),
-      advance_contributed: Number(memberForm.advance_contributed || 0),
-      total_received: 0,
-      notes: memberForm.notes || null,
-    });
-  };
-
-  const submitSettlement = () => {
-    settleMutation.mutate({
-      total_received: settleForm.total_received
-        ? Number(settleForm.total_received)
-        : null,
-      actual_end_date: settleForm.actual_end_date || null,
-      notes: settleForm.notes || null,
-    });
-  };
+  // Standalone settle preview (when not linked to property)
+  const settleTotal = parseFloat(settleForm.total_received || 0);
+  const settleAdvancePool = totalAdvance;
+  const settleProfit = settleTotal - settleAdvancePool;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 py-6 px-4">
+      <div className="max-w-4xl mx-auto space-y-5">
+
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div>
-            <button
-              onClick={() => navigate("/partnerships")}
-              className="text-gray-600 hover:text-gray-900 mb-3"
-            >
-              ← Back to Partnerships
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {partnership.title}
-            </h1>
-            <p className="text-gray-600 mt-1 capitalize">
-              Status: {partnership.status}
-            </p>
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate("/partnerships")} className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200">←</button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{partnership.title}</h1>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[partnership.status] || "bg-gray-100 text-gray-700"}`}>
+                  {partnership.status}
+                </span>
+                <span className="text-xs text-gray-400">{members.length} partner{members.length !== 1 ? "s" : ""}</span>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
               onClick={() => navigate(`/partnerships/${id}/edit`)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
             >
               Edit
             </button>
-            {partnership.status !== "settled" && (
-              <button
-                onClick={() => { setSettleResult(null); setShowSettleModal(true); }}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
-              >
-                Record Deal Receipt
-              </button>
-            )}
+            <button
+              onClick={() => { if (window.confirm("Delete this partnership?")) deletePartnershipMutation.mutate(); }}
+              className="px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
+            >
+              Delete
+            </button>
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Total Advance</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(totalAdvance)}
+        {/* Linked property notice */}
+        {isLinkedToProperty && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-blue-500 text-xl">🏘</span>
+            <div>
+              <p className="text-sm font-semibold text-blue-800">
+                This partnership is linked to a property deal.
+              </p>
+              {linkedProperty ? (
+                <Link
+                  to={`/properties/${partnership.linked_property_deal_id}`}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  View Property: {linkedProperty.title} →
+                </Link>
+              ) : (
+                <Link
+                  to={`/properties/${partnership.linked_property_deal_id}`}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  View Linked Property Deal →
+                </Link>
+              )}
+              <p className="text-xs text-blue-600 mt-1">
+                Settlement is managed from the linked Property Deal page.
+              </p>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Total Received</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(totalReceived)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Profit (after advances)</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {profit !== null ? formatCurrency(profit) : "—"}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">Partners</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">
-              {members.length}
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main column */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Partnership Details */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Partnership Details
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-gray-500">Linked Property</div>
-                  <div className="font-medium">
-                    {data.linked_property ? (
-                      <button
-                        onClick={() =>
-                          navigate(`/properties/${data.linked_property.id}`)
-                        }
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        {data.linked_property.title}
-                      </button>
-                    ) : (
-                      "—"
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Total Deal Value</div>
-                  <div className="font-medium">
-                    {formatCurrency(partnership.total_deal_value)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Start Date</div>
-                  <div className="font-medium">
-                    {formatDate(partnership.start_date)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Expected End</div>
-                  <div className="font-medium">
-                    {formatDate(partnership.expected_end_date)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Actual End</div>
-                  <div className="font-medium">
-                    {formatDate(partnership.actual_end_date)}
-                  </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Main content */}
+          <div className="lg:col-span-2 space-y-5">
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+                <div className="text-xs text-gray-400 mb-1">Total Advance</div>
+                <div className="text-lg font-bold text-gray-900">{formatCurrency(totalAdvance)}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+                <div className="text-xs text-gray-400 mb-1">Total Received</div>
+                <div className="text-lg font-bold text-green-700">{formatCurrency(totalReceived)}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+                <div className="text-xs text-gray-400 mb-1">Net Profit</div>
+                <div className={`text-lg font-bold ${totalReceived - totalAdvance >= 0 ? "text-green-700" : "text-red-600"}`}>
+                  {formatCurrency(totalReceived - totalAdvance)}
                 </div>
               </div>
-              {partnership.notes && (
-                <p className="text-sm text-gray-700 mt-4 pt-4 border-t border-gray-200">
-                  {partnership.notes}
-                </p>
-              )}
+              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+                <div className="text-xs text-gray-400 mb-1">Partners</div>
+                <div className="text-lg font-bold text-gray-900">{members.length}</div>
+              </div>
             </div>
 
-            {/* Distribution Table */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Partner Distribution
-              </h2>
+            {/* Partners table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-semibold text-gray-800">Partner Distribution</h2>
+                {isActive && (
+                  <button
+                    onClick={() => setShowAddMemberModal(true)}
+                    className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm hover:bg-blue-100"
+                  >
+                    + Add Partner
+                  </button>
+                )}
+              </div>
+
               {members.length === 0 ? (
-                <p className="text-sm text-gray-500">No partners added yet.</p>
+                <p className="text-sm text-gray-400 text-center py-6">No partners added yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200">
-                        <th className="text-left py-2 px-3 text-gray-500 font-medium">
-                          Partner
-                        </th>
-                        <th className="text-right py-2 px-3 text-gray-500 font-medium">
-                          Share%
-                        </th>
-                        <th className="text-right py-2 px-3 text-gray-500 font-medium">
-                          Advance
-                        </th>
-                        <th className="text-right py-2 px-3 text-gray-500 font-medium">
-                          Profit Share
-                        </th>
-                        <th className="text-right py-2 px-3 text-gray-500 font-medium">
-                          Total Due
-                        </th>
-                        <th className="text-right py-2 px-3 text-gray-500 font-medium">
-                          Received
-                        </th>
+                        <th className="text-left py-2 text-gray-500 font-medium">Partner</th>
+                        <th className="text-right py-2 text-gray-500 font-medium">Share %</th>
+                        <th className="text-right py-2 text-gray-500 font-medium">Advance</th>
+                        <th className="text-right py-2 text-gray-500 font-medium">Total Received</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {memberDistribution.map(
-                        ({
-                          member,
-                          contact,
-                          advance,
-                          share,
-                          profitShare,
-                          totalDue,
-                          totalReceivedByMember,
-                        }) => (
-                          <tr key={member.id} className="hover:bg-gray-50">
-                            <td className="py-3 px-3 font-medium text-gray-900">
-                              {member.is_self
-                                ? "Self"
-                                : contact?.name || "Unknown"}
+                    <tbody>
+                      {members.map((m, i) => {
+                        const received = parseFloat(m.total_received || 0);
+                        const advance = parseFloat(m.advance_contributed || 0);
+                        const isFullyReceived = isSettled && received > 0;
+                        const contactObj = contacts.find((c) => c.id === m.contact_id);
+                        const name = m.is_self ? "Self (You)" : (contactObj?.name || "Unknown");
+                        return (
+                          <tr key={i} className={`border-b border-gray-100 ${isFullyReceived ? "bg-green-50" : ""}`}>
+                            <td className="py-2 font-medium">
+                              {name}
+                              {m.is_self && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">you</span>}
                             </td>
-                            <td className="py-3 px-3 text-right text-gray-700">
-                              {share}%
-                            </td>
-                            <td className="py-3 px-3 text-right text-gray-700">
-                              {formatCurrency(advance)}
-                            </td>
-                            <td className="py-3 px-3 text-right text-gray-700">
-                              {profitShare !== null
-                                ? formatCurrency(profitShare)
-                                : "—"}
-                            </td>
-                            <td className="py-3 px-3 text-right font-semibold text-gray-900">
-                              {totalDue !== null
-                                ? formatCurrency(totalDue)
-                                : "—"}
-                            </td>
-                            <td className="py-3 px-3 text-right text-gray-700">
-                              {totalReceivedByMember > 0 ? (
-                                <span
-                                  className={
-                                    totalDue !== null &&
-                                    totalReceivedByMember >= totalDue
-                                      ? "text-green-600 font-medium"
-                                      : "text-orange-600"
-                                  }
-                                >
-                                  {formatCurrency(totalReceivedByMember)}
-                                </span>
-                              ) : (
-                                "—"
-                              )}
+                            <td className="text-right py-2">{m.share_percentage}%</td>
+                            <td className="text-right py-2">{formatCurrency(advance)}</td>
+                            <td className={`text-right py-2 font-semibold ${isFullyReceived ? "text-green-700" : "text-gray-400"}`}>
+                              {isFullyReceived ? formatCurrency(received) : "—"}
                             </td>
                           </tr>
-                        ),
-                      )}
-                    </tbody>
-                    <tfoot className="border-t-2 border-gray-200">
-                      <tr className="font-semibold">
-                        <td className="py-3 px-3 text-gray-900">Total</td>
-                        <td className="py-3 px-3 text-right text-gray-900">
-                          {memberDistribution.reduce((s, r) => s + r.share, 0)}%
-                        </td>
-                        <td className="py-3 px-3 text-right text-gray-900">
-                          {formatCurrency(totalAdvance)}
-                        </td>
-                        <td className="py-3 px-3 text-right text-gray-900">
-                          {profit !== null ? formatCurrency(profit) : "—"}
-                        </td>
-                        <td className="py-3 px-3 text-right text-gray-900">
-                          {profit !== null
-                            ? formatCurrency(totalAdvance + profit)
-                            : "—"}
-                        </td>
-                        <td className="py-3 px-3 text-right text-gray-900">
-                          {formatCurrency(
-                            memberDistribution.reduce(
-                              (s, r) => s + r.totalReceivedByMember,
-                              0,
-                            ),
-                          )}
-                        </td>
+                        );
+                      })}
+                      <tr className="border-t border-gray-300 font-semibold">
+                        <td className="py-2">Total</td>
+                        <td className="text-right py-2">{members.reduce((s, m) => s + parseFloat(m.share_percentage || 0), 0).toFixed(1)}%</td>
+                        <td className="text-right py-2">{formatCurrency(totalAdvance)}</td>
+                        <td className="text-right py-2">{isSettled ? formatCurrency(totalReceived) : "—"}</td>
                       </tr>
-                    </tfoot>
+                    </tbody>
                   </table>
                 </div>
               )}
-              {profit === null && totalReceived === 0 && (
-                <p className="text-xs text-gray-400 mt-3">
-                  * Profit share and total due will show once the deal is
-                  received via "Record Deal Receipt".
-                </p>
-              )}
             </div>
-          </div>
 
-          {/* Right sidebar - Partners */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Partners
-                </h2>
-                {partnership.status !== "settled" && (
-                  <button
-                    onClick={() => setShowMemberModal(true)}
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    + Add
-                  </button>
-                )}
-              </div>
-              {members.length === 0 ? (
-                <p className="text-sm text-gray-500">No partners added yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {members.map(({ member, contact }) => (
-                    <div
-                      key={member.id}
-                      className="border border-gray-200 rounded-lg p-3"
-                    >
-                      <div className="font-medium text-gray-900">
-                        {member.is_self ? "Self" : contact?.name || "Unknown"}
+            {/* Transactions */}
+            {data.transactions?.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-4">Transactions</h2>
+                <div className="space-y-2">
+                  {data.transactions.map((txn) => (
+                    <div key={txn.id} className="flex justify-between items-start py-2 border-b border-gray-100 last:border-0">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 capitalize">{txn.txn_type.replace(/_/g, " ")}</p>
+                        {txn.description && <p className="text-xs text-gray-400">{txn.description}</p>}
+                        <p className="text-xs text-gray-400">{formatDate(txn.txn_date)}</p>
                       </div>
-                      <div className="text-sm text-gray-500">
-                        Share: {member.share_percentage}%
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        Advance: {formatCurrency(member.advance_contributed)}
-                      </div>
+                      <span className="text-sm font-semibold">{formatCurrency(txn.amount)}</span>
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-5">
+            {/* Details */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <h2 className="text-base font-semibold text-gray-800 mb-4">Details</h2>
+              <InfoRow label="Start Date" value={partnership.start_date ? formatDate(partnership.start_date) : null} />
+              <InfoRow label="Expected End" value={partnership.expected_end_date ? formatDate(partnership.expected_end_date) : null} />
+              {isSettled && <InfoRow label="Actual End" value={partnership.actual_end_date ? formatDate(partnership.actual_end_date) : null} />}
+              <InfoRow label="Created" value={formatDate(partnership.created_at)} />
             </div>
+
+            {/* Settle (standalone only) */}
+            {!isLinkedToProperty && isActive && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-3">Actions</h2>
+                <button
+                  onClick={() => setShowSettleModal(true)}
+                  className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 text-sm"
+                >
+                  🤝 Record Settlement
+                </button>
+              </div>
+            )}
+
+            {isLinkedToProperty && isActive && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+                <p className="font-medium mb-1">Settlement via Property Deal</p>
+                <p className="text-xs">Use the <strong>Settle Deal</strong> button on the linked property deal page to settle this partnership.</p>
+              </div>
+            )}
+
+            {/* Notes */}
+            {partnership.notes && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h2 className="text-base font-semibold text-gray-800 mb-2">Notes</h2>
+                <p className="text-sm text-gray-600 whitespace-pre-wrap">{partnership.notes}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Add Partner Modal */}
-      {showMemberModal && (
+      {/* Add Member Modal */}
+      {showAddMemberModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Add Partner
-            </h2>
-            <div className="space-y-4">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-5 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900">Add Partner</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={memberForm.is_self}
-                  onChange={(e) =>
-                    setMemberForm((prev) => ({
-                      ...prev,
-                      is_self: e.target.checked,
-                      contact_id: "",
-                    }))
-                  }
+                  onChange={(e) => setMemberForm((p) => ({ ...p, is_self: e.target.checked, contact_id: "" }))}
+                  className="rounded"
                 />
-                This is my own share
+                <span className="text-sm font-medium text-gray-700">This is me (Self)</span>
               </label>
+
               {!memberForm.is_self && (
-                <select
-                  value={memberForm.contact_id}
-                  onChange={(e) =>
-                    setMemberForm((prev) => ({
-                      ...prev,
-                      contact_id: e.target.value,
-                    }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="">Select contact</option>
-                  {contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.name}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact</label>
+                  <select
+                    value={memberForm.contact_id}
+                    onChange={(e) => setMemberForm((p) => ({ ...p, contact_id: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— Select Contact —</option>
+                    {contacts.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
               )}
-              <input
-                type="number"
-                step="0.001"
-                placeholder="Share Percentage (e.g. 25)"
-                value={memberForm.share_percentage}
-                onChange={(e) =>
-                  setMemberForm((prev) => ({
-                    ...prev,
-                    share_percentage: e.target.value,
-                  }))
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Advance Contributed"
-                value={memberForm.advance_contributed}
-                onChange={(e) =>
-                  setMemberForm((prev) => ({
-                    ...prev,
-                    advance_contributed: e.target.value,
-                  }))
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-              <textarea
-                rows="2"
-                placeholder="Notes (optional)"
-                value={memberForm.notes}
-                onChange={(e) =>
-                  setMemberForm((prev) => ({ ...prev, notes: e.target.value }))
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Share %</label>
+                <input
+                  type="number"
+                  value={memberForm.share_percentage}
+                  onChange={(e) => setMemberForm((p) => ({ ...p, share_percentage: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. 40"
+                  min="0"
+                  max="100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Advance Contributed (₹)</label>
+                <input
+                  type="number"
+                  value={memberForm.advance_contributed}
+                  onChange={(e) => setMemberForm((p) => ({ ...p, advance_contributed: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="0"
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={memberForm.notes}
+                  onChange={(e) => setMemberForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Optional"
+                />
+              </div>
             </div>
-            <div className="flex gap-3 mt-6">
+            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
               <button
-                onClick={() => setShowMemberModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                onClick={() => setShowAddMemberModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={submitMember}
-                disabled={
-                  !memberForm.share_percentage ||
-                  memberMutation.isPending ||
-                  (!memberForm.is_self && !memberForm.contact_id)
-                }
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleAddMember}
+                disabled={addMemberMutation.isPending}
+                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                {memberMutation.isPending ? "Saving..." : "Add Partner"}
+                {addMemberMutation.isPending ? "Adding..." : "Add Partner"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Record Deal Receipt Modal */}
+      {/* Standalone Settle Modal */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
-            {settleResult ? (
-              <>
-                <h2 className="text-xl font-bold text-gray-900 mb-4">✅ Partnership Settled!</h2>
-                <div className="space-y-2 mb-4 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Invested</span>
-                    <span className="font-semibold">{formatCurrency(settleResult.our_investment)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Received</span>
-                    <span className="font-semibold">{formatCurrency(settleResult.total_received)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t pt-2">
-                    <span>Net P&amp;L</span>
-                    <span className={Number(settleResult.our_pnl) >= 0 ? "text-green-600" : "text-red-600"}>
-                      {Number(settleResult.our_pnl) >= 0 ? "+" : ""}{formatCurrency(settleResult.our_pnl)}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowSettleModal(false)}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Close
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-bold text-gray-900 mb-1">
-                  Record Deal Receipt
-                </h2>
-                <p className="text-sm text-gray-500 mb-4">
-                  Enter the total amount received from this deal. Profit will be
-                  distributed after returning all advances.
-                </p>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-5 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900">Record Settlement</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Total Received (₹)</label>
+                <input
+                  type="number"
+                  value={settleForm.total_received}
+                  onChange={(e) => setSettleForm((p) => ({ ...p, total_received: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Total amount received"
+                  min="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Settlement Date</label>
+                <input
+                  type="date"
+                  value={settleForm.actual_end_date}
+                  onChange={(e) => setSettleForm((p) => ({ ...p, actual_end_date: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={settleForm.notes}
+                  onChange={(e) => setSettleForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Optional"
+                />
+              </div>
 
-                {settleForm.total_received &&
-                  members.length > 0 &&
-                  (() => {
-                    const received = Number(settleForm.total_received);
-                    const calculatedProfit = Math.max(0, received - totalAdvance);
+              {settleForm.total_received && members.length > 0 && (
+                <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1.5 border border-gray-200">
+                  <div className="font-semibold text-gray-700 mb-2">Settlement Preview</div>
+                  <div className="flex justify-between"><span className="text-gray-500">Total Received:</span><span>{formatCurrency(settleTotal)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Advance Pool:</span><span>{formatCurrency(settleAdvancePool)}</span></div>
+                  <hr className="border-gray-300" />
+                  <div className="flex justify-between font-semibold"><span>Net Profit:</span><span>{formatCurrency(settleProfit)}</span></div>
+                  <hr className="border-gray-300" />
+                  {members.map((m, i) => {
+                    const sharePct = parseFloat(m.share_percentage || 0);
+                    const advance = parseFloat(m.advance_contributed || 0);
+                    const profit = settleProfit * sharePct / 100;
+                    const total = advance + profit;
+                    const contactObj = contacts.find((c) => c.id === m.contact_id);
+                    const name = m.is_self ? "Self (You)" : (contactObj?.name || "Unknown");
                     return (
-                      <div className="bg-gray-50 rounded-lg p-4 mb-4 text-sm">
-                        <div className="font-medium text-gray-700 mb-2">
-                          Distribution Preview
-                        </div>
-                        <div className="space-y-1">
-                          {members.map(({ member, contact }) => {
-                            const advance = Number(member.advance_contributed || 0);
-                            const share = Number(member.share_percentage || 0);
-                            const pShare = (share / 100) * calculatedProfit;
-                            const due = advance + pShare;
-                            return (
-                              <div key={member.id} className="flex justify-between">
-                                <span className="text-gray-600">
-                                  {member.is_self
-                                    ? "Self"
-                                    : contact?.name || "Unknown"}{" "}
-                                  ({share}%)
-                                </span>
-                                <span className="font-medium text-gray-900">
-                                  {formatCurrency(due)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                          <div className="flex justify-between pt-1 border-t border-gray-200 font-semibold">
-                            <span>Total</span>
-                            <span>{formatCurrency(received)}</span>
-                          </div>
-                        </div>
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-gray-600">{name} ({sharePct}%):</span>
+                        <span className="font-medium">{formatCurrency(total)}</span>
                       </div>
                     );
-                  })()}
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Total Amount Received
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="e.g. 5000000"
-                      value={settleForm.total_received}
-                      onChange={(e) =>
-                        setSettleForm((prev) => ({
-                          ...prev,
-                          total_received: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                      autoFocus
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Deal Close Date
-                    </label>
-                    <input
-                      type="date"
-                      value={settleForm.actual_end_date}
-                      onChange={(e) =>
-                        setSettleForm((prev) => ({
-                          ...prev,
-                          actual_end_date: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Notes (optional)
-                    </label>
-                    <textarea
-                      rows="2"
-                      placeholder="Any settlement notes"
-                      value={settleForm.notes}
-                      onChange={(e) =>
-                        setSettleForm((prev) => ({
-                          ...prev,
-                          notes: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
+                  })}
                 </div>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setShowSettleModal(false)}
-                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitSettlement}
-                    disabled={
-                      !settleForm.total_received || settleMutation.isPending
-                    }
-                    className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
-                  >
-                    {settleMutation.isPending ? "Saving..." : "Confirm Receipt"}
-                  </button>
-                </div>
-              </>
-            )}
+              )}
+            </div>
+            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowSettleModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSettle}
+                disabled={settleMutation.isPending}
+                className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {settleMutation.isPending ? "Settling..." : "Confirm Settlement"}
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
-
-export default PartnershipDetail;
