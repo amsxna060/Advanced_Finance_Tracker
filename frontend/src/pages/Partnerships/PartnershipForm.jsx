@@ -71,7 +71,7 @@ export default function PartnershipForm() {
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts", "for-form"],
     queryFn: async () => {
-      const res = await api.get("/api/contacts", { params: { limit: 200 } });
+      const res = await api.get("/api/contacts", { params: { limit: 500 } });
       return res.data;
     },
   });
@@ -80,7 +80,7 @@ export default function PartnershipForm() {
   const { data: properties = [] } = useQuery({
     queryKey: ["properties", "for-partnership-form"],
     queryFn: async () => {
-      const res = await api.get("/api/properties", { params: { limit: 100, property_type: "plot" } });
+      const res = await api.get("/api/properties", { params: { limit: 500, property_type: "plot" } });
       return res.data.filter((p) => p.status !== "settled" && p.status !== "cancelled");
     },
   });

@@ -134,6 +134,44 @@ export default function PropertyDetail() {
   const isSettled = property.status === "settled";
   const members = lp?.members || [];
 
+  // Calculate site settlement summary from property data (for display after page reload)
+  const calculateSiteSettlementSummary = () => {
+    if (!isSite || !isSettled) return null;
+    
+    const myInvestment = parseFloat(property.my_investment || 0);
+    const totalProfitReceived = parseFloat(property.total_profit_received || 0);
+    const mySharePct = parseFloat(property.my_share_percentage || 0);
+    const myProfit = totalProfitReceived * (mySharePct / 100);
+    const totalReturned = myInvestment + myProfit;
+    
+    // Calculate duration and ROI
+    let durationMonths = null;
+    let roiPerAnnumPercent = null;
+    
+    if (property.site_deal_start_date && property.site_deal_end_date) {
+      const startDate = new Date(property.site_deal_start_date);
+      const endDate = new Date(property.site_deal_end_date);
+      const durationDays = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24));
+      durationMonths = (durationDays / 30.44).toFixed(1);
+      
+      if (myInvestment > 0 && durationDays > 0) {
+        roiPerAnnumPercent = ((myProfit / myInvestment) / (durationDays / 365) * 100);
+      }
+    }
+    
+    return {
+      deal_type: "site",
+      my_investment: myInvestment,
+      my_profit: myProfit,
+      total_returned_to_me: totalReturned,
+      roi_per_annum_percent: roiPerAnnumPercent,
+      duration_months: durationMonths ? parseFloat(durationMonths) : null,
+    };
+  };
+
+  const siteSettlementSummary = calculateSiteSettlementSummary();
+  const displaySettlementSummary = settleResult || siteSettlementSummary;
+
   // Live calculation for plot settle modal
   const area = parseFloat(property.total_area_sqft || 0);
   const sellerTotal = parseFloat(property.total_seller_value || 0);
@@ -186,33 +224,33 @@ export default function PropertyDetail() {
         </div>
 
         {/* Settlement Result Banner */}
-        {settleResult && (
+        {displaySettlementSummary && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-2xl">✅</span>
               <h3 className="text-lg font-bold text-green-800">Deal Settled Successfully!</h3>
             </div>
-            {settleResult.deal_type === "site" ? (
+            {displaySettlementSummary.deal_type === "site" ? (
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-gray-500">My Investment:</span> <span className="font-semibold">{formatCurrency(settleResult.my_investment)}</span></div>
-                <div><span className="text-gray-500">My Profit:</span> <span className="font-semibold text-green-700">{formatCurrency(settleResult.my_profit)}</span></div>
-                <div><span className="text-gray-500">Total Returned:</span> <span className="font-semibold">{formatCurrency(settleResult.total_returned_to_me)}</span></div>
-                {settleResult.roi_per_annum_percent && (
-                  <div><span className="text-gray-500">ROI p.a.:</span> <span className="font-semibold text-blue-700">{settleResult.roi_per_annum_percent.toFixed(2)}%</span></div>
+                <div><span className="text-gray-500">My Investment:</span> <span className="font-semibold">{formatCurrency(displaySettlementSummary.my_investment)}</span></div>
+                <div><span className="text-gray-500">My Profit:</span> <span className="font-semibold text-green-700">{formatCurrency(displaySettlementSummary.my_profit)}</span></div>
+                <div><span className="text-gray-500">Total Returned:</span> <span className="font-semibold">{formatCurrency(displaySettlementSummary.total_returned_to_me)}</span></div>
+                {displaySettlementSummary.roi_per_annum_percent && (
+                  <div><span className="text-gray-500">ROI p.a.:</span> <span className="font-semibold text-blue-700">{displaySettlementSummary.roi_per_annum_percent.toFixed(2)}%</span></div>
                 )}
-                {settleResult.duration_months && (
-                  <div><span className="text-gray-500">Duration:</span> <span className="font-semibold">{settleResult.duration_months} months</span></div>
+                {displaySettlementSummary.duration_months && (
+                  <div><span className="text-gray-500">Duration:</span> <span className="font-semibold">{displaySettlementSummary.duration_months} months</span></div>
                 )}
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                  <div><span className="text-gray-500">Buyer Total:</span> <span className="font-semibold">{formatCurrency(settleResult.total_buyer_value)}</span></div>
-                  <div><span className="text-gray-500">Seller Total:</span> <span className="font-semibold">{formatCurrency(settleResult.total_seller_value)}</span></div>
-                  <div><span className="text-gray-500">Gross Profit:</span> <span className="font-semibold">{formatCurrency(settleResult.gross_profit)}</span></div>
-                  <div><span className="text-gray-500">Net Profit:</span> <span className="font-semibold text-green-700">{formatCurrency(settleResult.net_profit)}</span></div>
+                  <div><span className="text-gray-500">Buyer Total:</span> <span className="font-semibold">{formatCurrency(displaySettlementSummary.total_buyer_value)}</span></div>
+                  <div><span className="text-gray-500">Seller Total:</span> <span className="font-semibold">{formatCurrency(displaySettlementSummary.total_seller_value)}</span></div>
+                  <div><span className="text-gray-500">Gross Profit:</span> <span className="font-semibold">{formatCurrency(displaySettlementSummary.gross_profit)}</span></div>
+                  <div><span className="text-gray-500">Net Profit:</span> <span className="font-semibold text-green-700">{formatCurrency(displaySettlementSummary.net_profit)}</span></div>
                 </div>
-                {settleResult.partner_settlements?.length > 0 && (
+                {displaySettlementSummary.partner_settlements?.length > 0 && (
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
                       <thead>
@@ -225,7 +263,7 @@ export default function PropertyDetail() {
                         </tr>
                       </thead>
                       <tbody>
-                        {settleResult.partner_settlements.map((ps, i) => (
+                        {displaySettlementSummary.partner_settlements.map((ps, i) => (
                           <tr key={i} className="border-b border-green-100">
                             <td className="py-2 font-medium">{ps.contact_name}{ps.is_self && " (You)"}</td>
                             <td className="text-right py-2">{ps.share_percentage}%</td>

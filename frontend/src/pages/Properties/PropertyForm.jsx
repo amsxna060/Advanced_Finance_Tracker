@@ -180,7 +180,7 @@ export default function PropertyForm() {
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts", "for-form"],
     queryFn: async () => {
-      const res = await api.get("/api/contacts", { params: { limit: 200 } });
+      const res = await api.get("/api/contacts", { params: { limit: 500 } });
       return res.data;
     },
   });

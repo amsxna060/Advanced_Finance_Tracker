@@ -146,16 +146,31 @@ Advanced_Finance_Tracker/
 
 ## 🔧 Development
 
-### Run database migrations
+### Database Migrations
+
+**Migrations are applied automatically** when the backend container starts, so you don't need to run them manually in most cases.
+
+#### Manual Migration Commands (if needed)
 
 ```bash
+# Run migrations manually
 docker-compose exec backend alembic upgrade head
+
+# Check current migration version
+docker-compose exec backend alembic current
+
+# View migration history
+docker-compose exec backend alembic history
 ```
 
 ### Create new migration
 
 ```bash
+# Generate a new migration based on model changes
 docker-compose exec backend alembic revision --autogenerate -m "description"
+
+# After creating the migration, restart the backend to apply it
+docker-compose restart backend
 ```
 
 ### View logs
@@ -165,6 +180,33 @@ docker-compose logs -f backend    # Backend logs
 docker-compose logs -f frontend   # Frontend logs
 docker-compose logs -f postgres   # Database logs
 ```
+
+## 🚀 Deployment Process
+
+When you commit and deploy this code:
+
+1. **Automatic Migration Execution**: 
+   - The backend container runs `alembic upgrade head` automatically on startup
+   - This applies any pending database migrations before the server starts
+   - See `backend/start.sh` for the startup script
+
+2. **Deployment Steps**:
+   ```bash
+   # 1. Commit your changes
+   git add .
+   git commit -m "Your commit message"
+   
+   # 2. Rebuild and restart containers
+   docker-compose down
+   docker-compose up --build
+   
+   # The backend will automatically run migrations during startup
+   ```
+
+3. **Production Deployment**:
+   - Ensure your production environment variables are set (especially `DATABASE_URL` and `SECRET_KEY`)
+   - Migrations will run automatically when containers start
+   - Monitor logs to verify successful migration: `docker-compose logs backend`
 
 ## 🐛 Troubleshooting
 

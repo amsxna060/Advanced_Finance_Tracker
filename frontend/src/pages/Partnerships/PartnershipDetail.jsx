@@ -54,7 +54,7 @@ export default function PartnershipDetail() {
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts", "for-form"],
     queryFn: async () => {
-      const res = await api.get("/api/contacts", { params: { limit: 200 } });
+      const res = await api.get("/api/contacts", { params: { limit: 500 } });
       return res.data;
     },
   });
@@ -140,8 +140,8 @@ export default function PartnershipDetail() {
   const isActive = partnership.status === "active";
   const isSettled = partnership.status === "settled";
 
-  const totalAdvance = members.reduce((sum, m) => sum + parseFloat(m.advance_contributed || 0), 0);
-  const totalReceived = members.reduce((sum, m) => sum + parseFloat(m.total_received || 0), 0);
+  const totalAdvance = members.reduce((sum, m) => sum + parseFloat(m.member?.advance_contributed || 0), 0);
+  const totalReceived = members.reduce((sum, m) => sum + parseFloat(m.member?.total_received || 0), 0);
 
   // Standalone settle preview (when not linked to property)
   const settleTotal = parseFloat(settleForm.total_received || 0);
@@ -267,18 +267,17 @@ export default function PartnershipDetail() {
                     </thead>
                     <tbody>
                       {members.map((m, i) => {
-                        const received = parseFloat(m.total_received || 0);
-                        const advance = parseFloat(m.advance_contributed || 0);
+                        const received = parseFloat(m.member?.total_received || 0);
+                        const advance = parseFloat(m.member?.advance_contributed || 0);
                         const isFullyReceived = isSettled && received > 0;
-                        const contactObj = contacts.find((c) => c.id === m.contact_id);
-                        const name = m.is_self ? "Self (You)" : (contactObj?.name || "Unknown");
+                        const name = m.member?.is_self ? "Self (You)" : (m.contact?.name || "Unknown");
                         return (
                           <tr key={i} className={`border-b border-gray-100 ${isFullyReceived ? "bg-green-50" : ""}`}>
                             <td className="py-2 font-medium">
                               {name}
-                              {m.is_self && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">you</span>}
+                              {m.member?.is_self && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">you</span>}
                             </td>
-                            <td className="text-right py-2">{m.share_percentage}%</td>
+                            <td className="text-right py-2">{m.member?.share_percentage}%</td>
                             <td className="text-right py-2">{formatCurrency(advance)}</td>
                             <td className={`text-right py-2 font-semibold ${isFullyReceived ? "text-green-700" : "text-gray-400"}`}>
                               {isFullyReceived ? formatCurrency(received) : "—"}
@@ -288,7 +287,7 @@ export default function PartnershipDetail() {
                       })}
                       <tr className="border-t border-gray-300 font-semibold">
                         <td className="py-2">Total</td>
-                        <td className="text-right py-2">{members.reduce((s, m) => s + parseFloat(m.share_percentage || 0), 0).toFixed(1)}%</td>
+                        <td className="text-right py-2">{members.reduce((s, m) => s + parseFloat(m.member?.share_percentage || 0), 0).toFixed(1)}%</td>
                         <td className="text-right py-2">{formatCurrency(totalAdvance)}</td>
                         <td className="text-right py-2">{isSettled ? formatCurrency(totalReceived) : "—"}</td>
                       </tr>
@@ -497,12 +496,11 @@ export default function PartnershipDetail() {
                   <div className="flex justify-between font-semibold"><span>Net Profit:</span><span>{formatCurrency(settleProfit)}</span></div>
                   <hr className="border-gray-300" />
                   {members.map((m, i) => {
-                    const sharePct = parseFloat(m.share_percentage || 0);
-                    const advance = parseFloat(m.advance_contributed || 0);
+                    const sharePct = parseFloat(m.member?.share_percentage || 0);
+                    const advance = parseFloat(m.member?.advance_contributed || 0);
                     const profit = settleProfit * sharePct / 100;
                     const total = advance + profit;
-                    const contactObj = contacts.find((c) => c.id === m.contact_id);
-                    const name = m.is_self ? "Self (You)" : (contactObj?.name || "Unknown");
+                    const name = m.member?.is_self ? "Self (You)" : (m.contact?.name || "Unknown");
                     return (
                       <div key={i} className="flex justify-between text-xs">
                         <span className="text-gray-600">{name} ({sharePct}%):</span>
