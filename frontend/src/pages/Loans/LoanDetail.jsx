@@ -16,7 +16,11 @@ function LoanDetail() {
   const { user } = useAuth();
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
+  // For EMI: single total amount field
+  // For interest_only / short_term: separate interest + principal fields
+  const [paymentAmount, setPaymentAmount] = useState(""); // EMI total
+  const [interestPaymentAmount, setInterestPaymentAmount] = useState(""); // non-EMI interest portion
+  const [principalRepaymentAmount, setPrincipalRepaymentAmount] = useState(""); // non-EMI principal portion
   const [paymentDate, setPaymentDate] = useState(
     new Date().toISOString().split("T")[0],
   );
@@ -75,20 +79,31 @@ function LoanDetail() {
     });
 
   // Fetch payment preview
-  const fetchPreview = async (amount) => {
-    if (!amount || parseFloat(amount) <= 0) {
+  const fetchPreview = async (totalAmt, prAmt) => {
+    const total = parseFloat(totalAmt);
+    if (!totalAmt || isNaN(total) || total <= 0) {
       setPaymentPreview(null);
       return;
     }
     try {
+      const params = { amount: total, payment_date: paymentDate };
+      const pr = parseFloat(prAmt);
+      if (!isNaN(pr) && pr > 0) params.principal_repayment = pr;
       const response = await api.get(`/api/loans/${id}/payment-preview`, {
-        params: { amount: parseFloat(amount), payment_date: paymentDate },
+        params,
       });
       setPaymentPreview(response.data);
     } catch (error) {
       console.error("Failed to fetch preview:", error);
       setPaymentPreview(null);
     }
+  };
+
+  // Compute total for non-EMI from the two sub-fields
+  const nonEmiTotal = () => {
+    const i = parseFloat(interestPaymentAmount) || 0;
+    const p = parseFloat(principalRepaymentAmount) || 0;
+    return i + p > 0 ? (i + p).toFixed(2) : "";
   };
 
   // Record payment
@@ -103,10 +118,7 @@ function LoanDetail() {
       queryClient.invalidateQueries({
         queryKey: ["loan-monthly-schedule", id],
       });
-      setShowPaymentModal(false);
-      setPaymentAmount("");
-      setPaymentNotes("");
-      setPaymentPreview(null);
+      resetPaymentModal();
     },
   });
 
@@ -183,16 +195,32 @@ function LoanDetail() {
 
   const handlePaymentAmountChange = (value) => {
     setPaymentAmount(value);
-    fetchPreview(value);
+    fetchPreview(value, null);
   };
 
   const handleRecordPayment = () => {
-    recordPaymentMutation.mutate({
-      amount_paid: parseFloat(paymentAmount),
+    const isEmi = loan?.loan_type === "emi";
+    const total = isEmi ? parseFloat(paymentAmount) : parseFloat(nonEmiTotal());
+    if (!total || total <= 0) return;
+    const payload = {
+      amount_paid: total,
       payment_date: paymentDate,
       payment_mode: paymentMode,
       notes: paymentNotes,
-    });
+    };
+    if (!isEmi && parseFloat(principalRepaymentAmount) > 0) {
+      payload.principal_repayment = parseFloat(principalRepaymentAmount);
+    }
+    recordPaymentMutation.mutate(payload);
+  };
+
+  const resetPaymentModal = () => {
+    setShowPaymentModal(false);
+    setPaymentAmount("");
+    setInterestPaymentAmount("");
+    setPrincipalRepaymentAmount("");
+    setPaymentNotes("");
+    setPaymentPreview(null);
   };
 
   const handleDeletePayment = (paymentId) => {
@@ -875,7 +903,22 @@ function LoanDetail() {
               <div className="space-y-3">
                 {loan.status === "active" && (
                   <button
-                    onClick={() => setShowPaymentModal(true)}
+                    onClick={() => {
+                      setShowPaymentModal(true);
+                      // Pre-fill interest amount for non-EMI loans
+                      if (
+                        loan.loan_type !== "emi" &&
+                        loanData?.outstanding?.interest_outstanding
+                      ) {
+                        const intAmt = parseFloat(
+                          loanData.outstanding.interest_outstanding,
+                        );
+                        if (intAmt > 0) {
+                          setInterestPaymentAmount(intAmt.toFixed(2));
+                          fetchPreview(intAmt.toFixed(2), null);
+                        }
+                      }
+                    }}
                     className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                   >
                     💵 Record Payment
@@ -959,19 +1002,117 @@ function LoanDetail() {
               Record Payment
             </h2>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Amount *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={paymentAmount}
-                  onChange={(e) => handlePaymentAmountChange(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="0.00"
-                />
-              </div>
+              {/* ── EMI: single total amount ── */}
+              {loan.loan_type === "emi" ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Payment Amount *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={paymentAmount}
+                    onChange={(e) => handlePaymentAmountChange(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+              ) : (
+                /* ── Non-EMI: separate interest + principal fields ── */
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Interest Payment
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                        ₹
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={interestPaymentAmount}
+                        onChange={(e) => {
+                          setInterestPaymentAmount(e.target.value);
+                          const total =
+                            (parseFloat(e.target.value) || 0) +
+                            (parseFloat(principalRepaymentAmount) || 0);
+                          if (total > 0)
+                            fetchPreview(
+                              total.toFixed(2),
+                              parseFloat(principalRepaymentAmount) || null,
+                            );
+                          else setPaymentPreview(null);
+                        }}
+                        className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    {loanData?.outstanding?.interest_outstanding > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Outstanding:{" "}
+                        {formatCurrency(
+                          loanData.outstanding.interest_outstanding,
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Principal Repayment
+                      <span className="ml-1 text-gray-400 font-normal">
+                        (optional)
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                        ₹
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={principalRepaymentAmount}
+                        onChange={(e) => {
+                          setPrincipalRepaymentAmount(e.target.value);
+                          const total =
+                            (parseFloat(interestPaymentAmount) || 0) +
+                            (parseFloat(e.target.value) || 0);
+                          if (total > 0)
+                            fetchPreview(
+                              total.toFixed(2),
+                              parseFloat(e.target.value) || null,
+                            );
+                          else setPaymentPreview(null);
+                        }}
+                        className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Interest will stop accruing on returned amount from this
+                      date.
+                    </p>
+                  </div>
+                  {/* Total summary row */}
+                  {(parseFloat(interestPaymentAmount) || 0) +
+                    (parseFloat(principalRepaymentAmount) || 0) >
+                    0 && (
+                    <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-2">
+                      <span className="text-sm font-semibold text-gray-700">
+                        Total Payment
+                      </span>
+                      <span className="text-base font-bold text-gray-900">
+                        {formatCurrency(
+                          (parseFloat(interestPaymentAmount) || 0) +
+                            (parseFloat(principalRepaymentAmount) || 0),
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Payment Date *
@@ -981,7 +1122,18 @@ function LoanDetail() {
                   value={paymentDate}
                   onChange={(e) => {
                     setPaymentDate(e.target.value);
-                    if (paymentAmount) fetchPreview(paymentAmount);
+                    if (loan.loan_type === "emi") {
+                      if (paymentAmount) fetchPreview(paymentAmount, null);
+                    } else {
+                      const total =
+                        (parseFloat(interestPaymentAmount) || 0) +
+                        (parseFloat(principalRepaymentAmount) || 0);
+                      if (total > 0)
+                        fetchPreview(
+                          total.toFixed(2),
+                          parseFloat(principalRepaymentAmount) || null,
+                        );
+                    }
                   }}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
@@ -1019,28 +1171,38 @@ function LoanDetail() {
                     Payment Allocation Preview
                   </h3>
                   <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Overdue Interest:</span>
-                      <span className="font-medium">
-                        {formatCurrency(
-                          paymentPreview.allocated_to_overdue_interest,
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Current Interest:</span>
-                      <span className="font-medium">
-                        {formatCurrency(
-                          paymentPreview.allocated_to_current_interest,
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Principal:</span>
-                      <span className="font-medium">
-                        {formatCurrency(paymentPreview.allocated_to_principal)}
-                      </span>
-                    </div>
+                    {paymentPreview.allocated_to_overdue_interest > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Overdue Interest:</span>
+                        <span className="font-medium">
+                          {formatCurrency(
+                            paymentPreview.allocated_to_overdue_interest,
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {paymentPreview.allocated_to_current_interest > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Current Interest:</span>
+                        <span className="font-medium">
+                          {formatCurrency(
+                            paymentPreview.allocated_to_current_interest,
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {paymentPreview.allocated_to_principal > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">
+                          Principal Returned:
+                        </span>
+                        <span className="font-medium text-green-700">
+                          {formatCurrency(
+                            paymentPreview.allocated_to_principal,
+                          )}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between pt-2 border-t border-blue-300">
                       <span className="font-semibold">Total:</span>
                       <span className="font-semibold">
@@ -1049,7 +1211,7 @@ function LoanDetail() {
                     </div>
                     {paymentPreview.unallocated > 0 && (
                       <div className="flex justify-between text-orange-600">
-                        <span>Excess Amount:</span>
+                        <span>Advance Credit:</span>
                         <span className="font-medium">
                           {formatCurrency(paymentPreview.unallocated)}
                         </span>
@@ -1061,12 +1223,7 @@ function LoanDetail() {
             </div>
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => {
-                  setShowPaymentModal(false);
-                  setPaymentAmount("");
-                  setPaymentNotes("");
-                  setPaymentPreview(null);
-                }}
+                onClick={resetPaymentModal}
                 className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
               >
                 Cancel
@@ -1074,9 +1231,11 @@ function LoanDetail() {
               <button
                 onClick={handleRecordPayment}
                 disabled={
-                  !paymentAmount ||
-                  parseFloat(paymentAmount) <= 0 ||
-                  recordPaymentMutation.isPending
+                  (loan.loan_type === "emi"
+                    ? !paymentAmount || parseFloat(paymentAmount) <= 0
+                    : (parseFloat(interestPaymentAmount) || 0) +
+                        (parseFloat(principalRepaymentAmount) || 0) <=
+                      0) || recordPaymentMutation.isPending
                 }
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
               >

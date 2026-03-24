@@ -219,7 +219,8 @@ def record_payment(
         loan_id,
         Decimal(str(payment_data.amount_paid)),
         payment_data.payment_date,
-        db
+        db,
+        principal_repayment=Decimal(str(payment_data.principal_repayment)) if payment_data.principal_repayment else None,
     )
     
     # Create payment record
@@ -324,6 +325,7 @@ def preview_payment(
     loan_id: int,
     amount: Decimal = Query(..., gt=0),
     payment_date: Optional[date] = None,
+    principal_repayment: Optional[Decimal] = Query(None, gt=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -333,7 +335,7 @@ def preview_payment(
         raise HTTPException(status_code=404, detail="Loan not found")
     
     preview_date = payment_date or date.today()
-    allocation = allocate_payment(loan_id, amount, preview_date, db)
+    allocation = allocate_payment(loan_id, amount, preview_date, db, principal_repayment=principal_repayment)
     
     return PaymentPreviewResponse(
         amount=amount,

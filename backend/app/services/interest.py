@@ -127,8 +127,25 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     )
     interest_paid_remaining = interest_paid_total
 
+    # Track principal repayments for all non-EMI loans so accrual basis is reduced.
+    principal_repayment_events = sorted(
+        [(p.payment_date, Decimal(str(p.allocated_to_principal)))
+         for p in payments if Decimal(str(p.allocated_to_principal or 0)) > 0],
+        key=lambda x: x[0],
+    )
+    pr_idx = 0
+
     cur = interest_start_calc
     while cur <= as_of_date:
+        # Apply any principal repayments whose date falls at or before the start of this period
+        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= cur:
+            calc_principal = max(calc_principal - principal_repayment_events[pr_idx][1], Decimal("0"))
+            pr_idx += 1
+
+        # Once principal is fully repaid, stop future accrual/capitalization.
+        if calc_principal <= Decimal("0"):
+            break
+
         period_end = cur + relativedelta(months=1)
         month_count += 1
         monthly_interest_full = calc_principal * (calc_rate / Decimal("100") / Decimal("12"))
@@ -418,7 +435,24 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         cur = start_month
         interest_paid_remaining = total_interest_paid
 
+        # Track principal reductions so interest accrues on reduced balance
+        short_term_pr_events = sorted(
+            [(p.payment_date, Decimal(str(p.allocated_to_principal or 0)))
+             for p in payments if Decimal(str(p.allocated_to_principal or 0)) > 0],
+            key=lambda x: x[0],
+        )
+        st_pr_idx = 0
+
         while cur <= today:
+            # Apply principal reductions at period boundaries
+            while st_pr_idx < len(short_term_pr_events) and short_term_pr_events[st_pr_idx][0] <= cur:
+                principal = max(principal - short_term_pr_events[st_pr_idx][1], Decimal("0"))
+                st_pr_idx += 1
+
+            # If principal is fully repaid, stop generating future interest rows.
+            if principal <= Decimal("0"):
+                break
+
             period_end = cur + relativedelta(months=1)
             if period_end <= today:
                 # Full period
@@ -488,10 +522,27 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     cur = interest_start
     interest_paid_remaining = total_interest_paid
     entries = []
-    month_count = 0  # how many full periods completed in current cap cycle
-    unpaid_interest_carried = Decimal("0")  # interest not yet paid, may capitalize
+    month_count = 0
+    unpaid_interest_carried = Decimal("0")
+
+    # Track principal reductions so interest accrues on reduced balance
+    principal_repayment_events = sorted(
+        [(p.payment_date, Decimal(str(p.allocated_to_principal or 0)))
+         for p in payments if Decimal(str(p.allocated_to_principal or 0)) > 0],
+        key=lambda x: x[0],
+    )
+    pr_idx = 0
 
     while cur <= today:
+        # Apply principal reductions that took effect by or before this period start
+        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= cur:
+            principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
+            pr_idx += 1
+
+        # If principal is fully repaid, stop generating future interest rows/caps.
+        if principal <= Decimal("0"):
+            break
+
         period_end = cur + relativedelta(months=1)
         month_count += 1
         is_cap_month = cap_enabled and (month_count % cap_every == 0)

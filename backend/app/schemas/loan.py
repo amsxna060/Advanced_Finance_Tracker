@@ -94,6 +94,7 @@ class LoanOut(BaseModel):
 class LoanPaymentCreate(BaseModel):
     payment_date: date
     amount_paid: Decimal
+    principal_repayment: Optional[Decimal] = None  # explicit principal reduction for interest_only loans
     payment_mode: Optional[str] = None
     collected_by: Optional[str] = None
     reference_number: Optional[str] = None

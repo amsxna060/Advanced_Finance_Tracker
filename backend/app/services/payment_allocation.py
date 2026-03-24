@@ -11,7 +11,8 @@ def allocate_payment(
     loan_id: int,
     payment_amount: Decimal,
     payment_date: date,
-    db: Session
+    db: Session,
+    principal_repayment: Decimal = None,
 ) -> Dict[str, Decimal]:
     """
     Allocate a payment amount to overdue interest, current interest, and principal.
@@ -20,10 +21,13 @@ def allocate_payment(
       Uses carry-forward credit balance approach.
       Clears overdue EMI balance first, then any excess stored as current.
 
-    For interest_only and short_term loans:
-      Fixed allocation order:
-        1. All outstanding interest (combined overdue + current)
-        2. Principal reduction
+        For interest_only and short_term loans:
+            Default allocation order:
+                1. All outstanding interest (combined overdue + current)
+                2. Principal reduction
+            Override:
+                If `principal_repayment` is explicitly provided, that portion is
+                applied to principal first, then remaining amount follows default rules.
 
     Returns: {
         allocated_to_overdue_interest,
@@ -101,24 +105,35 @@ def allocate_payment(
         allocated_current = Decimal("0")
         allocated_principal = Decimal("0")
 
-        # Clear all outstanding interest first
+        explicit_principal = (
+            principal_repayment
+            if principal_repayment is not None and principal_repayment > Decimal("0")
+            else Decimal("0")
+        )
+
+        # If caller explicitly marks principal repayment, honor it first.
+        # This avoids forcing interest-first in explicit principal scenarios.
+        if explicit_principal > Decimal("0") and remaining > Decimal("0") and principal_outstanding > Decimal("0"):
+            principal_payment = min(explicit_principal, remaining, principal_outstanding)
+            allocated_principal = principal_payment
+            remaining -= principal_payment
+
+        # For the rest of payment, default rule remains interest-first.
         if remaining > 0 and interest_outstanding > 0:
             interest_payment = min(remaining, interest_outstanding)
             allocated_current = interest_payment
             remaining -= interest_payment
 
         if loan.loan_type == "interest_only":
-            # Interest-only: principal is a bullet repayment at loan end.
-            # Any excess after covering outstanding interest is stored as an
-            # advance credit towards future months — never reduces principal.
-            if remaining > 0:
+            # If principal was not explicitly requested, excess acts as advance credit.
+            if remaining > Decimal("0"):
                 allocated_current += remaining
                 remaining = Decimal("0")
         else:
-            # short_term: excess after interest reduces principal
+            # short_term: remaining after interest reduces principal.
             if remaining > 0 and principal_outstanding > 0:
                 principal_payment = min(remaining, principal_outstanding)
-                allocated_principal = principal_payment
+                allocated_principal += principal_payment
                 remaining -= principal_payment
 
         return {
