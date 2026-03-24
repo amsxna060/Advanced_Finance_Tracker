@@ -8,8 +8,9 @@
 ## ✅ Comprehensive Testing Completed
 
 All 10 regression tests passed successfully:
+
 - ✅ EMI loans (existing functionality)
-- ✅ Interest-only normal payments (existing functionality)  
+- ✅ Interest-only normal payments (existing functionality)
 - ✅ Explicit principal repayment (NEW)
 - ✅ Full principal repayment with schedule cutoff (NEW)
 - ✅ Auto-capitalization (existing functionality)
@@ -27,23 +28,27 @@ All 10 regression tests passed successfully:
 ### Backend Changes
 
 **1. `backend/app/services/payment_allocation.py`**
+
 - Added explicit principal repayment override: when `principal_repayment` is passed, that amount goes to principal FIRST
 - Default behavior preserved: without `principal_repayment`, interest is cleared first
 - Impact: Interest-only loans can now accept principal repayments without forcing interest payment first
 
 **2. `backend/app/services/interest.py`**
+
 - Principal repayment tracking now applies to ALL non-EMI loans (including auto-cap)
 - Schedule generation stops once principal reaches zero
 - Outstanding calculation stops accrual after full principal repayment
 - Impact: Schedules correctly stop after full principal return; no future interest on zero balance
 
 **3. `backend/app/schemas/loan.py`**
+
 - Added `principal_repayment: Optional[Decimal]` field to payment schema
 - Impact: API now accepts explicit principal amount
 
 ### Frontend Changes
 
 **4. `frontend/src/pages/Loans/LoanDetail.jsx`**
+
 - Completely redesigned payment modal:
   - **EMI loans:** Single amount field (unchanged)
   - **Non-EMI loans:** Separate "Interest Payment" + "Principal Repayment" fields with auto-computed total
@@ -107,6 +112,7 @@ frontend/src/pages/Contacts/ContactDetail.jsx (unrelated: contact stats)
 ### Recording Full Principal Repayment
 
 **API Request:**
+
 ```json
 POST /api/loans/19/payments
 {
@@ -118,6 +124,7 @@ POST /api/loans/19/payments
 ```
 
 **Response:**
+
 ```json
 {
   "allocated_to_current_interest": 0,
@@ -129,6 +136,7 @@ POST /api/loans/19/payments
 ### Recording Partial Principal Repayment
 
 **API Request:**
+
 ```json
 POST /api/loans/18/payments
 {
@@ -140,6 +148,7 @@ POST /api/loans/18/payments
 ```
 
 **Result:**
+
 - ₹10,000 reduces principal
 - ₹500 clears outstanding interest
 - Future interest accrues only on reduced principal balance
