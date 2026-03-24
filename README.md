@@ -185,21 +185,22 @@ docker-compose logs -f postgres   # Database logs
 
 When you commit and deploy this code:
 
-1. **Automatic Migration Execution**: 
+1. **Automatic Migration Execution**:
    - The backend container runs `alembic upgrade head` automatically on startup
    - This applies any pending database migrations before the server starts
    - See `backend/start.sh` for the startup script
 
 2. **Deployment Steps**:
+
    ```bash
    # 1. Commit your changes
    git add .
    git commit -m "Your commit message"
-   
+
    # 2. Rebuild and restart containers
    docker-compose down
    docker-compose up --build
-   
+
    # The backend will automatically run migrations during startup
    ```
 

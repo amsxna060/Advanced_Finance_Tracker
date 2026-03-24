@@ -10,8 +10,7 @@ const toNullableNumber = (value) => {
   return isNaN(n) ? null : n;
 };
 
-const toNullableString = (value) =>
-  value?.trim() ? value.trim() : null;
+const toNullableString = (value) => (value?.trim() ? value.trim() : null);
 
 function PlotDiagram({ left, right, top, bottom, area }) {
   const hasAny = left || right || top || bottom;
@@ -25,27 +24,69 @@ function PlotDiagram({ left, right, top, bottom, area }) {
     <div className="mt-3 flex justify-center">
       <svg width={W + PAD * 2} height={H + PAD * 2} className="text-blue-700">
         {/* Rectangle */}
-        <rect x={PAD} y={PAD} width={W} height={H} fill="#eff6ff" stroke="#3b82f6" strokeWidth={2} />
+        <rect
+          x={PAD}
+          y={PAD}
+          width={W}
+          height={H}
+          fill="#eff6ff"
+          stroke="#3b82f6"
+          strokeWidth={2}
+        />
 
         {/* Top label */}
-        <text x={PAD + W / 2} y={PAD - 8} textAnchor="middle" fontSize={12} fill="#1d4ed8">
+        <text
+          x={PAD + W / 2}
+          y={PAD - 8}
+          textAnchor="middle"
+          fontSize={12}
+          fill="#1d4ed8"
+        >
           {top ? `${top} ft` : "—"}
         </text>
         {/* Bottom label */}
-        <text x={PAD + W / 2} y={PAD + H + 18} textAnchor="middle" fontSize={12} fill="#1d4ed8">
+        <text
+          x={PAD + W / 2}
+          y={PAD + H + 18}
+          textAnchor="middle"
+          fontSize={12}
+          fill="#1d4ed8"
+        >
           {bottom ? `${bottom} ft` : "—"}
         </text>
         {/* Left label */}
-        <text x={PAD - 6} y={PAD + H / 2} textAnchor="end" dominantBaseline="middle" fontSize={12} fill="#1d4ed8">
+        <text
+          x={PAD - 6}
+          y={PAD + H / 2}
+          textAnchor="end"
+          dominantBaseline="middle"
+          fontSize={12}
+          fill="#1d4ed8"
+        >
           {left ? `${left} ft` : "—"}
         </text>
         {/* Right label */}
-        <text x={PAD + W + 6} y={PAD + H / 2} textAnchor="start" dominantBaseline="middle" fontSize={12} fill="#1d4ed8">
+        <text
+          x={PAD + W + 6}
+          y={PAD + H / 2}
+          textAnchor="start"
+          dominantBaseline="middle"
+          fontSize={12}
+          fill="#1d4ed8"
+        >
           {right ? `${right} ft` : "—"}
         </text>
         {/* Area in center */}
         {area && (
-          <text x={PAD + W / 2} y={PAD + H / 2} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#1e40af" fontWeight="600">
+          <text
+            x={PAD + W / 2}
+            y={PAD + H / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={13}
+            fill="#1e40af"
+            fontWeight="600"
+          >
             {Number(area).toLocaleString()} sqft
           </text>
         )}
@@ -98,26 +139,40 @@ function normalizeForForm(property) {
     location: property.location || "",
     property_type: property.property_type || "plot",
     deal_type: property.deal_type || "middleman",
-    total_area_sqft: property.total_area_sqft ? String(property.total_area_sqft) : "",
+    total_area_sqft: property.total_area_sqft
+      ? String(property.total_area_sqft)
+      : "",
     side_left_ft: property.side_left_ft ? String(property.side_left_ft) : "",
     side_right_ft: property.side_right_ft ? String(property.side_right_ft) : "",
     side_top_ft: property.side_top_ft ? String(property.side_top_ft) : "",
-    side_bottom_ft: property.side_bottom_ft ? String(property.side_bottom_ft) : "",
-    seller_contact_id: property.seller_contact_id ? String(property.seller_contact_id) : "",
-    seller_rate_per_sqft: property.seller_rate_per_sqft ? String(property.seller_rate_per_sqft) : "",
-    total_seller_value: property.total_seller_value ? String(property.total_seller_value) : "",
+    side_bottom_ft: property.side_bottom_ft
+      ? String(property.side_bottom_ft)
+      : "",
+    seller_contact_id: property.seller_contact_id
+      ? String(property.seller_contact_id)
+      : "",
+    seller_rate_per_sqft: property.seller_rate_per_sqft
+      ? String(property.seller_rate_per_sqft)
+      : "",
+    total_seller_value: property.total_seller_value
+      ? String(property.total_seller_value)
+      : "",
     advance_paid: property.advance_paid ? String(property.advance_paid) : "0",
     advance_date: property.advance_date || "",
     deal_locked_date: property.deal_locked_date || "",
     expected_registry_date: property.expected_registry_date || "",
     actual_registry_date: property.actual_registry_date || "",
     broker_name: property.broker_name || "",
-    broker_commission: property.broker_commission ? String(property.broker_commission) : "0",
+    broker_commission: property.broker_commission
+      ? String(property.broker_commission)
+      : "0",
     notes: property.notes || "",
     status: property.status || "negotiating",
     // site fields
     my_investment: property.my_investment ? String(property.my_investment) : "",
-    my_share_percentage: property.my_share_percentage ? String(property.my_share_percentage) : "",
+    my_share_percentage: property.my_share_percentage
+      ? String(property.my_share_percentage)
+      : "",
     site_deal_start_date: property.site_deal_start_date || "",
   };
   return base;
@@ -138,8 +193,12 @@ function buildPayload(formData, isEditMode) {
     payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
     payload.my_investment = toNullableNumber(formData.my_investment);
-    payload.my_share_percentage = toNullableNumber(formData.my_share_percentage);
-    payload.site_deal_start_date = toNullableString(formData.site_deal_start_date);
+    payload.my_share_percentage = toNullableNumber(
+      formData.my_share_percentage,
+    );
+    payload.site_deal_start_date = toNullableString(
+      formData.site_deal_start_date,
+    );
   } else {
     payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
     payload.side_left_ft = toNullableNumber(formData.side_left_ft);
@@ -147,16 +206,23 @@ function buildPayload(formData, isEditMode) {
     payload.side_top_ft = toNullableNumber(formData.side_top_ft);
     payload.side_bottom_ft = toNullableNumber(formData.side_bottom_ft);
     payload.seller_contact_id = toNullableNumber(formData.seller_contact_id);
-    payload.seller_rate_per_sqft = toNullableNumber(formData.seller_rate_per_sqft);
+    payload.seller_rate_per_sqft = toNullableNumber(
+      formData.seller_rate_per_sqft,
+    );
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
     payload.advance_paid = toNullableNumber(formData.advance_paid) ?? 0;
     payload.advance_date = toNullableString(formData.advance_date);
     payload.deal_locked_date = toNullableString(formData.deal_locked_date);
-    payload.expected_registry_date = toNullableString(formData.expected_registry_date);
+    payload.expected_registry_date = toNullableString(
+      formData.expected_registry_date,
+    );
     payload.broker_name = toNullableString(formData.broker_name);
-    payload.broker_commission = toNullableNumber(formData.broker_commission) ?? 0;
+    payload.broker_commission =
+      toNullableNumber(formData.broker_commission) ?? 0;
     if (isEditMode) {
-      payload.actual_registry_date = toNullableString(formData.actual_registry_date);
+      payload.actual_registry_date = toNullableString(
+        formData.actual_registry_date,
+      );
     }
   }
 
@@ -272,11 +338,15 @@ export default function PropertyForm() {
     const errs = {};
     if (!formData.title.trim()) errs.title = "Title is required";
     if (formData.property_type === "site") {
-      if (!formData.my_investment) errs.my_investment = "My investment is required";
-      if (!formData.my_share_percentage) errs.my_share_percentage = "Share % is required";
-      if (!formData.site_deal_start_date) errs.site_deal_start_date = "Deal start date is required";
+      if (!formData.my_investment)
+        errs.my_investment = "My investment is required";
+      if (!formData.my_share_percentage)
+        errs.my_share_percentage = "Share % is required";
+      if (!formData.site_deal_start_date)
+        errs.site_deal_start_date = "Deal start date is required";
     } else {
-      if (!formData.seller_rate_per_sqft) errs.seller_rate_per_sqft = "Seller rate is required";
+      if (!formData.seller_rate_per_sqft)
+        errs.seller_rate_per_sqft = "Seller rate is required";
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -306,7 +376,9 @@ export default function PropertyForm() {
               {isEditMode ? "Edit Property Deal" : "New Property Deal"}
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {isSite ? "Site — investment tracking only" : "Plot — middleman deal with partners"}
+              {isSite
+                ? "Site — investment tracking only"
+                : "Plot — middleman deal with partners"}
             </p>
           </div>
         </div>
@@ -314,7 +386,9 @@ export default function PropertyForm() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* ── Section 1: Basic Info ── */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">Basic Info</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-4">
+              Basic Info
+            </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* Title */}
               <div className="sm:col-span-2">
@@ -328,12 +402,16 @@ export default function PropertyForm() {
                   className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.title ? "border-red-400" : "border-gray-300"}`}
                   placeholder="e.g. Shivaji Nagar Plot Deal"
                 />
-                {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title}</p>}
+                {errors.title && (
+                  <p className="text-red-500 text-xs mt-1">{errors.title}</p>
+                )}
               </div>
 
               {/* Location */}
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Location
+                </label>
                 <input
                   type="text"
                   value={formData.location}
@@ -345,7 +423,9 @@ export default function PropertyForm() {
 
               {/* Deal Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Deal Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Deal Type
+                </label>
                 <select
                   value={formData.deal_type}
                   onChange={(e) => set("deal_type", e.target.value)}
@@ -358,7 +438,9 @@ export default function PropertyForm() {
 
               {/* Property Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Property Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Property Type
+                </label>
                 <select
                   value={formData.property_type}
                   onChange={(e) => handlePropertyTypeChange(e.target.value)}
@@ -369,7 +451,9 @@ export default function PropertyForm() {
                   <option value="site">Site</option>
                 </select>
                 {isEditMode && (
-                  <p className="text-xs text-gray-400 mt-1">Property type cannot be changed after creation.</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Property type cannot be changed after creation.
+                  </p>
                 )}
               </div>
             </div>
@@ -378,10 +462,14 @@ export default function PropertyForm() {
           {/* ── SITE SECTIONS ── */}
           {isSite && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-base font-semibold text-gray-800 mb-4">Site Details</h2>
+              <h2 className="text-base font-semibold text-gray-800 mb-4">
+                Site Details
+              </h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Area (sqft)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Total Area (sqft)
+                  </label>
                   <input
                     type="number"
                     value={formData.total_area_sqft}
@@ -393,7 +481,9 @@ export default function PropertyForm() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Value to Seller (₹)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Total Value to Seller (₹)
+                  </label>
                   <input
                     type="number"
                     value={formData.total_seller_value}
@@ -406,7 +496,8 @@ export default function PropertyForm() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    My Investment Amount (₹) <span className="text-red-500">*</span>
+                    My Investment Amount (₹){" "}
+                    <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -416,7 +507,11 @@ export default function PropertyForm() {
                     placeholder="How much I personally invested"
                     min="0"
                   />
-                  {errors.my_investment && <p className="text-red-500 text-xs mt-1">{errors.my_investment}</p>}
+                  {errors.my_investment && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {errors.my_investment}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -433,7 +528,11 @@ export default function PropertyForm() {
                     max="100"
                     step="0.001"
                   />
-                  {errors.my_share_percentage && <p className="text-red-500 text-xs mt-1">{errors.my_share_percentage}</p>}
+                  {errors.my_share_percentage && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {errors.my_share_percentage}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -443,10 +542,16 @@ export default function PropertyForm() {
                   <input
                     type="date"
                     value={formData.site_deal_start_date}
-                    onChange={(e) => set("site_deal_start_date", e.target.value)}
+                    onChange={(e) =>
+                      set("site_deal_start_date", e.target.value)
+                    }
                     className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.site_deal_start_date ? "border-red-400" : "border-gray-300"}`}
                   />
-                  {errors.site_deal_start_date && <p className="text-red-500 text-xs mt-1">{errors.site_deal_start_date}</p>}
+                  {errors.site_deal_start_date && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {errors.site_deal_start_date}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -457,11 +562,17 @@ export default function PropertyForm() {
             <>
               {/* Section 2: Plot Dimensions */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-1">Plot Dimensions</h2>
-                <p className="text-xs text-gray-400 mb-4">Optional — fill in to see a visual diagram.</p>
+                <h2 className="text-base font-semibold text-gray-800 mb-1">
+                  Plot Dimensions
+                </h2>
+                <p className="text-xs text-gray-400 mb-4">
+                  Optional — fill in to see a visual diagram.
+                </p>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                   <div className="sm:col-span-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Total Area (sqft)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Total Area (sqft)
+                    </label>
                     <input
                       type="number"
                       value={formData.total_area_sqft}
@@ -472,7 +583,9 @@ export default function PropertyForm() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Left Side (ft)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Left Side (ft)
+                    </label>
                     <input
                       type="number"
                       value={formData.side_left_ft}
@@ -483,7 +596,9 @@ export default function PropertyForm() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Right Side (ft)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Right Side (ft)
+                    </label>
                     <input
                       type="number"
                       value={formData.side_right_ft}
@@ -494,7 +609,9 @@ export default function PropertyForm() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Top Side (ft)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Top Side (ft)
+                    </label>
                     <input
                       type="number"
                       value={formData.side_top_ft}
@@ -505,7 +622,9 @@ export default function PropertyForm() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bottom Side (ft)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Bottom Side (ft)
+                    </label>
                     <input
                       type="number"
                       value={formData.side_bottom_ft}
@@ -528,10 +647,14 @@ export default function PropertyForm() {
 
               {/* Section 3: Seller Details */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-4">Seller Details</h2>
+                <h2 className="text-base font-semibold text-gray-800 mb-4">
+                  Seller Details
+                </h2>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Seller Contact</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Seller Contact
+                    </label>
                     <select
                       value={formData.seller_contact_id}
                       onChange={(e) => set("seller_contact_id", e.target.value)}
@@ -539,46 +662,67 @@ export default function PropertyForm() {
                     >
                       <option value="">— Select Seller —</option>
                       {contacts.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                          {c.phone ? ` (${c.phone})` : ""}
+                        </option>
                       ))}
                     </select>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Seller Rate / sqft (₹) <span className="text-red-500">*</span>
+                      Seller Rate / sqft (₹){" "}
+                      <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="number"
                       value={formData.seller_rate_per_sqft}
-                      onChange={(e) => set("seller_rate_per_sqft", e.target.value)}
+                      onChange={(e) =>
+                        set("seller_rate_per_sqft", e.target.value)
+                      }
                       className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.seller_rate_per_sqft ? "border-red-400" : "border-gray-300"}`}
                       placeholder="e.g. 500"
                       min="0"
                     />
-                    {errors.seller_rate_per_sqft && <p className="text-red-500 text-xs mt-1">{errors.seller_rate_per_sqft}</p>}
+                    {errors.seller_rate_per_sqft && (
+                      <p className="text-red-500 text-xs mt-1">
+                        {errors.seller_rate_per_sqft}
+                      </p>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Total Seller Value (₹)
-                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">auto</span>
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                        auto
+                      </span>
                     </label>
                     <input
                       type="number"
                       value={formData.total_seller_value}
-                      onChange={(e) => set("total_seller_value", e.target.value)}
+                      onChange={(e) =>
+                        set("total_seller_value", e.target.value)
+                      }
                       className="w-full border border-blue-200 bg-blue-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Rate × Area"
                       min="0"
                     />
                     {formData.total_seller_value && (
-                      <p className="text-xs text-blue-600 mt-1">= {formatCurrency(parseFloat(formData.total_seller_value))}</p>
+                      <p className="text-xs text-blue-600 mt-1">
+                        ={" "}
+                        {formatCurrency(
+                          parseFloat(formData.total_seller_value),
+                        )}
+                      </p>
                     )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Advance Paid to Seller (₹)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Advance Paid to Seller (₹)
+                    </label>
                     <input
                       type="number"
                       value={formData.advance_paid}
@@ -590,7 +734,9 @@ export default function PropertyForm() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Advance Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Advance Date
+                    </label>
                     <input
                       type="date"
                       value={formData.advance_date}
@@ -600,7 +746,9 @@ export default function PropertyForm() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Deal Locked Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Deal Locked Date
+                    </label>
                     <input
                       type="date"
                       value={formData.deal_locked_date}
@@ -610,22 +758,30 @@ export default function PropertyForm() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Expected Registry Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Expected Registry Date
+                    </label>
                     <input
                       type="date"
                       value={formData.expected_registry_date}
-                      onChange={(e) => set("expected_registry_date", e.target.value)}
+                      onChange={(e) =>
+                        set("expected_registry_date", e.target.value)
+                      }
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
 
                   {isEditMode && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Actual Registry Date</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Actual Registry Date
+                      </label>
                       <input
                         type="date"
                         value={formData.actual_registry_date}
-                        onChange={(e) => set("actual_registry_date", e.target.value)}
+                        onChange={(e) =>
+                          set("actual_registry_date", e.target.value)
+                        }
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -636,10 +792,14 @@ export default function PropertyForm() {
               {/* Section 4: Broker Details (only for middleman) */}
               {formData.deal_type === "middleman" && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-base font-semibold text-gray-800 mb-4">Broker Details</h2>
+                  <h2 className="text-base font-semibold text-gray-800 mb-4">
+                    Broker Details
+                  </h2>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Broker Name</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Broker Name
+                      </label>
                       <input
                         type="text"
                         value={formData.broker_name}
@@ -649,11 +809,15 @@ export default function PropertyForm() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Broker Commission (₹)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Broker Commission (₹)
+                      </label>
                       <input
                         type="number"
                         value={formData.broker_commission}
-                        onChange={(e) => set("broker_commission", e.target.value)}
+                        onChange={(e) =>
+                          set("broker_commission", e.target.value)
+                        }
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="0"
                         min="0"
@@ -667,10 +831,14 @@ export default function PropertyForm() {
 
           {/* Notes */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">Notes</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-4">
+              Notes
+            </h2>
             {isEditMode && (
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
                 <select
                   value={formData.status}
                   onChange={(e) => set("status", e.target.value)}
@@ -708,7 +876,11 @@ export default function PropertyForm() {
               disabled={submitMutation.isPending}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {submitMutation.isPending ? "Saving..." : isEditMode ? "Save Changes" : "Create Deal"}
+              {submitMutation.isPending
+                ? "Saving..."
+                : isEditMode
+                  ? "Save Changes"
+                  : "Create Deal"}
             </button>
           </div>
         </form>

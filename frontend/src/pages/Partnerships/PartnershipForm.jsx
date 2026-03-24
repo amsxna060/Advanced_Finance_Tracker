@@ -39,7 +39,13 @@ export default function PartnershipForm() {
 
   // Partners list (only used in create mode)
   const [partners, setPartners] = useState([
-    { contact_id: "", is_self: false, share_percentage: "", advance_contributed: "0", notes: "" },
+    {
+      contact_id: "",
+      is_self: false,
+      share_percentage: "",
+      advance_contributed: "0",
+      notes: "",
+    },
   ]);
 
   const set = (field, value) => setFormData((p) => ({ ...p, [field]: value }));
@@ -47,10 +53,17 @@ export default function PartnershipForm() {
   const addPartner = () =>
     setPartners((prev) => [
       ...prev,
-      { contact_id: "", is_self: false, share_percentage: "", advance_contributed: "0", notes: "" },
+      {
+        contact_id: "",
+        is_self: false,
+        share_percentage: "",
+        advance_contributed: "0",
+        notes: "",
+      },
     ]);
 
-  const removePartner = (idx) => setPartners((prev) => prev.filter((_, i) => i !== idx));
+  const removePartner = (idx) =>
+    setPartners((prev) => prev.filter((_, i) => i !== idx));
 
   const updatePartner = (idx, field, value) => {
     setPartners((prev) =>
@@ -80,8 +93,12 @@ export default function PartnershipForm() {
   const { data: properties = [] } = useQuery({
     queryKey: ["properties", "for-partnership-form"],
     queryFn: async () => {
-      const res = await api.get("/api/properties", { params: { limit: 500, property_type: "plot" } });
-      return res.data.filter((p) => p.status !== "settled" && p.status !== "cancelled");
+      const res = await api.get("/api/properties", {
+        params: { limit: 500, property_type: "plot" },
+      });
+      return res.data.filter(
+        (p) => p.status !== "settled" && p.status !== "cancelled",
+      );
     },
   });
 
@@ -120,13 +137,19 @@ export default function PartnershipForm() {
     0,
   );
   const propertyAdvance = parseFloat(linkedProperty?.advance_paid || 0);
-  const advanceMismatch = linkedProperty && propertyAdvance > 0 && Math.abs(totalAdvance - propertyAdvance) > SHARE_PERCENTAGE_TOLERANCE;
+  const advanceMismatch =
+    linkedProperty &&
+    propertyAdvance > 0 &&
+    Math.abs(totalAdvance - propertyAdvance) > SHARE_PERCENTAGE_TOLERANCE;
 
   const submitMutation = useMutation({
     mutationFn: async ({ partnershipPayload, partnersToCreate }) => {
       let partnershipId = id;
       if (isEditMode) {
-        const res = await api.put(`/api/partnerships/${id}`, partnershipPayload);
+        const res = await api.put(
+          `/api/partnerships/${id}`,
+          partnershipPayload,
+        );
         return res.data;
       }
       const res = await api.post("/api/partnerships", partnershipPayload);
@@ -139,7 +162,8 @@ export default function PartnershipForm() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["partnerships"] });
-      if (isEditMode) queryClient.invalidateQueries({ queryKey: ["partnership", id] });
+      if (isEditMode)
+        queryClient.invalidateQueries({ queryKey: ["partnership", id] });
       navigate(`/partnerships/${data.id}`);
     },
     onError: (err) => {
@@ -165,7 +189,8 @@ export default function PartnershipForm() {
         errs.partners = `Share percentages must sum to 100% (currently ${totalSharePct.toFixed(2)}%)`;
       }
       const selfCount = partners.filter((p) => p.is_self).length;
-      if (selfCount > 1) errs.partners = "Only one partner can be marked as 'self'";
+      if (selfCount > 1)
+        errs.partners = "Only one partner can be marked as 'self'";
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -177,7 +202,9 @@ export default function PartnershipForm() {
 
     const partnershipPayload = {
       title: formData.title.trim(),
-      linked_property_deal_id: toNullableNumber(formData.linked_property_deal_id),
+      linked_property_deal_id: toNullableNumber(
+        formData.linked_property_deal_id,
+      ),
       notes: toNullableString(formData.notes),
     };
     if (isEditMode) {
@@ -219,7 +246,9 @@ export default function PartnershipForm() {
               {isEditMode ? "Edit Partnership" : "New Partnership"}
             </h1>
             <p className="text-sm text-gray-500">
-              {isEditMode ? "Update partnership details" : "Create a new investment partnership"}
+              {isEditMode
+                ? "Update partnership details"
+                : "Create a new investment partnership"}
             </p>
           </div>
         </div>
@@ -227,7 +256,9 @@ export default function PartnershipForm() {
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Step 1: Basic Info */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">Basic Info</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-4">
+              Basic Info
+            </h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -240,59 +271,84 @@ export default function PartnershipForm() {
                   className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.title ? "border-red-400" : "border-gray-300"}`}
                   placeholder="e.g. Shivaji Nagar Plot Partnership"
                 />
-                {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title}</p>}
+                {errors.title && (
+                  <p className="text-red-500 text-xs mt-1">{errors.title}</p>
+                )}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Linked Property Deal
-                  <span className="text-xs text-gray-400 ml-2">(Plot deals only)</span>
+                  <span className="text-xs text-gray-400 ml-2">
+                    (Plot deals only)
+                  </span>
                 </label>
                 <select
                   value={formData.linked_property_deal_id}
-                  onChange={(e) => set("linked_property_deal_id", e.target.value)}
+                  onChange={(e) =>
+                    set("linked_property_deal_id", e.target.value)
+                  }
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={isEditMode}
                 >
                   <option value="">— No linked property —</option>
                   {properties.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.title}{p.location ? ` (${p.location})` : ""}
+                      {p.title}
+                      {p.location ? ` (${p.location})` : ""}
                     </option>
                   ))}
                 </select>
                 {isEditMode && (
-                  <p className="text-xs text-gray-400 mt-1">Linked property cannot be changed after creation.</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Linked property cannot be changed after creation.
+                  </p>
                 )}
               </div>
 
               {/* Linked property info box */}
               {linkedProperty && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm space-y-1.5">
-                  <div className="font-semibold text-blue-800 mb-2">Linked Property Details</div>
+                  <div className="font-semibold text-blue-800 mb-2">
+                    Linked Property Details
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Area:</span>
-                    <span className="font-medium">{linkedProperty.total_area_sqft ? `${Number(linkedProperty.total_area_sqft).toLocaleString()} sqft` : "—"}</span>
+                    <span className="font-medium">
+                      {linkedProperty.total_area_sqft
+                        ? `${Number(linkedProperty.total_area_sqft).toLocaleString()} sqft`
+                        : "—"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Total Seller Value:</span>
-                    <span className="font-medium">{linkedProperty.total_seller_value ? formatCurrency(linkedProperty.total_seller_value) : "—"}</span>
+                    <span className="font-medium">
+                      {linkedProperty.total_seller_value
+                        ? formatCurrency(linkedProperty.total_seller_value)
+                        : "—"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Advance Paid:</span>
-                    <span className="font-medium">{formatCurrency(linkedProperty.advance_paid || 0)}</span>
+                    <span className="font-medium">
+                      {formatCurrency(linkedProperty.advance_paid || 0)}
+                    </span>
                   </div>
                   {linkedProperty.broker_commission > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Broker Commission:</span>
-                      <span className="font-medium">{formatCurrency(linkedProperty.broker_commission)}</span>
+                      <span className="font-medium">
+                        {formatCurrency(linkedProperty.broker_commission)}
+                      </span>
                     </div>
                   )}
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes
+                </label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => set("notes", e.target.value)}
@@ -304,7 +360,9 @@ export default function PartnershipForm() {
 
               {isEditMode && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
                   <select
                     value={formData.status}
                     onChange={(e) => set("status", e.target.value)}
@@ -323,9 +381,13 @@ export default function PartnershipForm() {
           {!isEditMode && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-800">Partners</h2>
+                <h2 className="text-base font-semibold text-gray-800">
+                  Partners
+                </h2>
                 <div className="flex items-center gap-3 text-sm">
-                  <span className={`font-medium ${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-green-600" : "text-orange-600"}`}>
+                  <span
+                    className={`font-medium ${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-green-600" : "text-orange-600"}`}
+                  >
                     Total: {totalSharePct.toFixed(1)}%
                   </span>
                   <button
@@ -346,9 +408,14 @@ export default function PartnershipForm() {
 
               <div className="space-y-4">
                 {partners.map((partner, idx) => (
-                  <div key={idx} className="border border-gray-200 rounded-lg p-4 relative">
+                  <div
+                    key={idx}
+                    className="border border-gray-200 rounded-lg p-4 relative"
+                  >
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-gray-700">Partner {idx + 1}</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        Partner {idx + 1}
+                      </span>
                       {partners.length > 1 && (
                         <button
                           type="button"
@@ -366,25 +433,34 @@ export default function PartnershipForm() {
                           <input
                             type="checkbox"
                             checked={partner.is_self}
-                            onChange={(e) => updatePartner(idx, "is_self", e.target.checked)}
+                            onChange={(e) =>
+                              updatePartner(idx, "is_self", e.target.checked)
+                            }
                             className="rounded"
                           />
-                          <span className="text-sm text-gray-700">This is me (Self)</span>
+                          <span className="text-sm text-gray-700">
+                            This is me (Self)
+                          </span>
                         </label>
                       </div>
 
                       {!partner.is_self && (
                         <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Contact
+                          </label>
                           <select
                             value={partner.contact_id}
-                            onChange={(e) => updatePartner(idx, "contact_id", e.target.value)}
+                            onChange={(e) =>
+                              updatePartner(idx, "contact_id", e.target.value)
+                            }
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="">— Select Contact —</option>
                             {contacts.map((c) => (
                               <option key={c.id} value={c.id}>
-                                {c.name}{c.phone ? ` (${c.phone})` : ""}
+                                {c.name}
+                                {c.phone ? ` (${c.phone})` : ""}
                               </option>
                             ))}
                           </select>
@@ -398,7 +474,13 @@ export default function PartnershipForm() {
                         <input
                           type="number"
                           value={partner.share_percentage}
-                          onChange={(e) => updatePartner(idx, "share_percentage", e.target.value)}
+                          onChange={(e) =>
+                            updatePartner(
+                              idx,
+                              "share_percentage",
+                              e.target.value,
+                            )
+                          }
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="e.g. 40"
                           min="0"
@@ -409,12 +491,19 @@ export default function PartnershipForm() {
 
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Advance Contributed (₹) <span className="text-red-500">*</span>
+                          Advance Contributed (₹){" "}
+                          <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="number"
                           value={partner.advance_contributed}
-                          onChange={(e) => updatePartner(idx, "advance_contributed", e.target.value)}
+                          onChange={(e) =>
+                            updatePartner(
+                              idx,
+                              "advance_contributed",
+                              e.target.value,
+                            )
+                          }
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="0"
                           min="0"
@@ -422,11 +511,15 @@ export default function PartnershipForm() {
                       </div>
 
                       <div className="sm:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Notes (optional)
+                        </label>
                         <input
                           type="text"
                           value={partner.notes}
-                          onChange={(e) => updatePartner(idx, "notes", e.target.value)}
+                          onChange={(e) =>
+                            updatePartner(idx, "notes", e.target.value)
+                          }
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="Optional note for this partner"
                         />
@@ -438,15 +531,22 @@ export default function PartnershipForm() {
 
               {/* Totals summary */}
               <div className="mt-4 border-t border-gray-200 pt-3 text-sm flex flex-wrap gap-4">
-                <div className={`${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-green-600" : "text-orange-600"}`}>
+                <div
+                  className={`${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-green-600" : "text-orange-600"}`}
+                >
                   Share Total: <strong>{totalSharePct.toFixed(2)}%</strong>
                   {Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE
                     ? " ✓"
                     : ` (need ${(100 - totalSharePct).toFixed(2)}% more)`}
                 </div>
-                <div className={advanceMismatch ? "text-orange-600" : "text-gray-500"}>
+                <div
+                  className={
+                    advanceMismatch ? "text-orange-600" : "text-gray-500"
+                  }
+                >
                   Advance Total: <strong>{formatCurrency(totalAdvance)}</strong>
-                  {advanceMismatch && ` ⚠ Property advance: ${formatCurrency(propertyAdvance)}`}
+                  {advanceMismatch &&
+                    ` ⚠ Property advance: ${formatCurrency(propertyAdvance)}`}
                 </div>
               </div>
             </div>
@@ -468,8 +568,8 @@ export default function PartnershipForm() {
               {submitMutation.isPending
                 ? "Saving..."
                 : isEditMode
-                ? "Save Changes"
-                : "Create Partnership"}
+                  ? "Save Changes"
+                  : "Create Partnership"}
             </button>
           </div>
         </form>
