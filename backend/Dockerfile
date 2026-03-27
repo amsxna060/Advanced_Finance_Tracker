@@ -15,7 +15,8 @@ COPY . .
 
 EXPOSE 8000
 
-# Make start script executable
-RUN chmod +x start.sh
+# Make scripts executable
+RUN chmod +x start.sh prestart.py
 
-CMD ["./start.sh"]
+# Use sh to run migrations and start server
+CMD ["sh", "-c", "python prestart.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]

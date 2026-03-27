@@ -183,14 +183,15 @@ docker-compose logs -f postgres   # Database logs
 
 ## 🚀 Deployment Process
 
-When you commit and deploy this code:
+### Local Development (Docker)
+
+When you commit and deploy this code locally:
 
 1. **Automatic Migration Execution**:
-   - The backend container runs `alembic upgrade head` automatically on startup
+   - The backend container runs migrations automatically on startup via `prestart.py`
    - This applies any pending database migrations before the server starts
-   - See `backend/start.sh` for the startup script
 
-2. **Deployment Steps**:
+2. **Local Deployment Steps**:
 
    ```bash
    # 1. Commit your changes
@@ -201,13 +202,47 @@ When you commit and deploy this code:
    docker-compose down
    docker-compose up --build
 
-   # The backend will automatically run migrations during startup
+   # Migrations run automatically during backend startup
    ```
 
-3. **Production Deployment**:
-   - Ensure your production environment variables are set (especially `DATABASE_URL` and `SECRET_KEY`)
-   - Migrations will run automatically when containers start
-   - Monitor logs to verify successful migration: `docker-compose logs backend`
+### Production Deployment (Render.com)
+
+For deploying to Render.com or other cloud platforms:
+
+1. **Migrations run automatically** via the `prestart.py` script in the Dockerfile
+2. Every deployment will execute pending migrations before starting the server
+3. No manual shell access required - everything is automated
+
+**📖 See [DEPLOY_RENDER.md](DEPLOY_RENDER.md) for complete step-by-step deployment instructions.**
+
+### Troubleshooting Cloud Deployments
+
+**If migrations don't run on Render:**
+
+1. Check deployment logs for migration output:
+   ```
+   Running database migrations...
+   INFO  [alembic.runtime.migration] Running upgrade...
+   Database migrations completed successfully!
+   ```
+
+2. Verify the Dockerfile CMD includes prestart.py:
+   ```dockerfile
+   CMD ["sh", "-c", "python prestart.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+   ```
+
+3. Ensure `DATABASE_URL` environment variable is set correctly in Render dashboard
+
+4. Manually trigger a redeploy if needed (Dashboard → Manual Deploy)
+
+**If dashboard shows 0.00 for all values:**
+
+This usually indicates:
+- ✗ Migrations haven't run (missing database columns)
+- ✗ Database is empty (no data created yet)
+- ✗ Wrong DATABASE_URL (connecting to wrong database)
+
+**Solution:** Check deployment logs to verify migrations ran successfully.
 
 ## 🐛 Troubleshooting
 
