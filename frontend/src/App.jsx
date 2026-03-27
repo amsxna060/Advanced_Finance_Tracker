@@ -24,6 +24,12 @@ import PartnershipDetail from "./pages/Partnerships/PartnershipDetail";
 import PartnershipForm from "./pages/Partnerships/PartnershipForm";
 import ExpenseList from "./pages/Expenses/ExpenseList";
 import Reports from "./pages/Reports/Reports";
+import BeesiList from "./pages/Beesi/BeesiList";
+import BeesiForm from "./pages/Beesi/BeesiForm";
+import BeesiDetail from "./pages/Beesi/BeesiDetail";
+import AccountList from "./pages/Accounts/AccountList";
+import AccountForm from "./pages/Accounts/AccountForm";
+import AccountDetail from "./pages/Accounts/AccountDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -191,6 +197,70 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Reports />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beesi"
+              element={
+                <ProtectedRoute>
+                  <BeesiList />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beesi/new"
+              element={
+                <ProtectedRoute>
+                  <BeesiForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beesi/:id/edit"
+              element={
+                <ProtectedRoute>
+                  <BeesiForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beesi/:id"
+              element={
+                <ProtectedRoute>
+                  <BeesiDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts"
+              element={
+                <ProtectedRoute>
+                  <AccountList />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/new"
+              element={
+                <ProtectedRoute>
+                  <AccountForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/:id/edit"
+              element={
+                <ProtectedRoute>
+                  <AccountForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts/:id"
+              element={
+                <ProtectedRoute>
+                  <AccountDetail />
                 </ProtectedRoute>
               }
             />

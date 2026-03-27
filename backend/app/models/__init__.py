@@ -5,6 +5,8 @@ from app.models.collateral import Collateral
 from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.expense import Expense
+from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
+from app.models.cash_account import CashAccount, AccountTransaction
 
 __all__ = [
     "User",
@@ -19,4 +21,9 @@ __all__ = [
     "PartnershipMember",
     "PartnershipTransaction",
     "Expense",
+    "Beesi",
+    "BeesiInstallment",
+    "BeesiWithdrawal",
+    "CashAccount",
+    "AccountTransaction",
 ]

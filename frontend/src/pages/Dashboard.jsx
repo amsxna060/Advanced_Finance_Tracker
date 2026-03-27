@@ -100,6 +100,34 @@ const quickLinks = [
       />
     ),
   },
+  {
+    title: "Beesi",
+    description: "Chit fund / BC tracking",
+    route: "/beesi",
+    color: "violet",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+      />
+    ),
+  },
+  {
+    title: "Accounts",
+    description: "Cash & bank balance ledger",
+    route: "/accounts",
+    color: "teal",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+      />
+    ),
+  },
 ];
 
 const colorClasses = {
@@ -109,6 +137,8 @@ const colorClasses = {
   orange: "bg-orange-100 text-orange-600",
   rose: "bg-rose-100 text-rose-600",
   indigo: "bg-indigo-100 text-indigo-600",
+  violet: "bg-violet-100 text-violet-600",
+  teal: "bg-teal-100 text-teal-600",
 };
 
 function MetricCard({ label, value, tone = "text-gray-900" }) {
@@ -186,6 +216,22 @@ export default function Dashboard() {
       const response = await api.get("/api/dashboard/recent-activity", {
         params: { limit: 10 },
       });
+      return response.data;
+    },
+  });
+
+  const { data: thisMonth } = useQuery({
+    queryKey: ["dashboard-this-month"],
+    queryFn: async () => {
+      const response = await api.get("/api/dashboard/this-month");
+      return response.data;
+    },
+  });
+
+  const { data: paymentBehavior } = useQuery({
+    queryKey: ["dashboard-payment-behavior"],
+    queryFn: async () => {
+      const response = await api.get("/api/dashboard/payment-behavior");
       return response.data;
     },
   });
@@ -331,6 +377,41 @@ export default function Dashboard() {
                 ? "text-emerald-700"
                 : "text-red-700"
             }
+          />
+          <MetricCard
+            label="EMIs Expected This Month"
+            value={thisMonth ? formatCurrency(thisMonth.emis_expected) : "..."}
+            tone="text-blue-700"
+          />
+          <MetricCard
+            label="EMIs Collected This Month"
+            value={thisMonth ? formatCurrency(thisMonth.emis_collected) : "..."}
+            tone="text-green-700"
+          />
+          <MetricCard
+            label="EMIs Pending This Month"
+            value={thisMonth ? formatCurrency(thisMonth.emis_pending) : "..."}
+            tone="text-orange-700"
+          />
+          <MetricCard
+            label="Interest Due This Month"
+            value={thisMonth ? formatCurrency(thisMonth.interest_expected) : "..."}
+            tone="text-purple-700"
+          />
+          <MetricCard
+            label="Overdue Interest"
+            value={thisMonth ? formatCurrency(thisMonth.overdue_interest) : "..."}
+            tone="text-red-700"
+          />
+          <MetricCard
+            label="Active Beesis"
+            value={summaryLoading ? "..." : (summary?.active_beesis || 0)}
+            tone="text-violet-700"
+          />
+          <MetricCard
+            label="Total Invested in Beesi"
+            value={summaryLoading ? "..." : formatCurrency(summary?.beesi_total_invested || 0)}
+            tone="text-violet-700"
           />
         </div>
 
@@ -514,6 +595,49 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {/* Payment Behavior Table */}
+        {paymentBehavior && paymentBehavior.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Payment Behavior</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left">
+                    <th className="pb-2 text-gray-500 font-medium">Contact</th>
+                    <th className="pb-2 text-gray-500 font-medium">Loan Type</th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">Principal</th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">Months Active</th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">Payments Made</th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">Rate</th>
+                    <th className="pb-2 text-gray-500 font-medium">Last Payment</th>
+                    <th className="pb-2 text-center text-gray-500 font-medium">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentBehavior.map((row) => (
+                    <tr key={row.loan_id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-2 text-gray-800 font-medium">{row.contact_name}</td>
+                      <td className="py-2 text-gray-600 capitalize">{row.loan_type}</td>
+                      <td className="py-2 text-right text-gray-800">{formatCurrency(row.principal)}</td>
+                      <td className="py-2 text-right text-gray-600">{row.months_active}</td>
+                      <td className="py-2 text-right text-gray-600">{row.payments_made}</td>
+                      <td className="py-2 text-right text-gray-600">{row.payment_rate_pct}%</td>
+                      <td className="py-2 text-gray-600">{row.last_payment_date ? formatDate(row.last_payment_date) : "Never"}</td>
+                      <td className="py-2 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          row.score_color === "green" ? "bg-green-100 text-green-700" :
+                          row.score_color === "red" ? "bg-red-100 text-red-700" :
+                          "bg-yellow-100 text-yellow-700"
+                        }`}>{row.score}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

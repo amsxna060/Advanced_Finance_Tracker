@@ -9,10 +9,11 @@ from app.database import get_db, engine, Base
 from app.models.user import User
 
 # Import ALL models so Base.metadata has every table before create_all
-import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Property, Partnership, Expense
+import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Property, Partnership, Expense, Beesi, CashAccount
 
 # Import routers
 from app.routers import auth, contacts, loans, collateral, property_deals, partnerships, expenses, dashboard, reports
+from app.routers import beesi, accounts
 
 app = FastAPI(
     title="Advanced Finance Tracker",
@@ -39,6 +40,8 @@ app.include_router(partnerships.router)
 app.include_router(expenses.router)
 app.include_router(dashboard.router)
 app.include_router(reports.router)
+app.include_router(beesi.router)
+app.include_router(accounts.router)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

@@ -64,10 +64,15 @@ function LoanList() {
   const filteredLoans =
     loansData?.filter((loan) => {
       if (filters.search) {
-        const searchLower = filters.search.toLowerCase();
-        const contactName = loan.contact?.name?.toLowerCase() || "";
-        const notes = loan.notes?.toLowerCase() || "";
-        return contactName.includes(searchLower) || notes.includes(searchLower);
+        const s = filters.search.toLowerCase();
+        return (
+          (loan.contact?.name || "").toLowerCase().includes(s) ||
+          (loan.notes || "").toLowerCase().includes(s) ||
+          (loan.institution_name || "").toLowerCase().includes(s) ||
+          (loan.loan_type || "").toLowerCase().includes(s) ||
+          String(loan.id).includes(s) ||
+          String(loan.principal_amount || "").includes(s)
+        );
       }
       return true;
     }) || [];

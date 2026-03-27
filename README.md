@@ -1,10 +1,10 @@
 # 🏦 Advanced Finance Tracker
 
-A full-stack personal finance management web application for tracking money lending, property deals, partnerships, and expenses.
+A full-stack personal finance management web application for tracking money lending, property deals, partnerships, Beesi (chit funds), cash/bank accounts, and expenses.
 
-## 🎉 Status: Phase 2 Complete! ✅
+## 🎉 Status: Phase 7 Complete! ✅
 
-**Current Features (Working Now):**
+**Current Features (All Working):**
 
 - ✅ **Contacts Management**: Full CRUD with search, filtering, and financial summaries
 - ✅ **Loans Management**: Track all 3 loan types (Interest Only, EMI, Short Term)
@@ -12,14 +12,14 @@ A full-stack personal finance management web application for tracking money lend
 - ✅ **Outstanding Calculation**: Day-level precision interest calculation
 - ✅ **Collateral Tracking**: Gold rate API integration with auto-value calculation
 - ✅ **Interest Capitalization**: Admin-only feature to add interest to principal
-- ✅ **JWT Authentication**: Auto-refresh tokens with role-based access
-
-**Coming Soon (Phase 3):**
-
-- Property Deals & Transactions
-- Partnerships & Joint Ventures
-- Dashboard Analytics & Charts
-- Expense Tracking
+- ✅ **Property Deals**: Track middleman deals and purchase-and-hold with full P&L
+- ✅ **Partnerships**: Track investments and returns with per-member share tracking
+- ✅ **Expenses**: Log and categorize expenses with monthly trends
+- ✅ **Reports**: Export to CSV/Excel for any module
+- ✅ **Beesi (BC/Chit Fund)**: Track rotating savings pools with installment log, pot withdrawal, and P&L
+- ✅ **Cash & Bank Accounts**: Named accounts with full debit/credit ledger and running balance
+- ✅ **Enhanced Dashboard**: EMIs due this month, overdue interest, payment behavior scoring, Beesi metrics, all quick links
+- ✅ **JWT Authentication**: Auto-refresh tokens with role-based access (admin/viewer)
 
 ## 🚀 Quick Start
 

@@ -26,6 +26,8 @@
 | Expenses       | ✅ Done        | ✅ Done     | ✅ List + Form          | ✅ Complete |
 | Dashboard      | N/A            | ✅ Done     | ✅ Full Dashboard       | ✅ Complete |
 | Reports        | N/A            | ✅ Done     | ✅ PDF + Excel Export   | ✅ Complete |
+| Beesi (BC/CF)  | ✅ Done        | ✅ Done     | ✅ List + Detail + Form | ✅ Complete |
+| Accounts       | ✅ Done        | ✅ Done     | ✅ List + Detail + Form | ✅ Complete |
 
 > **🎉 PHASE 2 COMPLETE - READY FOR TESTING (2026-03-18):**
 >
@@ -111,6 +113,11 @@ alembic history
 10. `partnership_members`
 11. `partnership_transactions`
 12. `expenses`
+13. `beesis`
+14. `beesi_installments`
+15. `beesi_withdrawals`
+16. `cash_accounts`
+17. `account_transactions`
 
 ---
 
@@ -316,21 +323,31 @@ GET /api/loans?skip=0&limit=20
 /dashboard            → Dashboard.jsx ✅
 /contacts             → ContactList.jsx ✅
 /contacts/:id         → ContactDetail.jsx ✅
+/contacts/new         → ContactForm.jsx ✅
+/contacts/:id/edit    → ContactForm.jsx ✅
 /loans                → LoanList.jsx ✅
 /loans/:id            → LoanDetail.jsx ✅
-/loans/new            → LoanForm.jsx 🔴 (TODO)
-/loans/:id/edit       → LoanForm.jsx (edit mode) 🔴 (TODO)
-/properties           → PropertyList.jsx 🔴 (TODO)
-/properties/new       → PropertyForm.jsx 🔴 (TODO)
-/properties/:id       → PropertyDetail.jsx 🔴 (TODO)
-/partnerships         → PartnershipList.jsx 🔴 (TODO)
+/loans/new            → LoanForm.jsx ✅
+/loans/:id/edit       → LoanForm.jsx ✅
+/properties           → PropertyList.jsx ✅
+/properties/new       → PropertyForm.jsx ✅
+/properties/:id       → PropertyDetail.jsx ✅
+/properties/:id/edit  → PropertyForm.jsx ✅
+/partnerships         → PartnershipList.jsx ✅
+/partnerships/new     → PartnershipForm.jsx ✅
+/partnerships/:id     → PartnershipDetail.jsx ✅
+/partnerships/:id/edit → PartnershipForm.jsx ✅
+/expenses             → ExpenseList.jsx ✅
+/reports              → Reports.jsx ✅
+/beesi                → BeesiList.jsx ✅
+/beesi/new            → BeesiForm.jsx ✅
+/beesi/:id            → BeesiDetail.jsx ✅
+/beesi/:id/edit       → BeesiForm.jsx ✅
+/accounts             → AccountList.jsx ✅
+/accounts/new         → AccountForm.jsx ✅
+/accounts/:id         → AccountDetail.jsx ✅
+/accounts/:id/edit    → AccountForm.jsx ✅
 ```
-
-/partnerships/new → PartnershipForm.jsx
-/partnerships/:id → PartnershipDetail.jsx
-/expenses → ExpenseList.jsx
-
-````
 
 ### State Management
 
@@ -580,6 +597,37 @@ docker-compose exec backend alembic upgrade head
 
 ---
 
+## ✅ Phase 7 — Beesi, Accounts, Enhanced Dashboard (2026-03-19)
+
+> Added three new feature areas: Beesi (chit fund) tracking, Cash/Bank account ledger, and a significantly richer dashboard with monthly EMI metrics and payment behavior analytics.
+
+### New Backend
+
+- `backend/app/models/beesi.py` — Beesi + BeesiInstallment + BeesiWithdrawal models
+- `backend/app/models/cash_account.py` — CashAccount + AccountTransaction models
+- `backend/app/routers/beesi.py` — Full CRUD + installments + withdrawal + P&L summary
+- `backend/app/routers/accounts.py` — Full CRUD + transaction ledger + running balance
+- `backend/app/routers/dashboard.py` — Added `GET /api/dashboard/this-month` + `GET /api/dashboard/payment-behavior`; summary now includes `active_beesis` + `beesi_total_invested`
+- `backend/app/main.py` — registered `beesi` + `accounts` routers
+- `backend/alembic/versions/004_add_beesi_and_accounts.py` — migration for 5 new tables
+
+### New Frontend
+
+- `frontend/src/pages/Beesi/BeesiList.jsx` — card grid with progress bar + P&L badge + status filter
+- `frontend/src/pages/Beesi/BeesiForm.jsx` — create/edit form
+- `frontend/src/pages/Beesi/BeesiDetail.jsx` — summary cards + inline installment log + pot withdrawal form
+- `frontend/src/pages/Accounts/AccountList.jsx` — total balance banner + account cards
+- `frontend/src/pages/Accounts/AccountForm.jsx` — create/edit form
+- `frontend/src/pages/Accounts/AccountDetail.jsx` — running balance ledger + inline transaction form
+
+### Modified Frontend
+
+- `frontend/src/App.jsx` — added 8 new routes for Beesi + Accounts
+- `frontend/src/pages/Dashboard.jsx` — Beesi + Accounts quick links; new metric cards for EMIs this month, overdue interest, Beesi invested; payment behavior table
+- `frontend/src/pages/Loans/LoanList.jsx` — search now also matches `institution_name`, `loan_type`, loan ID, and `principal_amount`
+
+---
+
 ## ✅ Phase 6 — Comprehensive Bug Fixes & Auto-Calculations (2026-03-18)
 
 > Major fix pass addressing field name mismatches, broken data flows, and adding smart auto-calculations.
@@ -666,7 +714,123 @@ docker-compose exec backend alembic upgrade head
 
 ---
 
-## 📞 Quick Reference — Who Is Who
+## 🏦 Beesi (BC / Chit Fund) Tracking
+
+### What is a Beesi / BC?
+
+A BC (Beesi Committee) is a rotating savings pool. N members each pay a fixed monthly installment. Each month, one member claims the pot (usually by bidding — the person who agrees to take the smallest discount wins). The difference between the full pot and the discounted amount is split among all members as a **dividend** (reducing their next installment).
+
+### Key Calculations
+
+```
+actual_paid (per month) = base_installment - dividend_received
+```
+
+If you win the pot early:
+```
+net_received = gross_amount (pot_size) - discount_offered
+```
+
+Profit/Loss at any point:
+```
+profit_loss = total_withdrawn - total_invested
+total_invested = sum of actual_paid across all installments
+total_withdrawn = net_received on pot claim
+```
+
+### Business Rules
+
+- Only **one withdrawal** allowed per Beesi (the pot can only be claimed once)
+- `profit_loss_pct = profit_loss / total_invested × 100`
+- If you take the pot early and receive dividends after, `total_invested` keeps growing → `profit_loss` narrows over time
+- If you take the pot late (after paying many installments), your return is higher
+
+### Database Tables
+
+- `beesis` — one row per committee pool
+- `beesi_installments` — one row per monthly payment paid
+- `beesi_withdrawals` — one row when the pot is claimed (max 1 per beesi)
+
+### API Endpoints
+
+- `GET /api/beesi` — list with `?status=active|completed|cancelled`
+- `POST /api/beesi` — create (admin)
+- `GET /api/beesi/{id}` — detail with installments + withdrawal + P&L
+- `PUT /api/beesi/{id}` — update (admin)
+- `DELETE /api/beesi/{id}` — soft delete (admin)
+- `GET /api/beesi/{id}/installments` — list installments
+- `POST /api/beesi/{id}/installments` — log monthly payment
+- `DELETE /api/beesi/{id}/installments/{inst_id}` — remove (admin)
+- `POST /api/beesi/{id}/withdraw` — record pot claim
+- `GET /api/beesi/{id}/summary` — P&L summary
+
+---
+
+## 💳 Cash & Bank Accounts (Liquidity Tracking)
+
+### Purpose
+
+Track named accounts (cash at home, savings accounts, current accounts, wallets like GPay) with a full debit/credit ledger.
+
+### Account Types
+
+`cash | savings | current | wallet | fixed_deposit`
+
+### Balance Calculation
+
+```
+current_balance = opening_balance + sum(credits) - sum(debits)
+```
+
+Always computed from transaction history — never stored as a column. Consistent with the pattern used for loan outstanding.
+
+### Transaction Linking
+
+Each transaction can optionally link to another module:
+- `linked_type`: `loan | property | partnership | beesi | expense | manual`
+- `linked_id`: The ID in that module's table
+
+This allows traceability: e.g., a ₹50,000 debit could link to `loan #12` as a disbursement.
+
+### API Endpoints
+
+- `GET /api/accounts` — list with `current_balance` computed per account
+- `POST /api/accounts` — create (admin)
+- `GET /api/accounts/{id}` — detail with all transactions
+- `PUT /api/accounts/{id}` — update (admin)
+- `DELETE /api/accounts/{id}` — soft delete (admin)
+- `GET /api/accounts/{id}/transactions` — list (limit 1–1000, default 200)
+- `POST /api/accounts/{id}/transactions` — record credit/debit
+- `DELETE /api/accounts/transactions/{txn_id}` — remove (admin)
+
+---
+
+## 📊 Enhanced Dashboard (Phase 7)
+
+### New Endpoints Added
+
+- `GET /api/dashboard/this-month` — EMIs expected/collected/pending + interest expected/collected + overdue interest for current calendar month
+- `GET /api/dashboard/payment-behavior` — Per-borrower payment scoring based on payment regularity
+
+### Payment Behavior Scoring Logic
+
+```
+months_active = months from disbursed_date to today
+payment_rate = payments_made / months_active × 100
+
+GOOD:       payments_made >= months_active AND days_since_payment <= 35
+BAD:        payments_made == 0 OR days_since_payment > 90
+IRREGULAR:  everything else
+```
+
+Results sorted: Bad first → Irregular → Good (worst offenders visible at top)
+
+### Dashboard Summary Now Includes
+
+- `active_beesis` — count of active Beesi pools
+- `beesi_total_invested` — sum of all installments paid across all Beesis
+
+---
 
 | Person                  | Role in System                     | Contact Type                              |
 | ----------------------- | ---------------------------------- | ----------------------------------------- |

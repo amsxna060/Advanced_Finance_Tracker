@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.models.beesi import Beesi, BeesiInstallment
 from app.models.collateral import Collateral
 from app.models.expense import Expense
 from app.models.loan import Loan, LoanPayment
@@ -157,6 +158,12 @@ def get_dashboard_summary(
     total_partnership_invested = sum(_decimal(item.our_investment) for item in active_partnerships)
     total_partnership_received = sum(_decimal(item.total_received) for item in active_partnerships)
 
+    # Beesi (chit fund) summary
+    active_beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active").all()
+    beesi_total_invested = Decimal("0")
+    for b in active_beesis:
+        beesi_total_invested += sum(_decimal(i.actual_paid) for i in b.installments)
+
     return {
         "total_lent_out": total_lent_out,
         "total_outstanding_receivable": total_outstanding_receivable,
@@ -169,6 +176,8 @@ def get_dashboard_summary(
         "active_partnerships": len(active_partnerships),
         "total_partnership_invested": total_partnership_invested,
         "total_partnership_received": total_partnership_received,
+        "active_beesis": len(active_beesis),
+        "beesi_total_invested": beesi_total_invested,
     }
 
 
@@ -344,3 +353,155 @@ def export_dashboard_data(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get("/this-month", response_model=dict)
+def get_this_month_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns metrics specific to the current calendar month:
+    - emis_expected:    sum of EMI amounts for all active EMI loans (loans given)
+    - emis_collected:   sum of loan payments received this month
+    - emis_pending:     emis_expected - emis_collected (approx remaining)
+    - interest_expected: total interest due this month across interest-only loans
+    - interest_collected: interest portion of payments received this month
+    - overdue_interest:  total interest outstanding across all given loans
+    """
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    active_loans_given = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False, Loan.status == "active", Loan.loan_direction == "given")
+        .all()
+    )
+
+    emis_expected = Decimal("0")
+    interest_expected = Decimal("0")
+    overdue_interest = Decimal("0")
+
+    for loan in active_loans_given:
+        try:
+            if loan.loan_type == "emi" and loan.emi_amount:
+                emis_expected += _decimal(loan.emi_amount)
+            elif loan.loan_type == "interest_only" and loan.interest_rate:
+                interest_expected += (_decimal(loan.principal_amount) * _decimal(loan.interest_rate)) / Decimal("100")
+            outstanding = calculate_outstanding(loan.id, today, db)
+            overdue_interest += _decimal(outstanding.get("interest_outstanding"))
+        except Exception:
+            pass
+
+    # Payments received this month
+    this_month_payments = (
+        db.query(LoanPayment)
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(
+            Loan.loan_direction == "given",
+            LoanPayment.payment_date >= month_start,
+            LoanPayment.payment_date <= today,
+        )
+        .all()
+    )
+    emis_collected = sum(_decimal(p.amount_paid) for p in this_month_payments)
+    interest_collected = sum(
+        _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+        for p in this_month_payments
+    )
+
+    return {
+        "month": today.strftime("%B %Y"),
+        "emis_expected": emis_expected,
+        "emis_collected": emis_collected,
+        "emis_pending": max(emis_expected - emis_collected, Decimal("0")),
+        "interest_expected": interest_expected,
+        "interest_collected": interest_collected,
+        "overdue_interest": overdue_interest,
+    }
+
+
+@router.get("/payment-behavior", response_model=list)
+def get_payment_behavior(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns a payment behavior table for all active borrowers (loans given).
+    Each row shows: contact name, loan id, months since disbursal, payments made,
+    last payment date, and a simple score: Good / Irregular / Bad.
+    """
+    active_loans = (
+        db.query(Loan)
+        .filter(
+            Loan.is_deleted == False,
+            Loan.loan_direction == "given",
+            Loan.status == "active",
+        )
+        .all()
+    )
+
+    rows = []
+    today = date.today()
+
+    for loan in active_loans:
+        try:
+            # How many months has this loan been active?
+            start = loan.interest_start_date or loan.disbursed_date
+            if not start:
+                continue
+            months_active = (
+                (today.year - start.year) * 12 + (today.month - start.month)
+            )
+            if months_active < 1:
+                months_active = 1
+
+            # How many payments have been made?
+            payments = loan.payments  # already ordered by date
+            payments_made = len(payments)
+            last_payment_date = payments[-1].payment_date if payments else None
+
+            # Days since last payment
+            days_since_payment = (
+                (today - last_payment_date).days if last_payment_date else months_active * 30
+            )
+
+            # Score heuristic:
+            # Good: payments_made >= months_active and last payment within 35 days
+            # Bad: payments_made == 0 or days_since_payment > 90
+            # Irregular: everything else
+            if payments_made >= months_active and days_since_payment <= 35:
+                score = "Good"
+                score_color = "green"
+            elif payments_made == 0 or days_since_payment > 90:
+                score = "Bad"
+                score_color = "red"
+            else:
+                score = "Irregular"
+                score_color = "yellow"
+
+            pct = round((payments_made / months_active) * 100) if months_active > 0 else 0
+
+            rows.append(
+                {
+                    "loan_id": loan.id,
+                    "contact_id": loan.contact_id,
+                    "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
+                    "loan_type": loan.loan_type,
+                    "principal": _decimal(loan.principal_amount),
+                    "months_active": months_active,
+                    "payments_made": payments_made,
+                    "payment_rate_pct": pct,
+                    "last_payment_date": last_payment_date.isoformat() if last_payment_date else None,
+                    "days_since_payment": days_since_payment,
+                    "score": score,
+                    "score_color": score_color,
+                }
+            )
+        except Exception:
+            pass
+
+    # Sort: Bad first, then Irregular, then Good
+    order = {"Bad": 0, "Irregular": 1, "Good": 2}
+    rows.sort(key=lambda r: (order.get(r["score"], 3), -(r["days_since_payment"] or 0)))
+    return rows
