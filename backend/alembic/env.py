@@ -2,7 +2,7 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
+from sqlalchemy import create_engine
 from sqlalchemy import pool
 
 from alembic import context
@@ -16,6 +16,9 @@ config = context.config
 # Override sqlalchemy.url from environment if DATABASE_URL is set
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
+    # Normalize postgres:// → postgresql:// (Supabase and many cloud providers use postgres://)
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
     config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
@@ -42,11 +45,14 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    url = config.get_main_option("sqlalchemy.url")
+
+    # For non-localhost databases (Supabase, Render, etc.), require SSL
+    is_remote = url and ("localhost" not in url) and ("127.0.0.1" not in url)
+    connect_args = {"sslmode": "require"} if is_remote else {}
+
+    connectable = create_engine(url, connect_args=connect_args, poolclass=pool.NullPool)
+
     with connectable.connect() as connection:
         context.configure(
             connection=connection,

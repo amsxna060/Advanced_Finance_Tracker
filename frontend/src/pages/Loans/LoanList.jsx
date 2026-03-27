@@ -25,7 +25,7 @@ function LoanList() {
   const { data: contactsData } = useQuery({
     queryKey: ["contacts"],
     queryFn: async () => {
-      const response = await api.get("/api/contacts");
+      const response = await api.get("/api/contacts", { params: { limit: 500 } });
       return response.data;
     },
   });
@@ -34,7 +34,7 @@ function LoanList() {
   const { data: loansData, isLoading } = useQuery({
     queryKey: ["loans", filters],
     queryFn: async () => {
-      const params = {};
+      const params = { limit: 500 };
       if (filters.direction) params.direction = filters.direction;
       if (filters.type) params.loan_type = filters.type;
       if (filters.status) params.status = filters.status;

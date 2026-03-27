@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 
@@ -74,12 +74,19 @@ const buildLoanPayload = (formData) => {
 function LoanForm() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const isEditMode = !!id;
 
   const [step, setStep] = useState(1);
+
+  // Pre-fill contact from navigation state (e.g. clicking "Create Loan" from contact page)
+  const prefilledContactId = location.state?.contactId
+    ? String(location.state.contactId)
+    : new URLSearchParams(location.search).get("contact_id") || "";
+
   const [formData, setFormData] = useState({
-    contact_id: "",
+    contact_id: prefilledContactId,
     direction: "given",
     type: "interest_only",
     principal_amount: "",
@@ -109,7 +116,7 @@ function LoanForm() {
   const { data: contacts } = useQuery({
     queryKey: ["contacts"],
     queryFn: async () => {
-      const response = await api.get("/api/contacts");
+      const response = await api.get("/api/contacts", { params: { limit: 500 } });
       return response.data;
     },
   });

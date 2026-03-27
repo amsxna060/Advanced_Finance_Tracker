@@ -21,6 +21,7 @@ export default function ContactList() {
       const params = new URLSearchParams();
       if (search) params.append("search", search);
       if (contactType) params.append("contact_type", contactType);
+      params.append("limit", "500");
       const response = await api.get(`/api/contacts?${params}`);
       return response.data;
     },

@@ -33,12 +33,12 @@ This guide will help you deploy the Advanced Finance Tracker to Render.com's fre
    - **Branch**: `main`
    - **Root Directory**: Leave blank (or use `backend` if Render supports it)
    - **Environment**: `Docker`
-   - **Dockerfile Path**: `backend/Dockerfile` 
+   - **Dockerfile Path**: `backend/Dockerfile`
    - **Docker Context**: `backend`
    - **Plan**: Free
 
 5. **Environment Variables** (Click "Advanced" → "Add Environment Variable"):
-   
+
    ```
    DATABASE_URL = <paste your Internal Database URL from step 1>
    SECRET_KEY = <generate a random string, e.g., openssl rand -hex 32>
@@ -79,6 +79,7 @@ This guide will help you deploy the Advanced Finance Tracker to Render.com's fre
    - **Publish Directory**: `dist`
 
 5. **Environment Variables**:
+
    ```
    VITE_API_URL = https://your-backend-app.onrender.com
    ```
@@ -108,7 +109,8 @@ This guide will help you deploy the Advanced Finance Tracker to Render.com's fre
 
 ### Issue: Database migrations not running
 
-**Symptoms**: 
+**Symptoms**:
+
 - 500 errors when accessing API
 - Dashboard shows 0.00 for all values
 - Errors about missing columns
@@ -126,6 +128,7 @@ The `prestart.py` script runs migrations automatically. Check the deployment log
    ```
 
 If migrations didn't run:
+
 1. Check that `prestart.py` exists in your repository
 2. Verify the Dockerfile CMD is: `["sh", "-c", "python prestart.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]`
 3. Manually trigger a redeploy
@@ -133,10 +136,12 @@ If migrations didn't run:
 ### Issue: CORS errors in browser console
 
 **Symptoms**:
+
 - Frontend shows errors like "blocked by CORS policy"
 - API requests fail with network errors
 
 **Solution**:
+
 1. Check that `CORS_ORIGINS` in backend includes your frontend URL
 2. Make sure there's no trailing slash in the URL
 3. Redeploy backend after changing CORS_ORIGINS
@@ -144,13 +149,15 @@ If migrations didn't run:
 ### Issue: Free tier goes to sleep
 
 **Symptoms**:
+
 - First request takes 30+ seconds
 - Subsequent requests are fast
 
-**Explanation**: 
+**Explanation**:
 Render's free tier services sleep after 15 minutes of inactivity. This is normal behavior.
 
 **Solutions**:
+
 1. Upgrade to paid tier ($7/month) for always-on services
 2. Use an uptime monitoring service (like UptimeRobot) to ping your backend every 10 minutes
 3. Accept the occasional slow first load
@@ -158,10 +165,12 @@ Render's free tier services sleep after 15 minutes of inactivity. This is normal
 ### Issue: Database connection errors
 
 **Symptoms**:
+
 - Errors mentioning "could not connect to database"
 - 500 errors on all API endpoints
 
 **Solution**:
+
 1. Verify `DATABASE_URL` is set correctly in environment variables
 2. Make sure you're using the **Internal Database URL**, not the external one
 3. Check that your database service is running (not suspended)
@@ -169,9 +178,11 @@ Render's free tier services sleep after 15 minutes of inactivity. This is normal
 ### Issue: Build failures
 
 **Symptoms**:
+
 - Deployment fails during build phase
 
 **Solution**:
+
 1. Check the build logs for specific error messages
 2. Verify `requirements.txt` (backend) and `package.json` (frontend) are correct
 3. Make sure Dockerfile paths are correct
@@ -187,6 +198,7 @@ Render's free tier services sleep after 15 minutes of inactivity. This is normal
 ### Restart Services
 
 If something goes wrong:
+
 1. Dashboard → Your service → Settings
 2. Scroll down → Manual Deploy → Deploy latest commit
 
@@ -201,6 +213,7 @@ If something goes wrong:
 Migrations run automatically on every deployment via `prestart.py`.
 
 To create new migrations locally:
+
 ```bash
 # In backend directory
 docker-compose exec backend alembic revision --autogenerate -m "description"
@@ -231,11 +244,13 @@ git push
 ## Cost Optimization
 
 Free tier includes:
+
 - 750 hours/month for web services (enough for 1 backend)
 - 1GB PostgreSQL database
 - 100GB bandwidth
 
 To stay within free tier:
+
 - Use only one backend and frontend
 - Monitor database size
 - Compress images and assets
@@ -243,6 +258,7 @@ To stay within free tier:
 ## Support
 
 If you need help:
+
 1. Check Render's [documentation](https://render.com/docs)
 2. Review deployment logs carefully
 3. Search Render's community forum

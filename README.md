@@ -220,6 +220,7 @@ For deploying to Render.com or other cloud platforms:
 **If migrations don't run on Render:**
 
 1. Check deployment logs for migration output:
+
    ```
    Running database migrations...
    INFO  [alembic.runtime.migration] Running upgrade...
@@ -227,6 +228,7 @@ For deploying to Render.com or other cloud platforms:
    ```
 
 2. Verify the Dockerfile CMD includes prestart.py:
+
    ```dockerfile
    CMD ["sh", "-c", "python prestart.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
    ```
@@ -238,6 +240,7 @@ For deploying to Render.com or other cloud platforms:
 **If dashboard shows 0.00 for all values:**
 
 This usually indicates:
+
 - ✗ Migrations haven't run (missing database columns)
 - ✗ Database is empty (no data created yet)
 - ✗ Wrong DATABASE_URL (connecting to wrong database)
