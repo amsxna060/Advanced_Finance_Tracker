@@ -1,33 +1,7 @@
-# Render.com deployment configuration
-# This file is optional but helps automate deployment setup
+# Render.com deployment configuration (Blueprint v2)
+# This file is optional - you can also configure services manually via the Render dashboard
+# For manual setup instructions, see DEPLOY_RENDER.md
 
-services:
-  # Backend API Service
-  - type: web
-    name: finance-tracker-backend
-    env: docker
-    region: oregon
-    plan: free
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    envVars:
-      - key: DATABASE_URL
-        sync: false  # Set this in Render dashboard with your PostgreSQL connection string
-      - key: SECRET_KEY
-        sync: false  # Set this in Render dashboard
-      - key: CORS_ORIGINS
-        value: https://finance-tracker-frontend.onrender.com  # Update with your frontend URL
-      - key: ALGORITHM
-        value: HS256
-      - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: 15
-      - key: REFRESH_TOKEN_EXPIRE_DAYS
-        value: 7
-    healthCheckPath: /
+# Note: This blueprint format may need adjustment based on Render's current API
+# It's recommended to set up services manually via the dashboard instead
 
-  # Database (if using Render PostgreSQL)
-  - type: pgsql
-    name: finance-tracker-db
-    plan: free
-    databaseName: finance_tracker
-    user: admin
