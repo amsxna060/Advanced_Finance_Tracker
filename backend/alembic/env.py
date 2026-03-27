@@ -51,10 +51,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    import sys as _sys
+    from urllib.parse import urlparse as _urlparse
+
     url = config.get_main_option("sqlalchemy.url")
 
-    # For non-localhost databases (Supabase, Render, etc.), require SSL
-    is_remote = url and ("localhost" not in url) and ("127.0.0.1" not in url)
+    # Detect local / Docker-Compose databases (no dots in hostname = bare service name)
+    _host = _urlparse(url).hostname or "" if url else ""
+    _is_local = _host in ("localhost", "127.0.0.1") or "." not in _host
+    is_remote = url and not _is_local
     connect_args = {"sslmode": "require"} if is_remote else {}
 
     connectable = create_engine(url, connect_args=connect_args, poolclass=pool.NullPool)

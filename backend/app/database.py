@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -9,8 +11,14 @@ db_url = settings.DATABASE_URL
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-# Use SSL for production databases (Supabase, Render, etc.); skip for localhost
-if "localhost" in db_url or "127.0.0.1" in db_url:
+# Detect local / Docker-Compose databases:
+#   - explicit localhost / 127.0.0.1
+#   - bare hostnames with no dots (Docker service names like "postgres", "db", etc.)
+# Cloud hosts (Supabase, Render, …) always contain dots in the hostname.
+_hostname = urlparse(db_url).hostname or ""
+_is_local = _hostname in ("localhost", "127.0.0.1") or "." not in _hostname
+
+if _is_local:
     engine = create_engine(db_url)
 elif ":6543" in db_url:
     # Supabase PgBouncer transaction mode pooler — NullPool prevents
