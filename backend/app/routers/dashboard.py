@@ -136,19 +136,23 @@ def get_dashboard_summary(
     total_overdue = Decimal("0")
 
     for loan in active_loans:
-        principal = _decimal(loan.principal_amount)
-        outstanding = calculate_outstanding(loan.id, date.today(), db)
-        total_due = _decimal(outstanding["total_outstanding"])
-        interest_due = _decimal(outstanding["interest_outstanding"])
-        expected_this_month += _loan_monthly_expected(loan)
+        try:
+            principal = _decimal(loan.principal_amount)
+            outstanding = calculate_outstanding(loan.id, date.today(), db)
+            total_due = _decimal(outstanding["total_outstanding"])
+            interest_due = _decimal(outstanding["interest_outstanding"])
+            expected_this_month += _loan_monthly_expected(loan)
 
-        if loan.loan_direction == "given":
-            total_lent_out += principal
-            total_outstanding_receivable += total_due
-            total_overdue += interest_due
-        else:
-            total_borrowed += principal
-            total_outstanding_payable += total_due
+            if loan.loan_direction == "given":
+                total_lent_out += principal
+                total_outstanding_receivable += total_due
+                total_overdue += interest_due
+            else:
+                total_borrowed += principal
+                total_outstanding_payable += total_due
+        except Exception:
+            # Skip loans that error (e.g. missing data) so the summary still loads
+            pass
 
     total_partnership_invested = sum(_decimal(item.our_investment) for item in active_partnerships)
     total_partnership_received = sum(_decimal(item.total_received) for item in active_partnerships)
@@ -177,51 +181,55 @@ def get_dashboard_alerts(
     active_loans = db.query(Loan).filter(Loan.is_deleted == False, Loan.status == "active").all()
 
     for loan in active_loans:
-        outstanding = calculate_outstanding(loan.id, date.today(), db)
-        interest_due = _decimal(outstanding["interest_outstanding"])
-        total_outstanding = _decimal(outstanding["total_outstanding"])
+        try:
+            outstanding = calculate_outstanding(loan.id, date.today(), db)
+            interest_due = _decimal(outstanding["interest_outstanding"])
+            total_outstanding = _decimal(outstanding["total_outstanding"])
 
-        if interest_due > 0 and loan.disbursed_date and loan.disbursed_date <= date.today() - timedelta(days=30):
-            alerts["overdue"].append(
-                {
-                    "loan_id": loan.id,
-                    "contact_id": loan.contact_id,
-                    "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
-                    "interest_outstanding": interest_due,
-                    "total_outstanding": total_outstanding,
-                    "days_since_disbursal": (date.today() - loan.disbursed_date).days,
-                }
-            )
-
-        collaterals = db.query(Collateral).filter(Collateral.loan_id == loan.id).all()
-        for collateral in collaterals:
-            estimated_value = _decimal(collateral.estimated_value)
-            threshold_pct = _decimal(collateral.warning_threshold_pct)
-            threshold_value = (estimated_value * threshold_pct) / Decimal("100") if estimated_value else Decimal("0")
-            if estimated_value > 0 and total_outstanding > threshold_value:
-                alerts["collateral"].append(
+            if interest_due > 0 and loan.disbursed_date and loan.disbursed_date <= date.today() - timedelta(days=30):
+                alerts["overdue"].append(
                     {
                         "loan_id": loan.id,
-                        "collateral_id": collateral.id,
-                        "collateral_type": collateral.collateral_type,
+                        "contact_id": loan.contact_id,
                         "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
+                        "interest_outstanding": interest_due,
                         "total_outstanding": total_outstanding,
-                        "estimated_value": estimated_value,
-                        "warning_threshold_pct": threshold_pct,
+                        "days_since_disbursal": (date.today() - loan.disbursed_date).days,
                     }
                 )
 
-        cap_status = check_capitalization_due(loan, db)
-        if cap_status.get("is_due"):
-            alerts["capitalization"].append(
-                {
-                    "loan_id": loan.id,
-                    "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
-                    "outstanding_interest": _decimal(cap_status.get("outstanding_interest")),
-                    "months_since_last_action": cap_status.get("months_since_last_action", 0),
-                    "reference_date": cap_status.get("reference_date"),
-                }
-            )
+            collaterals = db.query(Collateral).filter(Collateral.loan_id == loan.id).all()
+            for collateral in collaterals:
+                estimated_value = _decimal(collateral.estimated_value)
+                threshold_pct = _decimal(collateral.warning_threshold_pct)
+                threshold_value = (estimated_value * threshold_pct) / Decimal("100") if estimated_value else Decimal("0")
+                if estimated_value > 0 and total_outstanding > threshold_value:
+                    alerts["collateral"].append(
+                        {
+                            "loan_id": loan.id,
+                            "collateral_id": collateral.id,
+                            "collateral_type": collateral.collateral_type,
+                            "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
+                            "total_outstanding": total_outstanding,
+                            "estimated_value": estimated_value,
+                            "warning_threshold_pct": threshold_pct,
+                        }
+                    )
+
+            cap_status = check_capitalization_due(loan, db)
+            if cap_status.get("is_due"):
+                alerts["capitalization"].append(
+                    {
+                        "loan_id": loan.id,
+                        "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
+                        "outstanding_interest": _decimal(cap_status.get("outstanding_interest")),
+                        "months_since_last_action": cap_status.get("months_since_last_action", 0),
+                        "reference_date": cap_status.get("reference_date"),
+                    }
+                )
+        except Exception:
+            # Skip loans that error so all alerts still load
+            pass
 
     return alerts
 

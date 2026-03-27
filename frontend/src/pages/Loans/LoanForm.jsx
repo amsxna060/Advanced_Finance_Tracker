@@ -116,7 +116,9 @@ function LoanForm() {
   const { data: contacts } = useQuery({
     queryKey: ["contacts"],
     queryFn: async () => {
-      const response = await api.get("/api/contacts", { params: { limit: 500 } });
+      const response = await api.get("/api/contacts", {
+        params: { limit: 500 },
+      });
       return response.data;
     },
   });

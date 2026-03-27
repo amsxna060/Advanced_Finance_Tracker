@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from app.config import settings
 
 # Normalize URL: Supabase and some providers use postgres:// but SQLAlchemy needs postgresql://
@@ -11,6 +12,14 @@ if db_url.startswith("postgres://"):
 # Use SSL for production databases (Supabase, Render, etc.); skip for localhost
 if "localhost" in db_url or "127.0.0.1" in db_url:
     engine = create_engine(db_url)
+elif ":6543" in db_url:
+    # Supabase PgBouncer transaction mode pooler — NullPool prevents
+    # SQLAlchemy from managing its own pool on top of PgBouncer's
+    engine = create_engine(
+        db_url,
+        connect_args={"sslmode": "require"},
+        poolclass=NullPool,
+    )
 else:
     engine = create_engine(
         db_url,

@@ -13,8 +13,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # this is the Alembic Config object
 config = context.config
 
-# Override sqlalchemy.url from environment if DATABASE_URL is set
-database_url = os.environ.get("DATABASE_URL")
+# Prefer DIRECT_URL (Supabase direct connection, port 5432) for migrations
+# because PgBouncer transaction mode (port 6543) can't run DDL migrations.
+# DIRECT_URL is set by prestart.py before alembic is invoked, but we also
+# check here in case alembic is run directly.
+database_url = (
+    os.environ.get("DATABASE_URL")  # prestart.py already sets this to DIRECT_URL
+    or os.environ.get("DIRECT_URL")
+)
 if database_url:
     # Normalize postgres:// → postgresql:// (Supabase and many cloud providers use postgres://)
     if database_url.startswith("postgres://"):

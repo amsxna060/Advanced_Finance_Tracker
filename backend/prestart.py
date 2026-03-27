@@ -7,21 +7,32 @@ import subprocess
 import sys
 import os
 
+def _normalize(url: str) -> str:
+    return url.replace("postgres://", "postgresql://", 1) if url.startswith("postgres://") else url
+
+
 def main():
     print("=" * 60)
     print("Running database migrations...")
     print("=" * 60)
 
-    # Normalize DATABASE_URL: Supabase and some providers give postgres:// 
-    # but SQLAlchemy / Alembic need postgresql://
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url.startswith("postgres://"):
-        normalized = db_url.replace("postgres://", "postgresql://", 1)
-        os.environ["DATABASE_URL"] = normalized
-        print(f"Normalized DATABASE_URL scheme: postgres:// → postgresql://")
+    # DIRECT_URL: Supabase direct connection (port 5432) bypasses PgBouncer,
+    # which is required for DDL migrations.  Fall back to DATABASE_URL.
+    direct_url = os.environ.get("DIRECT_URL") or os.environ.get("DATABASE_URL", "")
+    if not direct_url:
+        print("WARNING: No DATABASE_URL or DIRECT_URL set — skipping migrations.")
+        return 0
 
-    # Change to the directory containing alembic.ini
-    os.chdir("/app")
+    normalized = _normalize(direct_url)
+    if normalized != direct_url:
+        print("Normalized URL scheme: postgres:// → postgresql://")
+
+    # Override DATABASE_URL so Alembic's env.py picks it up
+    os.environ["DATABASE_URL"] = normalized
+
+    # Change to the directory containing alembic.ini (same dir as this script)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
 
     # Run alembic upgrade head
     result = subprocess.run(

@@ -25,7 +25,9 @@ function LoanList() {
   const { data: contactsData } = useQuery({
     queryKey: ["contacts"],
     queryFn: async () => {
-      const response = await api.get("/api/contacts", { params: { limit: 500 } });
+      const response = await api.get("/api/contacts", {
+        params: { limit: 500 },
+      });
       return response.data;
     },
   });
