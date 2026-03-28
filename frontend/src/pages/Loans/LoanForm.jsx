@@ -23,6 +23,7 @@ const normalizeLoanForForm = (loan) => ({
     ? String(loan.post_due_interest_rate)
     : "",
   notes: loan.notes || "",
+  account_id: loan.account_id ? String(loan.account_id) : "",
 });
 
 const buildLoanPayload = (formData) => {
@@ -33,6 +34,7 @@ const buildLoanPayload = (formData) => {
     principal_amount: parseFloat(formData.principal_amount),
     disbursed_date: formData.start_date,
     notes: formData.notes?.trim() || null,
+    account_id: formData.account_id ? parseInt(formData.account_id, 10) : null,
   };
 
   // interest_rate is optional for EMI and short_term
@@ -108,6 +110,7 @@ function LoanForm() {
     post_due_interest_rate: "",
 
     notes: "",
+    account_id: "",
   });
 
   const [errors, setErrors] = useState({});
@@ -119,6 +122,15 @@ function LoanForm() {
       const response = await api.get("/api/contacts", {
         params: { limit: 500 },
       });
+      return response.data;
+    },
+  });
+
+  // Fetch accounts for dropdown
+  const { data: accountsList } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => {
+      const response = await api.get("/api/accounts");
       return response.data;
     },
   });
@@ -716,6 +728,28 @@ function LoanForm() {
                       {errors.start_date}
                     </p>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Account (for money flow)
+                  </label>
+                  <select
+                    name="account_id"
+                    value={formData.account_id}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">-- No account --</option>
+                    {(accountsList || []).map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} ({a.account_type})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Link to track debit/credit in your ledger
+                  </p>
                 </div>
               </div>
 

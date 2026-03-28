@@ -52,6 +52,7 @@ class AccountTransaction(Base):
     # Optional source/destination linkage
     linked_type = Column(String(30))                       # loan | property | partnership | beesi | expense | manual
     linked_id = Column(Integer)                            # FK-less (works across all modules)
+    contact_id = Column(Integer, ForeignKey("contacts.id"))  # Who is on the other side of this txn
 
     reference_number = Column(String(100))
     payment_mode = Column(String(30))                      # cash | upi | bank_transfer | cheque | neft | rtgs

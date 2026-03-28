@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = "004_add_beesi_and_accounts"
-down_revision = "003_add_plot_dimensions_site_fields"
+down_revision = "003_plot_dims"
 branch_labels = None
 depends_on = None
 

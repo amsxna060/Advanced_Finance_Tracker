@@ -23,6 +23,7 @@ from app.schemas.partnership import (
 )
 from app.schemas.property_deal import PropertyDealOut
 from app.schemas.loan import ContactBrief
+from app.services.auto_ledger import auto_ledger
 
 router = APIRouter(prefix="/api/partnerships", tags=["partnerships"])
 
@@ -245,6 +246,23 @@ def create_partnership_transaction(
         **transaction_data.model_dump(),
     )
     db.add(transaction)
+    db.flush()
+
+    # Auto-ledger
+    if transaction.account_id:
+        is_outflow = transaction_data.txn_type in {"invested", "expense"}
+        auto_ledger(
+            db=db,
+            account_id=transaction.account_id,
+            txn_type="debit" if is_outflow else "credit",
+            amount=_decimal(transaction_data.amount),
+            txn_date=transaction_data.txn_date,
+            linked_type="partnership",
+            linked_id=partnership_id,
+            description=f"Partnership ({partnership.title}): {transaction_data.txn_type}",
+            payment_mode=transaction_data.payment_mode,
+            created_by=current_user.id,
+        )
 
     amount = _decimal(transaction_data.amount)
     if transaction_data.txn_type == "invested":

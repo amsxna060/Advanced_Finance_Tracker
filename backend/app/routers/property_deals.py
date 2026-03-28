@@ -24,6 +24,7 @@ from app.schemas.property_deal import (
 )
 from app.schemas.loan import ContactBrief
 from app.schemas.partnership import PartnershipOut, PartnershipMemberOut
+from app.services.auto_ledger import auto_ledger
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -276,6 +277,24 @@ def create_property_transaction(
         **transaction_data.model_dump(),
     )
     db.add(transaction)
+    db.flush()
+
+    # Auto-ledger
+    if transaction.account_id:
+        is_inflow = transaction.txn_type in INFLOW_TXN_TYPES
+        auto_ledger(
+            db=db,
+            account_id=transaction.account_id,
+            txn_type="credit" if is_inflow else "debit",
+            amount=_decimal(transaction.amount),
+            txn_date=transaction.txn_date,
+            linked_type="property",
+            linked_id=property_id,
+            description=f"Property: {transaction.txn_type} — {transaction.description or ''}".strip(),
+            payment_mode=transaction.payment_mode,
+            created_by=current_user.id,
+        )
+
     db.commit()
     db.refresh(transaction)
     return transaction

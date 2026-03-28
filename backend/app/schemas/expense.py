@@ -13,6 +13,7 @@ class ExpenseCreate(BaseModel):
     description: Optional[str] = None
     payment_mode: Optional[str] = None
     receipt_url: Optional[str] = None
+    account_id: Optional[int] = None
 
 
 class ExpenseUpdate(BaseModel):
@@ -36,6 +37,7 @@ class ExpenseOut(BaseModel):
     description: Optional[str]
     payment_mode: Optional[str]
     receipt_url: Optional[str]
+    account_id: Optional[int] = None
     created_by: Optional[int]
     created_at: datetime
 

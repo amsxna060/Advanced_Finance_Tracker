@@ -9,6 +9,8 @@ from app.dependencies import get_current_user, require_admin
 from app.models.expense import Expense
 from app.models.user import User
 from app.schemas.expense import ExpenseCreate, ExpenseOut, ExpenseUpdate
+from app.services.auto_ledger import auto_ledger
+from decimal import Decimal
 
 router = APIRouter(prefix="/api/expenses", tags=["expenses"])
 
@@ -53,6 +55,23 @@ def create_expense(
 ):
     expense = Expense(**expense_data.model_dump(), created_by=current_user.id)
     db.add(expense)
+    db.flush()
+
+    # Auto-ledger: debit account for expense
+    if expense.account_id:
+        auto_ledger(
+            db=db,
+            account_id=expense.account_id,
+            txn_type="debit",
+            amount=Decimal(str(expense.amount)),
+            txn_date=expense.expense_date,
+            linked_type="expense",
+            linked_id=expense.id,
+            description=f"Expense: {expense.category or 'misc'} — {expense.description or ''}".strip(),
+            payment_mode=expense.payment_mode,
+            created_by=current_user.id,
+        )
+
     db.commit()
     db.refresh(expense)
     return expense

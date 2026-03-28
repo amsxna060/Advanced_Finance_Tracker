@@ -33,6 +33,10 @@ class Beesi(Base):
     status = Column(String(20), default="active")          # active | completed | cancelled
     notes = Column(Text)
 
+    # Links — who hosts the BC, and which account to auto-log cash flows
+    contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=True)
+    account_id = Column(Integer, ForeignKey("cash_accounts.id"), nullable=True)
+
     is_deleted = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -40,6 +44,8 @@ class Beesi(Base):
 
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])
+    contact = relationship("Contact", foreign_keys=[contact_id])
+    account = relationship("CashAccount", foreign_keys=[account_id])
     installments = relationship("BeesiInstallment", back_populates="beesi", order_by="BeesiInstallment.month_number")
     withdrawals = relationship("BeesiWithdrawal", back_populates="beesi", order_by="BeesiWithdrawal.month_number")
 

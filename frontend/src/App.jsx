@@ -24,6 +24,7 @@ import PartnershipDetail from "./pages/Partnerships/PartnershipDetail";
 import PartnershipForm from "./pages/Partnerships/PartnershipForm";
 import ExpenseList from "./pages/Expenses/ExpenseList";
 import Reports from "./pages/Reports/Reports";
+import Analytics from "./pages/Analytics/Analytics";
 import BeesiList from "./pages/Beesi/BeesiList";
 import BeesiForm from "./pages/Beesi/BeesiForm";
 import BeesiDetail from "./pages/Beesi/BeesiDetail";
@@ -197,6 +198,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Reports />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <ProtectedRoute>
+                  <Analytics />
                 </ProtectedRoute>
               }
             />

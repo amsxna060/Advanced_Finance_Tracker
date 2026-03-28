@@ -128,6 +128,20 @@ const quickLinks = [
       />
     ),
   },
+  {
+    title: "Analytics",
+    description: "Investments, liabilities & cash flow",
+    route: "/analytics",
+    color: "cyan",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+      />
+    ),
+  },
 ];
 
 const colorClasses = {
@@ -139,6 +153,7 @@ const colorClasses = {
   indigo: "bg-indigo-100 text-indigo-600",
   violet: "bg-violet-100 text-violet-600",
   teal: "bg-teal-100 text-teal-600",
+  cyan: "bg-cyan-100 text-cyan-600",
 };
 
 function MetricCard({ label, value, tone = "text-gray-900" }) {
@@ -395,22 +410,30 @@ export default function Dashboard() {
           />
           <MetricCard
             label="Interest Due This Month"
-            value={thisMonth ? formatCurrency(thisMonth.interest_expected) : "..."}
+            value={
+              thisMonth ? formatCurrency(thisMonth.interest_expected) : "..."
+            }
             tone="text-purple-700"
           />
           <MetricCard
             label="Overdue Interest"
-            value={thisMonth ? formatCurrency(thisMonth.overdue_interest) : "..."}
+            value={
+              thisMonth ? formatCurrency(thisMonth.overdue_interest) : "..."
+            }
             tone="text-red-700"
           />
           <MetricCard
             label="Active Beesis"
-            value={summaryLoading ? "..." : (summary?.active_beesis || 0)}
+            value={summaryLoading ? "..." : summary?.active_beesis || 0}
             tone="text-violet-700"
           />
           <MetricCard
             label="Total Invested in Beesi"
-            value={summaryLoading ? "..." : formatCurrency(summary?.beesi_total_invested || 0)}
+            value={
+              summaryLoading
+                ? "..."
+                : formatCurrency(summary?.beesi_total_invested || 0)
+            }
             tone="text-violet-700"
           />
         </div>
@@ -599,37 +622,78 @@ export default function Dashboard() {
         {/* Payment Behavior Table */}
         {paymentBehavior && paymentBehavior.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Payment Behavior</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              Payment Behavior
+            </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 text-left">
                     <th className="pb-2 text-gray-500 font-medium">Contact</th>
-                    <th className="pb-2 text-gray-500 font-medium">Loan Type</th>
-                    <th className="pb-2 text-right text-gray-500 font-medium">Principal</th>
-                    <th className="pb-2 text-right text-gray-500 font-medium">Months Active</th>
-                    <th className="pb-2 text-right text-gray-500 font-medium">Payments Made</th>
-                    <th className="pb-2 text-right text-gray-500 font-medium">Rate</th>
-                    <th className="pb-2 text-gray-500 font-medium">Last Payment</th>
-                    <th className="pb-2 text-center text-gray-500 font-medium">Score</th>
+                    <th className="pb-2 text-gray-500 font-medium">
+                      Loan Type
+                    </th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">
+                      Principal
+                    </th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">
+                      Months Active
+                    </th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">
+                      Payments Made
+                    </th>
+                    <th className="pb-2 text-right text-gray-500 font-medium">
+                      Rate
+                    </th>
+                    <th className="pb-2 text-gray-500 font-medium">
+                      Last Payment
+                    </th>
+                    <th className="pb-2 text-center text-gray-500 font-medium">
+                      Score
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {paymentBehavior.map((row) => (
-                    <tr key={row.loan_id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-2 text-gray-800 font-medium">{row.contact_name}</td>
-                      <td className="py-2 text-gray-600 capitalize">{row.loan_type}</td>
-                      <td className="py-2 text-right text-gray-800">{formatCurrency(row.principal)}</td>
-                      <td className="py-2 text-right text-gray-600">{row.months_active}</td>
-                      <td className="py-2 text-right text-gray-600">{row.payments_made}</td>
-                      <td className="py-2 text-right text-gray-600">{row.payment_rate_pct}%</td>
-                      <td className="py-2 text-gray-600">{row.last_payment_date ? formatDate(row.last_payment_date) : "Never"}</td>
+                    <tr
+                      key={row.loan_id}
+                      className="border-b border-gray-100 hover:bg-gray-50"
+                    >
+                      <td className="py-2 text-gray-800 font-medium">
+                        {row.contact_name}
+                      </td>
+                      <td className="py-2 text-gray-600 capitalize">
+                        {row.loan_type}
+                      </td>
+                      <td className="py-2 text-right text-gray-800">
+                        {formatCurrency(row.principal)}
+                      </td>
+                      <td className="py-2 text-right text-gray-600">
+                        {row.months_active}
+                      </td>
+                      <td className="py-2 text-right text-gray-600">
+                        {row.payments_made}
+                      </td>
+                      <td className="py-2 text-right text-gray-600">
+                        {row.payment_rate_pct}%
+                      </td>
+                      <td className="py-2 text-gray-600">
+                        {row.last_payment_date
+                          ? formatDate(row.last_payment_date)
+                          : "Never"}
+                      </td>
                       <td className="py-2 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          row.score_color === "green" ? "bg-green-100 text-green-700" :
-                          row.score_color === "red" ? "bg-red-100 text-red-700" :
-                          "bg-yellow-100 text-yellow-700"
-                        }`}>{row.score}</span>
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            row.score_color === "green"
+                              ? "bg-green-100 text-green-700"
+                              : row.score_color === "red"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-yellow-100 text-yellow-700"
+                          }`}
+                        >
+                          {row.score}
+                        </span>
                       </td>
                     </tr>
                   ))}

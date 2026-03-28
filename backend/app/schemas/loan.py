@@ -32,6 +32,7 @@ class LoanCreate(BaseModel):
     institution_name: Optional[str] = None
     institution_loan_id: Optional[str] = None
     expected_end_date: Optional[date] = None
+    account_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -55,6 +56,7 @@ class LoanUpdate(BaseModel):
     status: Optional[str] = None
     expected_end_date: Optional[date] = None
     actual_end_date: Optional[date] = None
+    account_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -81,6 +83,7 @@ class LoanOut(BaseModel):
     status: str
     expected_end_date: Optional[date]
     actual_end_date: Optional[date]
+    account_id: Optional[int] = None
     notes: Optional[str]
     is_deleted: Optional[bool] = None
     created_at: datetime
@@ -98,6 +101,7 @@ class LoanPaymentCreate(BaseModel):
     payment_mode: Optional[str] = None
     collected_by: Optional[str] = None
     reference_number: Optional[str] = None
+    account_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -112,6 +116,7 @@ class LoanPaymentOut(BaseModel):
     payment_mode: Optional[str]
     collected_by: Optional[str]
     reference_number: Optional[str]
+    account_id: Optional[int] = None
     notes: Optional[str]
     created_by: Optional[int]
     created_at: datetime

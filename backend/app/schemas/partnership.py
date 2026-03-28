@@ -81,6 +81,7 @@ class PartnershipTransactionCreate(BaseModel):
     txn_date: date
     payment_mode: Optional[str] = None
     description: Optional[str] = None
+    account_id: Optional[int] = None
 
 
 class PartnershipTransactionOut(BaseModel):
@@ -92,6 +93,7 @@ class PartnershipTransactionOut(BaseModel):
     txn_date: date
     payment_mode: Optional[str]
     description: Optional[str]
+    account_id: Optional[int] = None
     created_by: Optional[int]
     created_at: datetime
 

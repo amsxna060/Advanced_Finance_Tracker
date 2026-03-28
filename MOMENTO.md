@@ -365,7 +365,7 @@ formatDateInput(date); // → "2025-03-31" (for input[type=date])
 cn(...classes); // tailwind-merge + clsx helper
 getLoanStatusColor(status); // → tailwind color class
 getDaysOverdue(date); // → number of days
-````
+```
 
 ---
 
@@ -727,11 +727,13 @@ actual_paid (per month) = base_installment - dividend_received
 ```
 
 If you win the pot early:
+
 ```
 net_received = gross_amount (pot_size) - discount_offered
 ```
 
 Profit/Loss at any point:
+
 ```
 profit_loss = total_withdrawn - total_invested
 total_invested = sum of actual_paid across all installments
@@ -787,6 +789,7 @@ Always computed from transaction history — never stored as a column. Consisten
 ### Transaction Linking
 
 Each transaction can optionally link to another module:
+
 - `linked_type`: `loan | property | partnership | beesi | expense | manual`
 - `linked_id`: The ID in that module's table
 

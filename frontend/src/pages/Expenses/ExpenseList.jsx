@@ -14,6 +14,7 @@ const defaultForm = {
   description: "",
   payment_mode: "cash",
   receipt_url: "",
+  account_id: "",
 };
 
 function ExpenseList() {
@@ -39,6 +40,14 @@ function ExpenseList() {
         if (value) params[key] = value;
       });
       const response = await api.get("/api/expenses", { params });
+      return response.data;
+    },
+  });
+
+  const { data: accountsList } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => {
+      const response = await api.get("/api/accounts");
       return response.data;
     },
   });
@@ -117,6 +126,7 @@ function ExpenseList() {
       description: expense.description || "",
       payment_mode: expense.payment_mode || "cash",
       receipt_url: expense.receipt_url || "",
+      account_id: expense.account_id ? expense.account_id.toString() : "",
     });
     setErrorMessage("");
     setShowModal(true);
@@ -133,6 +143,7 @@ function ExpenseList() {
       description: form.description || null,
       payment_mode: form.payment_mode || null,
       receipt_url: form.receipt_url || null,
+      account_id: form.account_id ? Number(form.account_id) : null,
     });
   };
 
@@ -438,6 +449,23 @@ function ExpenseList() {
                 }
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
               />
+              <select
+                value={form.account_id}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    account_id: event.target.value,
+                  }))
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              >
+                <option value="">-- No account (cash flow) --</option>
+                {(accountsList || []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.account_type})
+                  </option>
+                ))}
+              </select>
               <textarea
                 rows="4"
                 placeholder="Description"

@@ -11,6 +11,9 @@ from app.models.user import User
 from app.models.contact import Contact
 from app.models.loan import Loan
 from app.models.collateral import Collateral
+from app.models.property_deal import PropertyDeal
+from app.models.partnership import Partnership, PartnershipMember
+from app.models.beesi import Beesi
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
 from app.services.interest import calculate_outstanding
 
@@ -141,7 +144,61 @@ def get_contact(
             "total_interest_due": float(total_interest_due),
             "total_outstanding": float(total_overdue),
             "total_collateral_value": float(total_collateral),
-        }
+        },
+        # Detailed loans list for display
+        "loans": [
+            {
+                "id": l.id,
+                "loan_direction": l.loan_direction,
+                "loan_type": l.loan_type,
+                "principal_amount": float(l.principal_amount),
+                "disbursed_date": l.disbursed_date.isoformat() if l.disbursed_date else None,
+                "status": l.status,
+                "interest_rate": float(l.interest_rate) if l.interest_rate else None,
+            }
+            for l in sorted(
+                loans_given + loans_taken,
+                key=lambda x: (0 if x.status == "active" else 1, x.disbursed_date or date.min),
+                reverse=False,
+            )
+        ],
+        # Properties linked to this contact
+        "properties": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "role": "seller" if p.seller_contact_id == contact_id else "buyer",
+                "status": p.status,
+                "property_type": p.property_type,
+            }
+            for p in db.query(PropertyDeal).filter(
+                PropertyDeal.is_deleted == False,
+                or_(
+                    PropertyDeal.seller_contact_id == contact_id,
+                    PropertyDeal.buyer_contact_id == contact_id,
+                ),
+            ).order_by(PropertyDeal.created_at.desc()).all()
+        ],
+        # Partnerships where contact is a member
+        "partnerships": [
+            {
+                "id": pm.partnership.id,
+                "title": pm.partnership.title,
+                "status": pm.partnership.status,
+                "share_percentage": float(pm.share_percentage) if pm.share_percentage else None,
+            }
+            for pm in db.query(PartnershipMember).filter(
+                PartnershipMember.contact_id == contact_id
+            ).all()
+            if pm.partnership and not pm.partnership.is_deleted
+        ],
+        # Beesis linked to this contact
+        "beesis": [
+            {"id": b.id, "title": b.title, "status": b.status}
+            for b in db.query(Beesi).filter(
+                Beesi.contact_id == contact_id, Beesi.is_deleted == False
+            ).all()
+        ],
     }
 
 

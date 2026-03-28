@@ -14,6 +14,8 @@ const INITIAL = {
   start_date: "",
   status: "active",
   notes: "",
+  contact_id: "",
+  account_id: "",
 };
 
 export default function BeesiForm() {
@@ -23,6 +25,16 @@ export default function BeesiForm() {
   const qc = useQueryClient();
   const [form, setForm] = useState(INITIAL);
   const [error, setError] = useState("");
+
+  const { data: contacts = [] } = useQuery({
+    queryKey: ["contacts"],
+    queryFn: async () => (await api.get("/api/contacts")).data,
+  });
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => (await api.get("/api/accounts")).data,
+  });
 
   useQuery({
     queryKey: ["beesi", id],
@@ -40,6 +52,8 @@ export default function BeesiForm() {
         start_date: d.start_date || "",
         status: d.status || "active",
         notes: d.notes || "",
+        contact_id: d.contact_id ?? "",
+        account_id: d.account_id ?? "",
       });
       return d;
     },
@@ -61,7 +75,8 @@ export default function BeesiForm() {
     },
   });
 
-  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
+  const handleChange = (e) =>
+    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -72,24 +87,80 @@ export default function BeesiForm() {
       member_count: Number(form.member_count),
       tenure_months: Number(form.tenure_months),
       base_installment: Number(form.base_installment),
+      contact_id: form.contact_id ? Number(form.contact_id) : null,
+      account_id: form.account_id ? Number(form.account_id) : null,
     });
   };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-2xl mx-auto">
-        <button onClick={() => navigate("/beesi")} className="text-gray-500 hover:text-gray-900 text-sm mb-4">← Back to Beesi List</button>
+        <button
+          onClick={() => navigate("/beesi")}
+          className="text-gray-500 hover:text-gray-900 text-sm mb-4"
+        >
+          ← Back to Beesi List
+        </button>
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">{isEdit ? "Edit Beesi" : "New Beesi"}</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-6">
+            {isEdit ? "Edit Beesi" : "New Beesi"}
+          </h1>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+              {error}
+            </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Committee Organiser
+                </label>
+                <select
+                  name="contact_id"
+                  value={form.contact_id}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="">— none —</option>
+                  {contacts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Linked Account
+                </label>
+                <select
+                  name="account_id"
+                  value={form.account_id}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="">— none —</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-              <input name="title" value={form.title} onChange={handleChange} required
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Title *
+              </label>
+              <input
+                name="title"
+                value={form.title}
+                onChange={handleChange}
+                required
                 placeholder="e.g. Ramesh BC 2024"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
@@ -97,29 +168,61 @@ export default function BeesiForm() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Pot Size (₹) *</label>
-                <input name="pot_size" type="number" value={form.pot_size} onChange={handleChange} required min="1"
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Pot Size (₹) *
+                </label>
+                <input
+                  name="pot_size"
+                  type="number"
+                  value={form.pot_size}
+                  onChange={handleChange}
+                  required
+                  min="1"
                   placeholder="200000"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Base Installment (₹/month) *</label>
-                <input name="base_installment" type="number" value={form.base_installment} onChange={handleChange} required min="1"
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Base Installment (₹/month) *
+                </label>
+                <input
+                  name="base_installment"
+                  type="number"
+                  value={form.base_installment}
+                  onChange={handleChange}
+                  required
+                  min="1"
                   placeholder="10000"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Total Members *</label>
-                <input name="member_count" type="number" value={form.member_count} onChange={handleChange} required min="2"
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Total Members *
+                </label>
+                <input
+                  name="member_count"
+                  type="number"
+                  value={form.member_count}
+                  onChange={handleChange}
+                  required
+                  min="2"
                   placeholder="20"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tenure (months) *</label>
-                <input name="tenure_months" type="number" value={form.tenure_months} onChange={handleChange} required min="1"
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tenure (months) *
+                </label>
+                <input
+                  name="tenure_months"
+                  type="number"
+                  value={form.tenure_months}
+                  onChange={handleChange}
+                  required
+                  min="1"
                   placeholder="20"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
@@ -128,14 +231,26 @@ export default function BeesiForm() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date *</label>
-                <input name="start_date" type="date" value={form.start_date} onChange={handleChange} required
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Start Date *
+                </label>
+                <input
+                  name="start_date"
+                  type="date"
+                  value={form.start_date}
+                  onChange={handleChange}
+                  required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select name="status" value={form.status} onChange={handleChange}
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
+                <select
+                  name="status"
+                  value={form.status}
+                  onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 >
                   <option value="active">Active</option>
@@ -146,28 +261,50 @@ export default function BeesiForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea name="description" value={form.description} onChange={handleChange} rows={2}
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description
+              </label>
+              <textarea
+                name="description"
+                value={form.description}
+                onChange={handleChange}
+                rows={2}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <textarea name="notes" value={form.notes} onChange={handleChange} rows={2}
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes
+              </label>
+              <textarea
+                name="notes"
+                value={form.notes}
+                onChange={handleChange}
+                rows={2}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
             </div>
 
             <div className="flex gap-3 pt-2">
-              <button type="submit" disabled={mutation.isPending}
+              <button
+                type="submit"
+                disabled={mutation.isPending}
                 className="flex-1 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
               >
-                {mutation.isPending ? "Saving…" : isEdit ? "Save Changes" : "Create Beesi"}
+                {mutation.isPending
+                  ? "Saving…"
+                  : isEdit
+                    ? "Save Changes"
+                    : "Create Beesi"}
               </button>
-              <button type="button" onClick={() => navigate("/beesi")}
+              <button
+                type="button"
+                onClick={() => navigate("/beesi")}
                 className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-              >Cancel</button>
+              >
+                Cancel
+              </button>
             </div>
           </form>
         </div>

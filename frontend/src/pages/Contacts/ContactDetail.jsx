@@ -64,6 +64,10 @@ export default function ContactDetail() {
 
   const contact = contactData?.contact;
   const summary = contactData?.summary;
+  const loans = contactData?.loans || [];
+  const properties = contactData?.properties || [];
+  const partnerships = contactData?.partnerships || [];
+  const beesis = contactData?.beesis || [];
 
   if (isError || !contact) {
     return (
@@ -280,15 +284,114 @@ export default function ContactDetail() {
               </div>
             </div>
 
-            {/* Recent Activity - Placeholder */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Recent Activity
-              </h3>
-              <p className="text-gray-600 text-sm">
-                Activity tracking coming soon...
-              </p>
-            </div>
+            {/* Loans */}
+            {loans.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Loans ({loans.length})
+                </h3>
+                <div className="space-y-3">
+                  {loans.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => navigate(`/loans/${l.id}`)}
+                      className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <div>
+                        <span className={`inline-block px-2 py-0.5 text-xs rounded-full mr-2 ${l.loan_direction === "given" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                          {l.loan_direction === "given" ? "Given" : "Taken"}
+                        </span>
+                        <span className="text-sm font-medium text-gray-900 capitalize">{l.loan_type?.replace("_", " ")}</span>
+                        {l.interest_rate ? <span className="text-xs text-gray-500 ml-2">@ {l.interest_rate}%</span> : null}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-gray-900">{formatCurrency(l.principal_amount)}</div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${l.status === "active" ? "bg-blue-100 text-blue-800" : l.status === "settled" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
+                          {l.status}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Properties */}
+            {properties.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Properties ({properties.length})
+                </h3>
+                <div className="space-y-3">
+                  {properties.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => navigate(`/properties/${p.id}`)}
+                      className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">{p.title}</span>
+                        <span className={`inline-block ml-2 px-2 py-0.5 text-xs rounded-full ${p.role === "seller" ? "bg-orange-100 text-orange-800" : "bg-blue-100 text-blue-800"}`}>
+                          {p.role}
+                        </span>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === "active" ? "bg-blue-100 text-blue-800" : p.status === "settled" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
+                        {p.status}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Partnerships */}
+            {partnerships.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Partnerships ({partnerships.length})
+                </h3>
+                <div className="space-y-3">
+                  {partnerships.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => navigate(`/partnerships/${p.id}`)}
+                      className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">{p.title}</span>
+                        {p.share_percentage && <span className="text-xs text-gray-500 ml-2">({p.share_percentage}%)</span>}
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === "active" ? "bg-blue-100 text-blue-800" : p.status === "settled" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
+                        {p.status}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Beesi */}
+            {beesis.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Beesi ({beesis.length})
+                </h3>
+                <div className="space-y-3">
+                  {beesis.map((b) => (
+                    <button
+                      key={b.id}
+                      onClick={() => navigate(`/beesi/${b.id}`)}
+                      className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <span className="text-sm font-medium text-gray-900">{b.title}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${b.status === "active" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600"}`}>
+                        {b.status}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

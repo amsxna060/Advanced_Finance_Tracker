@@ -44,6 +44,9 @@ class Loan(Base):
     expected_end_date = Column(Date)
     actual_end_date = Column(Date)
 
+    # Default account for money flow
+    account_id = Column(Integer, ForeignKey("cash_accounts.id"))
+
     notes = Column(Text)
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -52,6 +55,7 @@ class Loan(Base):
     # Relationships
     contact = relationship("Contact", foreign_keys=[contact_id])
     creator = relationship("User", foreign_keys=[created_by])
+    account = relationship("CashAccount", foreign_keys=[account_id])
     payments = relationship("LoanPayment", back_populates="loan", order_by="LoanPayment.payment_date")
     capitalization_events = relationship("LoanCapitalizationEvent", back_populates="loan", order_by="LoanCapitalizationEvent.event_date")
     collaterals = relationship("Collateral", back_populates="loan")
@@ -73,12 +77,14 @@ class LoanPayment(Base):
     payment_mode = Column(String(30))  # cash | upi | bank_transfer | cheque
     collected_by = Column(String(100))
     reference_number = Column(String(100))
+    account_id = Column(Integer, ForeignKey("cash_accounts.id"))
     notes = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     loan = relationship("Loan", back_populates="payments")
     creator = relationship("User", foreign_keys=[created_by])
+    account = relationship("CashAccount", foreign_keys=[account_id])
 
 
 class LoanCapitalizationEvent(Base):

@@ -2,18 +2,19 @@
 Beesi (BC / Chit Fund) router.
 
 Endpoints:
-  GET    /api/beesi                      – list all
-  POST   /api/beesi                      – create
-  GET    /api/beesi/{id}                 – detail + installments + withdrawal + P&L
-  PUT    /api/beesi/{id}                 – update
-  DELETE /api/beesi/{id}                 – soft delete
-  POST   /api/beesi/{id}/installments    – log monthly installment
-  GET    /api/beesi/{id}/installments    – list installments
+  GET    /api/beesi                              – list all
+  POST   /api/beesi                              – create
+  GET    /api/beesi/{id}                         – detail + installments + withdrawal + P&L
+  PUT    /api/beesi/{id}                         – update
+  DELETE /api/beesi/{id}                         – soft delete
+  POST   /api/beesi/{id}/installments            – log monthly installment (auto-derives month#, dividend)
+  GET    /api/beesi/{id}/installments            – list installments
   DELETE /api/beesi/{id}/installments/{inst_id}  – delete installment
-  POST   /api/beesi/{id}/withdraw        – log pot withdrawal
-  GET    /api/beesi/{id}/summary         – P&L summary
+  POST   /api/beesi/{id}/withdraw                – log pot withdrawal (auto-derives month#, discount)
+  GET    /api/beesi/{id}/summary                 – P&L + best-month-to-withdraw analysis
 """
 
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -24,13 +25,122 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
+from app.models.cash_account import AccountTransaction
 from app.models.user import User
 
 router = APIRouter(prefix="/api/beesi", tags=["beesi"])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 def _d(v) -> Decimal:
     return Decimal("0") if v is None else Decimal(str(v))
+
+
+def _calc_month_number(start_date: date, target_date: date) -> int:
+    """Return 1-based month number: month 1 = same month as start_date."""
+    months = (
+        (target_date.year - start_date.year) * 12
+        + (target_date.month - start_date.month)
+        + 1
+    )
+    return max(1, months)
+
+
+def _add_months(d: date, months: int) -> date:
+    """Add months to a date, clamping day to the last valid day of target month."""
+    m = d.month - 1 + months
+    yr = d.year + m // 12
+    mo = m % 12 + 1
+    day = min(d.day, monthrange(yr, mo)[1])
+    return date(yr, mo, day)
+
+
+def _best_month_analysis(beesi: Beesi) -> dict:
+    """
+    Bidding guidance for a Beesi member deciding when to take the pot.
+
+    Future installments are estimated by stepping down ₹100/month from the
+    last actually-paid installment (dividends tend to grow, so you pay less
+    each month).  P&L at a given bid discount is constant regardless of which
+    month you take the pot; what DOES change per month is how much cash you
+    still owe after receiving the pot.
+    """
+    pot = _d(beesi.pot_size)
+    tenure = beesi.tenure_months
+
+    months_paid = len(beesi.installments)
+    total_invested_so_far = sum(_d(i.actual_paid) for i in beesi.installments)
+
+    # Estimate future installments: each month is ₹100 less than the previous.
+    # Seed from the last actually-paid installment; fall back to base if none.
+    if months_paid > 0:
+        last_paid_installment = _d(beesi.installments[-1].actual_paid)
+    else:
+        last_paid_installment = _d(beesi.base_installment)
+
+    step = _d("100")
+    months_remaining = tenure - months_paid
+    future_ests = [
+        max(_d("0"), last_paid_installment - step * (k + 1))
+        for k in range(months_remaining)
+    ]
+
+    total_est_remaining = sum(future_ests)
+    total_remaining_cost = total_invested_so_far + total_est_remaining
+    max_discount_to_breakeven = pot - total_remaining_cost
+    min_bid_to_breakeven = total_remaining_cost
+
+    projections = []
+    for i, m in enumerate(range(months_paid + 1, tenure + 1)):
+        paid_by_then = total_invested_so_far + sum(future_ests[: i + 1])
+        installments_left = tenure - m
+        cash_still_owed = sum(future_ests[i + 1 :]) if (i + 1) < len(future_ests) else _d("0")
+        proj_date = _add_months(beesi.start_date, m - 1)
+        projections.append({
+            "month": m,
+            "date": proj_date.isoformat(),
+            "est_installment": float(future_ests[i]),
+            "paid_by_then": float(paid_by_then),
+            "installments_left": installments_left,
+            "cash_still_owed": float(cash_still_owed),
+            "is_recommended": m == tenure,  # last month = no bidding needed
+        })
+        # No cap — show every remaining month
+
+    if max_discount_to_breakeven > 0:
+        reason = (
+            f"Month {tenure} (last) is financially best — no bidding needed, "
+            f"you receive the full ₹{float(pot):,.0f}. "
+            f"If taking it earlier, keep your bid discount under "
+            f"₹{float(max_discount_to_breakeven):,.0f} to stay profitable."
+        )
+        recommended_month = tenure
+    elif max_discount_to_breakeven == 0:
+        reason = (
+            f"This BC breaks exactly even. Month {tenure} guarantees zero discount."
+        )
+        recommended_month = tenure
+    else:
+        reason = (
+            f"Total installments exceed the pot — you lose ₹{float(abs(max_discount_to_breakeven)):,.0f} "
+            f"at zero discount. Consider taking the pot early to limit losses."
+        )
+        recommended_month = months_paid + 1 if months_paid < tenure else tenure
+
+    return {
+        "theoretical_profit_at_no_discount": float(max_discount_to_breakeven),
+        "max_discount_to_breakeven": float(max_discount_to_breakeven),
+        "min_bid_to_breakeven": float(min_bid_to_breakeven),
+        "last_paid_installment": float(last_paid_installment),
+        "pot_size": float(pot),
+        "total_expected_cost": float(total_remaining_cost),
+        "recommended_month": recommended_month,
+        "reason": reason,
+        "projections": projections,
+    }
 
 
 def _beesi_summary(beesi: Beesi) -> dict:
@@ -50,6 +160,7 @@ def _beesi_summary(beesi: Beesi) -> dict:
         if total_invested > 0
         else 0.0,
         "has_withdrawn": len(beesi.withdrawals) > 0,
+        "best_month_analysis": _best_month_analysis(beesi) if not beesi.withdrawals else None,
     }
 
 
@@ -65,6 +176,10 @@ def _beesi_dict(beesi: Beesi) -> dict:
         "start_date": beesi.start_date.isoformat() if beesi.start_date else None,
         "status": beesi.status,
         "notes": beesi.notes,
+        "contact_id": beesi.contact_id,
+        "contact_name": beesi.contact.name if beesi.contact else None,
+        "account_id": beesi.account_id,
+        "account_name": beesi.account.name if beesi.account else None,
         "created_at": beesi.created_at.isoformat() if beesi.created_at else None,
         "summary": _beesi_summary(beesi),
     }
@@ -109,6 +224,8 @@ def create_beesi(
         start_date=date.fromisoformat(payload["start_date"]),
         status=payload.get("status", "active"),
         notes=payload.get("notes"),
+        contact_id=payload.get("contact_id"),
+        account_id=payload.get("account_id"),
         created_by=current_user.id,
     )
     db.add(beesi)
@@ -184,6 +301,10 @@ def update_beesi(
             setattr(beesi, field, conv(payload[field]))
     if "start_date" in payload:
         beesi.start_date = date.fromisoformat(payload["start_date"])
+    if "contact_id" in payload:
+        beesi.contact_id = payload["contact_id"]
+    if "account_id" in payload:
+        beesi.account_id = payload["account_id"]
 
     db.commit()
     db.refresh(beesi)
@@ -235,27 +356,59 @@ def add_installment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Log a monthly installment payment.
+
+    Caller only needs to provide:
+      - payment_date   (YYYY-MM-DD)
+      - actual_paid    (amount actually paid this month)
+      - notes          (optional)
+
+    Backend auto-derives:
+      - month_number        from payment_date relative to beesi.start_date
+      - base_amount         from beesi.base_installment
+      - dividend_received   = base_amount - actual_paid
+    Also auto-logs a debit on the linked account if account_id is set.
+    """
     beesi = _get_or_404(beesi_id, db)
 
-    for field in ["month_number", "payment_date", "base_amount", "actual_paid"]:
+    for field in ["payment_date", "actual_paid"]:
         if field not in payload:
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
 
-    base_amount = Decimal(str(payload["base_amount"]))
-    dividend = Decimal(str(payload.get("dividend_received", 0)))
+    payment_date = date.fromisoformat(payload["payment_date"])
     actual_paid = Decimal(str(payload["actual_paid"]))
+
+    month_number = _calc_month_number(beesi.start_date, payment_date)
+    base_amount = _d(beesi.base_installment)
+    dividend_received = max(Decimal("0"), base_amount - actual_paid)
 
     inst = BeesiInstallment(
         beesi_id=beesi.id,
-        month_number=int(payload["month_number"]),
-        payment_date=date.fromisoformat(payload["payment_date"]),
+        month_number=month_number,
+        payment_date=payment_date,
         base_amount=base_amount,
-        dividend_received=dividend,
+        dividend_received=dividend_received,
         actual_paid=actual_paid,
         notes=payload.get("notes"),
         created_by=current_user.id,
     )
     db.add(inst)
+
+    # Auto-log a debit on the linked account (money paid out)
+    if beesi.account_id:
+        txn = AccountTransaction(
+            account_id=beesi.account_id,
+            txn_type="debit",
+            amount=actual_paid,
+            txn_date=payment_date,
+            description=f"BC installment – Month {month_number} – {beesi.title}",
+            linked_type="beesi",
+            linked_id=beesi.id,
+            created_by=current_user.id,
+        )
+        db.add(txn)
+
     db.commit()
     db.refresh(inst)
     return {
@@ -299,31 +452,62 @@ def add_withdrawal(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Record claiming the pot.
+
+    Caller only needs to provide:
+      - withdrawal_date  (YYYY-MM-DD)
+      - net_received     (actual amount received after discount)
+      - notes            (optional)
+
+    Backend auto-derives:
+      - month_number     from withdrawal_date relative to beesi.start_date
+      - gross_amount     = beesi.pot_size
+      - discount_offered = gross_amount - net_received
+    Also auto-logs a credit on the linked account if account_id is set.
+    """
     beesi = _get_or_404(beesi_id, db)
 
-    # Only one withdrawal allowed per Beesi (you can claim the pot only once)
     if beesi.withdrawals:
         raise HTTPException(status_code=400, detail="A withdrawal has already been recorded for this Beesi")
 
-    for field in ["month_number", "withdrawal_date", "net_received"]:
+    for field in ["withdrawal_date", "net_received"]:
         if field not in payload:
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
 
-    gross = _d(payload.get("gross_amount", beesi.pot_size))
-    discount = _d(payload.get("discount_offered", 0))
-    net = _d(payload["net_received"])
+    withdrawal_date = date.fromisoformat(payload["withdrawal_date"])
+    net_received = Decimal(str(payload["net_received"]))
+
+    month_number = _calc_month_number(beesi.start_date, withdrawal_date)
+    gross_amount = _d(beesi.pot_size)
+    discount_offered = max(Decimal("0"), gross_amount - net_received)
 
     w = BeesiWithdrawal(
         beesi_id=beesi.id,
-        month_number=int(payload["month_number"]),
-        withdrawal_date=date.fromisoformat(payload["withdrawal_date"]),
-        gross_amount=gross,
-        discount_offered=discount,
-        net_received=net,
+        month_number=month_number,
+        withdrawal_date=withdrawal_date,
+        gross_amount=gross_amount,
+        discount_offered=discount_offered,
+        net_received=net_received,
         notes=payload.get("notes"),
         created_by=current_user.id,
     )
     db.add(w)
+
+    # Auto-log a credit on the linked account (money received)
+    if beesi.account_id:
+        txn = AccountTransaction(
+            account_id=beesi.account_id,
+            txn_type="credit",
+            amount=net_received,
+            txn_date=withdrawal_date,
+            description=f"BC pot withdrawal – Month {month_number} – {beesi.title}",
+            linked_type="beesi",
+            linked_id=beesi.id,
+            created_by=current_user.id,
+        )
+        db.add(txn)
+
     db.commit()
     db.refresh(w)
     return {

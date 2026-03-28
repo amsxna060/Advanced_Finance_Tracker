@@ -13,7 +13,7 @@ import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Propert
 
 # Import routers
 from app.routers import auth, contacts, loans, collateral, property_deals, partnerships, expenses, dashboard, reports
-from app.routers import beesi, accounts
+from app.routers import beesi, accounts, analytics
 
 app = FastAPI(
     title="Advanced Finance Tracker",
@@ -42,6 +42,7 @@ app.include_router(dashboard.router)
 app.include_router(reports.router)
 app.include_router(beesi.router)
 app.include_router(accounts.router)
+app.include_router(analytics.router)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

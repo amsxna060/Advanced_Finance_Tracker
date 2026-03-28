@@ -20,6 +20,7 @@ from app.services.interest import (
     generate_monthly_interest_schedule,
 )
 from app.services.payment_allocation import allocate_payment
+from app.services.auto_ledger import auto_ledger
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
 
@@ -86,6 +87,25 @@ def create_loan(
     
     new_loan = Loan(**loan_data.model_dump(), created_by=current_user.id)
     db.add(new_loan)
+    db.flush()  # get new_loan.id
+
+    # Auto-ledger: loan disbursement
+    if new_loan.account_id:
+        direction = new_loan.loan_direction
+        auto_ledger(
+            db=db,
+            account_id=new_loan.account_id,
+            txn_type="debit" if direction == "given" else "credit",
+            amount=Decimal(str(new_loan.principal_amount)),
+            txn_date=new_loan.disbursed_date,
+            linked_type="loan",
+            linked_id=new_loan.id,
+            description=f"Loan {'disbursed to' if direction == 'given' else 'received from'} {contact.name}",
+            payment_mode=None,
+            contact_id=new_loan.contact_id,
+            created_by=current_user.id,
+        )
+
     db.commit()
     db.refresh(new_loan)
     return new_loan
@@ -224,6 +244,7 @@ def record_payment(
     )
     
     # Create payment record
+    acct_id = payment_data.account_id or loan.account_id
     new_payment = LoanPayment(
         loan_id=loan_id,
         payment_date=payment_data.payment_date,
@@ -234,11 +255,32 @@ def record_payment(
         payment_mode=payment_data.payment_mode,
         collected_by=payment_data.collected_by,
         reference_number=payment_data.reference_number,
+        account_id=acct_id,
         notes=payment_data.notes,
         created_by=current_user.id
     )
     
     db.add(new_payment)
+    db.flush()
+
+    # Auto-ledger: payment
+    if acct_id:
+        direction = loan.loan_direction
+        contact_name = loan.contact.name if loan.contact else "Unknown"
+        auto_ledger(
+            db=db,
+            account_id=acct_id,
+            txn_type="credit" if direction == "given" else "debit",
+            amount=Decimal(str(payment_data.amount_paid)),
+            txn_date=payment_data.payment_date,
+            linked_type="loan",
+            linked_id=loan_id,
+            description=f"Loan payment {'from' if direction == 'given' else 'to'} {contact_name}",
+            payment_mode=payment_data.payment_mode,
+            contact_id=loan.contact_id,
+            created_by=current_user.id,
+        )
+
     db.commit()
     db.refresh(new_payment)
 
