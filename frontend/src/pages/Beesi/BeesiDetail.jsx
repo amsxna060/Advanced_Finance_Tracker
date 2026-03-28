@@ -531,259 +531,273 @@ export default function BeesiDetail() {
         </div>
 
         {/* Bid Simulator */}
-        {!summary.has_withdrawn && summary.best_month_analysis && (() => {
-          const analysis = summary.best_month_analysis;
-          const projections = analysis.projections || [];
-          const currentMonth = selectedMonth ?? analysis.recommended_month;
-          const selRow =
-            projections.find((r) => r.month === currentMonth) ??
-            projections[0];
-          const selIdx = projections.findIndex(
-            (r) => r.month === selRow?.month,
-          );
-          const prevMonth =
-            selIdx > 0 ? projections[selIdx - 1]?.month : null;
-          const nextMonth =
-            selIdx < projections.length - 1
-              ? projections[selIdx + 1]?.month
-              : null;
-          const discountNum = Number(bidDiscount) || 0;
-          const youReceive = Number(analysis.pot_size) - discountNum;
-          const netPL =
-            Number(analysis.max_discount_to_breakeven) - discountNum;
-          const isProfitable = netPL >= 0;
-          return (
-            <div className="mt-6 bg-white rounded-lg shadow-sm p-5">
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Bid Simulator — When to Take the Pot
-              </h2>
+        {!summary.has_withdrawn &&
+          summary.best_month_analysis &&
+          (() => {
+            const analysis = summary.best_month_analysis;
+            const projections = analysis.projections || [];
+            const currentMonth = selectedMonth ?? analysis.recommended_month;
+            const selRow =
+              projections.find((r) => r.month === currentMonth) ??
+              projections[0];
+            const selIdx = projections.findIndex(
+              (r) => r.month === selRow?.month,
+            );
+            const prevMonth =
+              selIdx > 0 ? projections[selIdx - 1]?.month : null;
+            const nextMonth =
+              selIdx < projections.length - 1
+                ? projections[selIdx + 1]?.month
+                : null;
+            const discountNum = Number(bidDiscount) || 0;
+            const youReceive = Number(analysis.pot_size) - discountNum;
+            const netPL =
+              Number(analysis.max_discount_to_breakeven) - discountNum;
+            const isProfitable = netPL >= 0;
+            return (
+              <div className="mt-6 bg-white rounded-lg shadow-sm p-5">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">
+                  Bid Simulator — When to Take the Pot
+                </h2>
 
-              {/* Key insight note */}
-              <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 mb-4 text-xs text-blue-800 leading-relaxed">
-                <span className="font-semibold">Key insight:</span> Your P&amp;L
-                depends only on your bid discount — not on which month you pick.
-                What changes per month is{" "}
-                <em>how much cash you still owe after receiving the pot.</em>{" "}
-                Last paid installment:{" "}
-                <span className="font-semibold">
-                  {formatCurrency(analysis.last_paid_installment)}
-                </span>{" "}
-                → each future month estimated{" "}
-                <span className="font-semibold">₹100 less</span> (next ≈{" "}
-                <span className="font-semibold">
-                  {formatCurrency((analysis.last_paid_installment ?? 0) - 100)}
-                </span>).
-              </div>
+                {/* Key insight note */}
+                <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 mb-4 text-xs text-blue-800 leading-relaxed">
+                  <span className="font-semibold">Key insight:</span> Your
+                  P&amp;L depends only on your bid discount — not on which month
+                  you pick. What changes per month is{" "}
+                  <em>how much cash you still owe after receiving the pot.</em>{" "}
+                  Last paid installment:{" "}
+                  <span className="font-semibold">
+                    {formatCurrency(analysis.last_paid_installment)}
+                  </span>{" "}
+                  → each future month estimated{" "}
+                  <span className="font-semibold">₹100 less</span> (next ≈{" "}
+                  <span className="font-semibold">
+                    {formatCurrency(
+                      (analysis.last_paid_installment ?? 0) - 100,
+                    )}
+                  </span>
+                  ).
+                </div>
 
-              {/* Month stepper */}
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <span className="text-sm text-gray-600 font-medium">
-                  Simulate taking pot in:
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => prevMonth && setSelectedMonth(prevMonth)}
-                    disabled={!prevMonth}
-                    className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-lg leading-none"
-                  >
-                    ‹
-                  </button>
-                  <div className="min-w-[6rem] text-center">
-                    <span className="text-2xl font-bold text-purple-700">
-                      Month {selRow?.month}
+                {/* Month stepper */}
+                <div className="flex items-center gap-3 mb-4 flex-wrap">
+                  <span className="text-sm text-gray-600 font-medium">
+                    Simulate taking pot in:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => prevMonth && setSelectedMonth(prevMonth)}
+                      disabled={!prevMonth}
+                      className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-lg leading-none"
+                    >
+                      ‹
+                    </button>
+                    <div className="min-w-[6rem] text-center">
+                      <span className="text-2xl font-bold text-purple-700">
+                        Month {selRow?.month}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => nextMonth && setSelectedMonth(nextMonth)}
+                      disabled={!nextMonth}
+                      className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-lg leading-none"
+                    >
+                      ›
+                    </button>
+                  </div>
+                  <span className="text-sm text-gray-400">{selRow?.date}</span>
+                  {selRow?.is_recommended && (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                      ★ best — no bidding needed
                     </span>
-                  </div>
-                  <button
-                    onClick={() => nextMonth && setSelectedMonth(nextMonth)}
-                    disabled={!nextMonth}
-                    className="w-8 h-8 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-lg leading-none"
-                  >
-                    ›
-                  </button>
+                  )}
                 </div>
-                <span className="text-sm text-gray-400">{selRow?.date}</span>
-                {selRow?.is_recommended && (
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                    ★ best — no bidding needed
+
+                {/* 4-tile breakdown for selected month */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                    <div className="text-xs text-blue-700 mb-1 font-medium">
+                      Paid by Month {selRow?.month}
+                    </div>
+                    <div className="text-lg font-bold text-blue-800">
+                      {formatCurrency(selRow?.paid_by_then ?? 0)}
+                    </div>
+                    <div className="text-xs text-blue-500 mt-0.5">
+                      actual + estimated
+                    </div>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-100 rounded-lg p-3">
+                    <div className="text-xs text-orange-700 mb-1 font-medium">
+                      Still owe after
+                    </div>
+                    <div className="text-lg font-bold text-orange-800">
+                      {selRow?.installments_left === 0
+                        ? "—"
+                        : formatCurrency(selRow?.cash_still_owed ?? 0)}
+                    </div>
+                    <div className="text-xs text-orange-500 mt-0.5">
+                      {selRow?.installments_left === 0
+                        ? "last month, nothing left"
+                        : `${selRow?.installments_left} months × est. ₹${Math.round(selRow?.est_installment ?? 0).toLocaleString("en-IN")}`}
+                    </div>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-lg p-3">
+                    <div className="text-xs text-gray-600 mb-1 font-medium">
+                      Your bid discount
+                    </div>
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className="text-xs text-gray-400">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={bidDiscount}
+                        onChange={(e) => setBidDiscount(e.target.value)}
+                        placeholder="0"
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-medium focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      You receive: {formatCurrency(youReceive)}
+                    </div>
+                  </div>
+                  <div
+                    className={`border rounded-lg p-3 ${
+                      isProfitable
+                        ? "bg-green-50 border-green-200"
+                        : "bg-red-50 border-red-200"
+                    }`}
+                  >
+                    <div
+                      className={`text-xs font-medium mb-1 ${
+                        isProfitable ? "text-green-700" : "text-red-700"
+                      }`}
+                    >
+                      Net P&amp;L (any month)
+                    </div>
+                    <div
+                      className={`text-2xl font-bold ${
+                        isProfitable ? "text-green-700" : "text-red-700"
+                      }`}
+                    >
+                      {isProfitable ? "+" : ""}
+                      {formatCurrency(netPL)}
+                    </div>
+                    <div
+                      className={`text-xs mt-0.5 ${
+                        isProfitable ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {discountNum === 0
+                        ? "at zero discount"
+                        : isProfitable
+                          ? "you profit at this bid"
+                          : "reduce your discount!"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-400 mb-4 flex gap-1 items-start">
+                  <span>ℹ</span>
+                  <span>
+                    Max discount to break even:{" "}
+                    <span className="font-medium text-gray-600">
+                      {formatCurrency(analysis.max_discount_to_breakeven)}
+                    </span>
+                    . Offer less → profit. Offer more → loss.
                   </span>
-                )}
-              </div>
+                </div>
 
-              {/* 4-tile breakdown for selected month */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                  <div className="text-xs text-blue-700 mb-1 font-medium">
-                    Paid by Month {selRow?.month}
-                  </div>
-                  <div className="text-lg font-bold text-blue-800">
-                    {formatCurrency(selRow?.paid_by_then ?? 0)}
-                  </div>
-                  <div className="text-xs text-blue-500 mt-0.5">
-                    actual + estimated
-                  </div>
+                {/* Table — click row to select month */}
+                <div className="text-xs text-gray-400 mb-1">
+                  Click any row to simulate that month ↓
                 </div>
-                <div className="bg-orange-50 border border-orange-100 rounded-lg p-3">
-                  <div className="text-xs text-orange-700 mb-1 font-medium">
-                    Still owe after
-                  </div>
-                  <div className="text-lg font-bold text-orange-800">
-                    {selRow?.installments_left === 0
-                      ? "—"
-                      : formatCurrency(selRow?.cash_still_owed ?? 0)}
-                  </div>
-                  <div className="text-xs text-orange-500 mt-0.5">
-                    {selRow?.installments_left === 0
-                      ? "last month, nothing left"
-                      : `${selRow?.installments_left} months × est. ₹${Math.round(selRow?.est_installment ?? 0).toLocaleString("en-IN")}`}
-                  </div>
-                </div>
-                <div className="bg-white border border-gray-200 rounded-lg p-3">
-                  <div className="text-xs text-gray-600 mb-1 font-medium">
-                    Your bid discount
-                  </div>
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-xs text-gray-400">₹</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={bidDiscount}
-                      onChange={(e) => setBidDiscount(e.target.value)}
-                      placeholder="0"
-                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-medium focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div className="text-xs text-gray-400">
-                    You receive: {formatCurrency(youReceive)}
-                  </div>
-                </div>
-                <div
-                  className={`border rounded-lg p-3 ${
-                    isProfitable
-                      ? "bg-green-50 border-green-200"
-                      : "bg-red-50 border-red-200"
-                  }`}
-                >
-                  <div
-                    className={`text-xs font-medium mb-1 ${
-                      isProfitable ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    Net P&amp;L (any month)
-                  </div>
-                  <div
-                    className={`text-2xl font-bold ${
-                      isProfitable ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {isProfitable ? "+" : ""}
-                    {formatCurrency(netPL)}
-                  </div>
-                  <div
-                    className={`text-xs mt-0.5 ${
-                      isProfitable ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {discountNum === 0
-                      ? "at zero discount"
-                      : isProfitable
-                        ? "you profit at this bid"
-                        : "reduce your discount!"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-xs text-gray-400 mb-4 flex gap-1 items-start">
-                <span>ℹ</span>
-                <span>
-                  Max discount to break even:{" "}
-                  <span className="font-medium text-gray-600">
-                    {formatCurrency(analysis.max_discount_to_breakeven)}
-                  </span>
-                  . Offer less → profit. Offer more → loss.
-                </span>
-              </div>
-
-              {/* Table — click row to select month */}
-              <div className="text-xs text-gray-400 mb-1">
-                Click any row to simulate that month ↓
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
-                      <th className="text-left px-3 py-2">Month</th>
-                      <th className="text-left px-3 py-2">Date</th>
-                      <th className="text-right px-3 py-2">Est. inst.</th>
-                      <th className="text-right px-3 py-2">Paid by then</th>
-                      <th className="text-right px-3 py-2">Left after</th>
-                      <th className="text-right px-3 py-2">Cash still owed</th>
-                      <th className="text-right px-3 py-2">P&amp;L at bid</th>
-                      <th className="px-2 py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(analysis.projections || []).map((row) => {
-                      const isSelected = row.month === selRow?.month;
-                      return (
-                        <tr
-                          key={row.month}
-                          onClick={() => setSelectedMonth(row.month)}
-                          className={`cursor-pointer border-t transition-colors ${
-                            isSelected
-                              ? "bg-purple-50 border-purple-200 font-medium"
-                              : row.is_recommended
-                                ? "bg-green-50 border-green-100 hover:bg-green-100"
-                                : "border-gray-100 hover:bg-gray-50"
-                          }`}
-                        >
-                          <td className="px-3 py-2">{row.month}</td>
-                          <td className="px-3 py-2 text-gray-500">{row.date}</td>
-                          <td className="px-3 py-2 text-right text-purple-600">
-                            ~{formatCurrency(row.est_installment)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-blue-700">
-                            {formatCurrency(row.paid_by_then)}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {row.installments_left === 0 ? (
-                              <span className="text-green-600 font-medium">None ✓</span>
-                            ) : (
-                              <span className="text-gray-600">{row.installments_left} months</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right text-gray-500">
-                            {row.installments_left === 0
-                              ? "—"
-                              : formatCurrency(row.cash_still_owed)}
-                          </td>
-                          <td
-                            className={`px-3 py-2 text-right font-medium ${
-                              isProfitable ? "text-green-700" : "text-red-600"
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
+                        <th className="text-left px-3 py-2">Month</th>
+                        <th className="text-left px-3 py-2">Date</th>
+                        <th className="text-right px-3 py-2">Est. inst.</th>
+                        <th className="text-right px-3 py-2">Paid by then</th>
+                        <th className="text-right px-3 py-2">Left after</th>
+                        <th className="text-right px-3 py-2">
+                          Cash still owed
+                        </th>
+                        <th className="text-right px-3 py-2">P&amp;L at bid</th>
+                        <th className="px-2 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(analysis.projections || []).map((row) => {
+                        const isSelected = row.month === selRow?.month;
+                        return (
+                          <tr
+                            key={row.month}
+                            onClick={() => setSelectedMonth(row.month)}
+                            className={`cursor-pointer border-t transition-colors ${
+                              isSelected
+                                ? "bg-purple-50 border-purple-200 font-medium"
+                                : row.is_recommended
+                                  ? "bg-green-50 border-green-100 hover:bg-green-100"
+                                  : "border-gray-100 hover:bg-gray-50"
                             }`}
                           >
-                            {isProfitable ? "+" : ""}{formatCurrency(netPL)}
-                          </td>
-                          <td className="px-2 py-2">
-                            {isSelected && !row.is_recommended && (
-                              <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">
-                                selected
-                              </span>
-                            )}
-                            {row.is_recommended && (
-                              <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                ★ best
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <td className="px-3 py-2">{row.month}</td>
+                            <td className="px-3 py-2 text-gray-500">
+                              {row.date}
+                            </td>
+                            <td className="px-3 py-2 text-right text-purple-600">
+                              ~{formatCurrency(row.est_installment)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-blue-700">
+                              {formatCurrency(row.paid_by_then)}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {row.installments_left === 0 ? (
+                                <span className="text-green-600 font-medium">
+                                  None ✓
+                                </span>
+                              ) : (
+                                <span className="text-gray-600">
+                                  {row.installments_left} months
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right text-gray-500">
+                              {row.installments_left === 0
+                                ? "—"
+                                : formatCurrency(row.cash_still_owed)}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-medium ${
+                                isProfitable ? "text-green-700" : "text-red-600"
+                              }`}
+                            >
+                              {isProfitable ? "+" : ""}
+                              {formatCurrency(netPL)}
+                            </td>
+                            <td className="px-2 py-2">
+                              {isSelected && !row.is_recommended && (
+                                <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">
+                                  selected
+                                </span>
+                              )}
+                              {row.is_recommended && (
+                                <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  ★ best
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
         {/* Description / Notes */}
         {(beesi.description || beesi.notes) && (

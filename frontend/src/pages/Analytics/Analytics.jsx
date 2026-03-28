@@ -125,11 +125,31 @@ export default function Analytics() {
 
         {/* Counts */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <CountCard label="Active Loans Given" value={counts.active_loans_given} color="green" />
-          <CountCard label="Active Loans Taken" value={counts.active_loans_taken} color="red" />
-          <CountCard label="Active Properties" value={counts.active_properties} color="purple" />
-          <CountCard label="Active Partnerships" value={counts.active_partnerships} color="orange" />
-          <CountCard label="Active Beesi" value={counts.active_beesis} color="blue" />
+          <CountCard
+            label="Active Loans Given"
+            value={counts.active_loans_given}
+            color="green"
+          />
+          <CountCard
+            label="Active Loans Taken"
+            value={counts.active_loans_taken}
+            color="red"
+          />
+          <CountCard
+            label="Active Properties"
+            value={counts.active_properties}
+            color="purple"
+          />
+          <CountCard
+            label="Active Partnerships"
+            value={counts.active_partnerships}
+            color="orange"
+          />
+          <CountCard
+            label="Active Beesi"
+            value={counts.active_beesis}
+            color="blue"
+          />
         </div>
 
         {/* Investments & Liabilities detail */}
@@ -140,14 +160,37 @@ export default function Analytics() {
               Investments Breakdown
             </h3>
             <div className="space-y-3 mb-6">
-              <DetailRow label="Loans Given (Outstanding)" value={investments.loans_given_outstanding} />
-              <DetailRow label="Interest Pending (Receivable)" value={investments.loans_given_interest_pending} sub />
-              <DetailRow label="Property Advances" value={investments.property_advances} />
-              <DetailRow label="Property Site Investments" value={investments.property_site_investments} />
-              <DetailRow label="Partnership Invested" value={investments.partnership_invested} />
-              <DetailRow label="Beesi Invested" value={investments.beesi_invested} />
+              <DetailRow
+                label="Loans Given (Outstanding)"
+                value={investments.loans_given_outstanding}
+              />
+              <DetailRow
+                label="Interest Pending (Receivable)"
+                value={investments.loans_given_interest_pending}
+                sub
+              />
+              <DetailRow
+                label="Property Advances"
+                value={investments.property_advances}
+              />
+              <DetailRow
+                label="Property Site Investments"
+                value={investments.property_site_investments}
+              />
+              <DetailRow
+                label="Partnership Invested"
+                value={investments.partnership_invested}
+              />
+              <DetailRow
+                label="Beesi Invested"
+                value={investments.beesi_invested}
+              />
               <div className="border-t pt-3">
-                <DetailRow label="Total Investments" value={investments.total} bold />
+                <DetailRow
+                  label="Total Investments"
+                  value={investments.total}
+                  bold
+                />
               </div>
             </div>
             {investmentPie.length > 0 && (
@@ -180,11 +223,25 @@ export default function Analytics() {
               Liabilities Breakdown
             </h3>
             <div className="space-y-3 mb-6">
-              <DetailRow label="Loans Taken (Outstanding)" value={liabilities.loans_taken_outstanding} />
-              <DetailRow label="Interest Pending (Payable)" value={liabilities.loans_taken_interest_pending} sub />
-              <DetailRow label="Partner Payables" value={liabilities.partner_payables} />
+              <DetailRow
+                label="Loans Taken (Outstanding)"
+                value={liabilities.loans_taken_outstanding}
+              />
+              <DetailRow
+                label="Interest Pending (Payable)"
+                value={liabilities.loans_taken_interest_pending}
+                sub
+              />
+              <DetailRow
+                label="Partner Payables"
+                value={liabilities.partner_payables}
+              />
               <div className="border-t pt-3">
-                <DetailRow label="Total Liabilities" value={liabilities.total} bold />
+                <DetailRow
+                  label="Total Liabilities"
+                  value={liabilities.total}
+                  bold
+                />
               </div>
             </div>
             {liabilityPie.length > 0 && (
@@ -221,8 +278,16 @@ export default function Analytics() {
             <PnlCard label="Property Profit" value={pnl.property_profit} />
             <PnlCard label="Partnership P&L" value={pnl.partnership_pnl} />
             <PnlCard label="Beesi P&L" value={pnl.beesi_pnl} />
-            <PnlCard label="Total Expenses" value={-pnl.total_expenses} negative />
-            <PnlCard label="Expenses This Month" value={-pnl.expenses_this_month} negative />
+            <PnlCard
+              label="Total Expenses"
+              value={-pnl.total_expenses}
+              negative
+            />
+            <PnlCard
+              label="Expenses This Month"
+              value={-pnl.expenses_this_month}
+              negative
+            />
           </div>
         </div>
 
@@ -351,10 +416,14 @@ function CountCard({ label, value, color }) {
 function DetailRow({ label, value, bold, sub }) {
   return (
     <div className={`flex justify-between ${sub ? "pl-4" : ""}`}>
-      <span className={`text-sm ${bold ? "font-semibold text-gray-900" : sub ? "text-gray-500" : "text-gray-700"}`}>
+      <span
+        className={`text-sm ${bold ? "font-semibold text-gray-900" : sub ? "text-gray-500" : "text-gray-700"}`}
+      >
         {label}
       </span>
-      <span className={`text-sm ${bold ? "font-bold text-gray-900" : "font-medium text-gray-800"}`}>
+      <span
+        className={`text-sm ${bold ? "font-bold text-gray-900" : "font-medium text-gray-800"}`}
+      >
         {formatCurrency(value)}
       </span>
     </div>
@@ -366,7 +435,9 @@ function PnlCard({ label, value, negative }) {
   return (
     <div className="bg-gray-50 rounded-lg p-4">
       <p className="text-xs text-gray-600">{label}</p>
-      <p className={`text-xl font-bold mt-1 ${negative || isNeg ? "text-red-700" : "text-green-700"}`}>
+      <p
+        className={`text-xl font-bold mt-1 ${negative || isNeg ? "text-red-700" : "text-green-700"}`}
+      >
         {formatCurrency(Math.abs(value))}
         {isNeg && !negative ? " (Loss)" : ""}
       </p>
