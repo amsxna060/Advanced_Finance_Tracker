@@ -16,42 +16,74 @@ const STATUS_COLORS = {
 function PlotDiagram({ left, right, top, bottom, area }) {
   const hasAny = left || right || top || bottom;
   if (!hasAny) return null;
-  const W = 220,
-    H = 140,
-    PAD = 36;
+
+  const l = parseFloat(left) || 0;
+  const r = parseFloat(right) || 0;
+  const t = parseFloat(top) || 0;
+  const b = parseFloat(bottom) || 0;
+
+  // Scale sides proportionally for visual representation
+  const maxSide = Math.max(l, r, t, b, 1);
+  const BASE_W = 200,
+    BASE_H = 140,
+    PAD = 55;
+
+  // Top and bottom widths proportional to actual measurements
+  const topW = t > 0 ? Math.max((t / maxSide) * BASE_W, 80) : BASE_W;
+  const botW = b > 0 ? Math.max((b / maxSide) * BASE_W, 80) : BASE_W;
+  const leftH = l > 0 ? Math.max((l / maxSide) * BASE_H, 60) : BASE_H;
+  const rightH = r > 0 ? Math.max((r / maxSide) * BASE_H, 60) : BASE_H;
+  const plotH = Math.max(leftH, rightH);
+
+  const svgW = Math.max(topW, botW) + PAD * 2;
+  const svgH = plotH + PAD * 2;
+  const cx = svgW / 2;
+
+  // Four corners of the quadrilateral
+  const x1 = cx - topW / 2,
+    y1 = PAD; // top-left
+  const x2 = cx + topW / 2,
+    y2 = PAD; // top-right
+  const x3 = cx + botW / 2,
+    y3 = PAD + plotH; // bottom-right (right side height)
+  const x4 = cx - botW / 2,
+    y4 = PAD + plotH; // bottom-left (left side height)
+
+  // Adjust y for unequal left/right heights
+  const y1L = PAD + (plotH - leftH); // top-left adjusted
+  const y1R = PAD + (plotH - rightH); // top-right adjusted
+
+  const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y3}`;
+
+  const midY = (Math.min(y1L, y1R) + y4) / 2;
+
   return (
-    <svg width={W + PAD * 2} height={H + PAD * 2}>
-      <rect
-        x={PAD}
-        y={PAD}
-        width={W}
-        height={H}
+    <svg width={svgW} height={svgH} style={{ overflow: "visible" }}>
+      <polygon
+        points={points}
         fill="#eff6ff"
         stroke="#3b82f6"
         strokeWidth={2}
-        rx={2}
+        strokeLinejoin="round"
       />
+      {/* Top label */}
       <text
-        x={PAD + W / 2}
-        y={PAD - 10}
+        x={cx}
+        y={Math.min(y1L, y1R) - 10}
         textAnchor="middle"
         fontSize={12}
         fill="#1d4ed8"
       >
         {top ? `${top} ft` : "—"}
       </text>
-      <text
-        x={PAD + W / 2}
-        y={PAD + H + 20}
-        textAnchor="middle"
-        fontSize={12}
-        fill="#1d4ed8"
-      >
+      {/* Bottom label */}
+      <text x={cx} y={y4 + 20} textAnchor="middle" fontSize={12} fill="#1d4ed8">
         {bottom ? `${bottom} ft` : "—"}
       </text>
+      {/* Left label */}
       <text
-        x={PAD - 8}
-        y={PAD + H / 2}
+        x={Math.min(x4, cx - topW / 2) - 8}
+        y={(y1L + y4) / 2}
         textAnchor="end"
         dominantBaseline="middle"
         fontSize={12}
@@ -59,9 +91,10 @@ function PlotDiagram({ left, right, top, bottom, area }) {
       >
         {left ? `${left} ft` : "—"}
       </text>
+      {/* Right label */}
       <text
-        x={PAD + W + 8}
-        y={PAD + H / 2}
+        x={Math.max(x3, cx + topW / 2) + 8}
+        y={(y1R + y3) / 2}
         textAnchor="start"
         dominantBaseline="middle"
         fontSize={12}
@@ -69,10 +102,11 @@ function PlotDiagram({ left, right, top, bottom, area }) {
       >
         {right ? `${right} ft` : "—"}
       </text>
+      {/* Area in center */}
       {area && (
         <text
-          x={PAD + W / 2}
-          y={PAD + H / 2}
+          x={cx}
+          y={midY}
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize={13}
@@ -239,7 +273,44 @@ export default function PropertyDetail() {
   };
 
   const siteSettlementSummary = calculateSiteSettlementSummary();
-  const displaySettlementSummary = settleResult || siteSettlementSummary;
+
+  // Calculate plot settlement summary from property data (for display after page reload)
+  const calculatePlotSettlementSummary = () => {
+    if (isSite || !isSettled || !property.net_profit) return null;
+    const netProfit = parseFloat(property.net_profit || 0);
+    const sellerValue = parseFloat(property.total_seller_value || 0);
+    const advancePaid = parseFloat(property.advance_paid || 0);
+    const partnerSettlements = members.map((m) => {
+      const sharePct = parseFloat(m.member?.share_percentage || 0);
+      const advance = parseFloat(m.member?.advance_contributed || 0);
+      const profitShare = netProfit * (sharePct / 100);
+      return {
+        contact_name: m.member?.is_self ? "Self" : m.contact?.name || "Unknown",
+        is_self: m.member?.is_self,
+        share_percentage: sharePct,
+        advance_returned: advance,
+        profit_share: profitShare,
+        total_to_receive: advance + profitShare,
+      };
+    });
+    return {
+      deal_type: "plot",
+      total_buyer_value: parseFloat(property.total_buyer_value || 0),
+      total_seller_value: sellerValue,
+      advance_paid: advancePaid,
+      seller_remaining: sellerValue - advancePaid,
+      broker_name: property.broker_name,
+      broker_commission: parseFloat(property.broker_commission || 0),
+      other_expenses: parseFloat(property.other_expenses || 0),
+      gross_profit: parseFloat(property.gross_profit || 0),
+      net_profit: netProfit,
+      partner_settlements: partnerSettlements,
+    };
+  };
+
+  const plotSettlementSummary = calculatePlotSettlementSummary();
+  const displaySettlementSummary =
+    settleResult || siteSettlementSummary || plotSettlementSummary;
 
   // Live calculation for plot settle modal
   const area = parseFloat(property.total_area_sqft || 0);
@@ -368,38 +439,68 @@ export default function PropertyDetail() {
               </div>
             ) : (
               <>
+                {/* 1. Money from Buyer */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                  <div>
-                    <span className="text-gray-500">Buyer Total:</span>{" "}
-                    <span className="font-semibold">
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <div className="text-xs text-blue-500 font-medium mb-0.5">
+                      Money from Buyer
+                    </div>
+                    <div className="font-bold text-blue-800 text-base">
                       {formatCurrency(
                         displaySettlementSummary.total_buyer_value,
                       )}
-                    </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-gray-500">Seller Total:</span>{" "}
-                    <span className="font-semibold">
+                  <div className="bg-amber-50 rounded-lg p-3">
+                    <div className="text-xs text-amber-600 font-medium mb-0.5">
+                      Brokerage{" "}
+                      {displaySettlementSummary.broker_name
+                        ? `— ${displaySettlementSummary.broker_name}`
+                        : ""}
+                    </div>
+                    <div className="font-bold text-amber-800 text-base">
+                      {formatCurrency(
+                        displaySettlementSummary.broker_commission,
+                      )}
+                    </div>
+                  </div>
+                  {(displaySettlementSummary.other_expenses > 0) && (
+                    <div className="bg-orange-50 rounded-lg p-3">
+                      <div className="text-xs text-orange-600 font-medium mb-0.5">
+                        Other Expenses
+                      </div>
+                      <div className="font-bold text-orange-800 text-base">
+                        {formatCurrency(displaySettlementSummary.other_expenses)}
+                      </div>
+                    </div>
+                  )}
+                  <div className="bg-red-50 rounded-lg p-3">
+                    <div className="text-xs text-red-500 font-medium mb-0.5">
+                      Remaining to Seller
+                    </div>
+                    <div className="font-bold text-red-700 text-base">
+                      {formatCurrency(
+                        displaySettlementSummary.seller_remaining,
+                      )}
+                    </div>
+                    <div className="text-xs text-red-400">
+                      (Total{" "}
                       {formatCurrency(
                         displaySettlementSummary.total_seller_value,
-                      )}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Gross Profit:</span>{" "}
-                    <span className="font-semibold">
-                      {formatCurrency(displaySettlementSummary.gross_profit)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Net Profit:</span>{" "}
-                    <span className="font-semibold text-green-700">
-                      {formatCurrency(displaySettlementSummary.net_profit)}
-                    </span>
+                      )}{" "}
+                      − Advance{" "}
+                      {formatCurrency(displaySettlementSummary.advance_paid)}{" "}
+                      paid)
+                    </div>
                   </div>
                 </div>
+
+                {/* 2. Partner Shares */}
                 {displaySettlementSummary.partner_settlements?.length > 0 && (
                   <div className="overflow-x-auto">
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      Partner Distribution
+                    </div>
                     <table className="min-w-full text-sm">
                       <thead>
                         <tr className="border-b border-green-200">
@@ -447,6 +548,26 @@ export default function PropertyDetail() {
                     </table>
                   </div>
                 )}
+
+                {/* 3. Summary row */}
+                <div className="mt-3 pt-3 border-t border-green-200 flex flex-wrap gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Net Profit:</span>{" "}
+                    <span className="font-bold text-green-700">
+                      {formatCurrency(displaySettlementSummary.net_profit)}
+                    </span>
+                  </div>
+                  {displaySettlementSummary.broker_commission > 0 && (
+                    <div>
+                      <span className="text-gray-500">Brokerage paid:</span>{" "}
+                      <span className="font-semibold text-amber-700">
+                        {formatCurrency(
+                          displaySettlementSummary.broker_commission,
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -732,40 +853,6 @@ export default function PropertyDetail() {
                     </tbody>
                   </table>
                 )}
-              </div>
-            )}
-
-            {/* Transactions */}
-            {data.transactions?.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-4">
-                  Transactions
-                </h2>
-                <div className="space-y-2">
-                  {data.transactions.map((txn) => (
-                    <div
-                      key={txn.id}
-                      className="flex justify-between items-start py-2 border-b border-gray-100 last:border-0"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-gray-800 capitalize">
-                          {txn.txn_type.replace(/_/g, " ")}
-                        </p>
-                        {txn.description && (
-                          <p className="text-xs text-gray-400">
-                            {txn.description}
-                          </p>
-                        )}
-                        <p className="text-xs text-gray-400">
-                          {formatDate(txn.txn_date)}
-                        </p>
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800">
-                        {formatCurrency(txn.amount)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </div>

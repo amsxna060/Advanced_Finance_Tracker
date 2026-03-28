@@ -396,9 +396,10 @@ def add_installment(
     db.add(inst)
 
     # Auto-log a debit on the linked account (money paid out)
-    if beesi.account_id:
+    acct_id = payload.get("account_id") or beesi.account_id
+    if acct_id:
         txn = AccountTransaction(
-            account_id=beesi.account_id,
+            account_id=acct_id,
             txn_type="debit",
             amount=actual_paid,
             txn_date=payment_date,
@@ -495,9 +496,10 @@ def add_withdrawal(
     db.add(w)
 
     # Auto-log a credit on the linked account (money received)
-    if beesi.account_id:
+    w_acct_id = payload.get("account_id") or beesi.account_id
+    if w_acct_id:
         txn = AccountTransaction(
-            account_id=beesi.account_id,
+            account_id=w_acct_id,
             txn_type="credit",
             amount=net_received,
             txn_date=withdrawal_date,

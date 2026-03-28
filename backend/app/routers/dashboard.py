@@ -423,81 +423,92 @@ def get_this_month_stats(
 
 @router.get("/payment-behavior", response_model=list)
 def get_payment_behavior(
+    contact_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Returns a payment behavior table for all active borrowers (loans given).
-    Each row shows: contact name, loan id, months since disbursal, payments made,
-    last payment date, and a simple score: Good / Irregular / Bad.
+    Returns payment behavior aggregated per contact (one row per contact).
+    Optional contact_id filter for the contact detail page.
+    Score is based on weighted-average repayment rate across all active loans.
     """
-    active_loans = (
+    loan_query = (
         db.query(Loan)
         .filter(
             Loan.is_deleted == False,
             Loan.loan_direction == "given",
             Loan.status == "active",
         )
-        .all()
     )
+    if contact_id:
+        loan_query = loan_query.filter(Loan.contact_id == contact_id)
+    active_loans = loan_query.all()
+
+    # Group loans by contact
+    by_contact: dict = defaultdict(list)
+    for loan in active_loans:
+        by_contact[loan.contact_id].append(loan)
 
     rows = []
     today = date.today()
 
-    for loan in active_loans:
+    for cid, loans in by_contact.items():
         try:
-            # How many months has this loan been active?
-            start = loan.interest_start_date or loan.disbursed_date
-            if not start:
+            contact = loans[0].contact
+            contact_name = contact.name if contact else f"Contact #{cid}"
+            total_principal = sum(_decimal(l.principal_amount) for l in loans)
+            active_loans_count = len(loans)
+
+            total_months = 0
+            total_payments = 0
+            last_payment_date = None
+
+            for loan in loans:
+                start = loan.interest_start_date or loan.disbursed_date
+                if not start:
+                    continue
+                months = max(
+                    (today.year - start.year) * 12 + (today.month - start.month), 1
+                )
+                total_months += months
+                payments = loan.payments
+                total_payments += len(payments)
+                if payments:
+                    lpd = payments[-1].payment_date
+                    if last_payment_date is None or lpd > last_payment_date:
+                        last_payment_date = lpd
+
+            if total_months == 0:
                 continue
-            months_active = (
-                (today.year - start.year) * 12 + (today.month - start.month)
-            )
-            if months_active < 1:
-                months_active = 1
 
-            # How many payments have been made?
-            payments = loan.payments  # already ordered by date
-            payments_made = len(payments)
-            last_payment_date = payments[-1].payment_date if payments else None
-
-            # Days since last payment
-            days_since_payment = (
-                (today - last_payment_date).days if last_payment_date else months_active * 30
+            avg_rate = round((total_payments / total_months) * 100)
+            days_since = (
+                (today - last_payment_date).days if last_payment_date else total_months * 30
             )
 
-            # Score heuristic:
-            # Good: payments_made >= months_active and last payment within 35 days
-            # Bad: payments_made == 0 or days_since_payment > 90
-            # Irregular: everything else
-            if payments_made >= months_active and days_since_payment <= 35:
+            # Score: Good if avg rate >= 80% and paid recently; Bad if 0% or >90 days silent
+            if avg_rate >= 80 and days_since <= 45:
                 score = "Good"
                 score_color = "green"
-            elif payments_made == 0 or days_since_payment > 90:
+            elif avg_rate == 0 or days_since > 90:
                 score = "Bad"
                 score_color = "red"
             else:
                 score = "Irregular"
                 score_color = "yellow"
 
-            pct = round((payments_made / months_active) * 100) if months_active > 0 else 0
-
-            rows.append(
-                {
-                    "loan_id": loan.id,
-                    "contact_id": loan.contact_id,
-                    "contact_name": loan.contact.name if loan.contact else f"Contact #{loan.contact_id}",
-                    "loan_type": loan.loan_type,
-                    "principal": _decimal(loan.principal_amount),
-                    "months_active": months_active,
-                    "payments_made": payments_made,
-                    "payment_rate_pct": pct,
-                    "last_payment_date": last_payment_date.isoformat() if last_payment_date else None,
-                    "days_since_payment": days_since_payment,
-                    "score": score,
-                    "score_color": score_color,
-                }
-            )
+            rows.append({
+                "contact_id": cid,
+                "contact_name": contact_name,
+                "active_loans": active_loans_count,
+                "total_principal": total_principal,
+                "total_payments_made": total_payments,
+                "avg_payment_rate_pct": avg_rate,
+                "last_payment_date": last_payment_date.isoformat() if last_payment_date else None,
+                "days_since_payment": days_since,
+                "score": score,
+                "score_color": score_color,
+            })
         except Exception:
             pass
 

@@ -7,6 +7,7 @@ from app.models.partnership import Partnership, PartnershipMember, PartnershipTr
 from app.models.expense import Expense
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import CashAccount, AccountTransaction
+from app.models.obligation import MoneyObligation, ObligationSettlement
 
 __all__ = [
     "User",
@@ -26,4 +27,6 @@ __all__ = [
     "BeesiWithdrawal",
     "CashAccount",
     "AccountTransaction",
+    "MoneyObligation",
+    "ObligationSettlement",
 ]

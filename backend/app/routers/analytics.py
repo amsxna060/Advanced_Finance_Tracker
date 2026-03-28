@@ -21,8 +21,9 @@ from app.models.partnership import Partnership, PartnershipMember, PartnershipTr
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.expense import Expense
 from app.models.contact import Contact
+from app.models.obligation import MoneyObligation
 from app.models.user import User
-from app.services.interest import calculate_outstanding
+from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -349,3 +350,439 @@ def backfill_past_data(
 
     db.commit()
     return {"status": "ok", "cash_account_id": cash_acct.id, "stats": stats}
+
+
+@router.post("/relink-to-cash-home")
+def relink_to_cash_home(
+    target_account_id: int = 1,
+    target_balance: float = 440000,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    One-time migration: move all backfilled account_transactions and source
+    records from 'Cash in Hand' (id=5) to a target account (default: Cash, id=1),
+    then adjust the target account's opening_balance so its computed balance
+    equals target_balance.
+    """
+    target_acct = db.query(CashAccount).filter(
+        CashAccount.id == target_account_id,
+        CashAccount.is_deleted == False,
+    ).first()
+    if not target_acct:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Target account not found")
+
+    OLD_ACCOUNT_ID = 5  # Cash in Hand
+
+    # 1. Move backfilled account_transactions from old to target
+    moved = db.query(AccountTransaction).filter(
+        AccountTransaction.account_id == OLD_ACCOUNT_ID,
+        AccountTransaction.description.like("Backfill:%"),
+    ).update({AccountTransaction.account_id: target_account_id}, synchronize_session="fetch")
+
+    # 2. Update source records: loans
+    loans_updated = db.query(Loan).filter(
+        Loan.account_id == OLD_ACCOUNT_ID,
+    ).update({Loan.account_id: target_account_id}, synchronize_session="fetch")
+
+    # 3. Loan payments
+    payments_updated = db.query(LoanPayment).filter(
+        LoanPayment.account_id == OLD_ACCOUNT_ID,
+    ).update({LoanPayment.account_id: target_account_id}, synchronize_session="fetch")
+
+    # 4. Property transactions
+    prop_updated = db.query(PropertyTransaction).filter(
+        PropertyTransaction.account_id == OLD_ACCOUNT_ID,
+    ).update({PropertyTransaction.account_id: target_account_id}, synchronize_session="fetch")
+
+    # 5. Partnership transactions
+    partner_updated = db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.account_id == OLD_ACCOUNT_ID,
+    ).update({PartnershipTransaction.account_id: target_account_id}, synchronize_session="fetch")
+
+    # 6. Recalculate opening_balance so computed balance = target_balance
+    credits = db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
+        AccountTransaction.account_id == target_account_id,
+        AccountTransaction.txn_type == "credit",
+    ).scalar()
+    debits = db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
+        AccountTransaction.account_id == target_account_id,
+        AccountTransaction.txn_type == "debit",
+    ).scalar()
+    net = Decimal(str(credits)) - Decimal(str(debits))
+    new_opening = Decimal(str(target_balance)) - net
+    target_acct.opening_balance = new_opening
+
+    db.commit()
+    return {
+        "status": "ok",
+        "target_account": target_acct.name,
+        "account_txns_moved": moved,
+        "loans_updated": loans_updated,
+        "payments_updated": payments_updated,
+        "property_txns_updated": prop_updated,
+        "partnership_txns_updated": partner_updated,
+        "new_opening_balance": float(new_opening),
+        "computed_balance": target_balance,
+    }
+
+
+# ── FORECAST / CASH FLOW PROJECTION ─────────────────────────────────────────
+
+@router.get("/forecast")
+def analytics_forecast(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Projects money inflows and outflows over 15, 30, 90 days and 1 year.
+
+    INFLOWS (money coming to me):
+      - Loan principal repayments (from loans given - EMI principal portions)
+      - Interest payments due (from loans given)
+      - EMI receipts (from EMI loans given)
+      - Property deal expectations (unsettled properties with buyer value)
+      - Beesi withdrawable / completion amounts
+      - Money Flow receivables (pending obligations)
+
+    OUTFLOWS (money I need to pay):
+      - EMI payments due (on loans taken)
+      - Interest I owe (on loans taken)
+      - Principal returns (on loans taken - short_term with end dates)
+      - Money Flow payables (pending obligations)
+      - Beesi installments due
+    """
+    today = date.today()
+    periods = {
+        "15_days": today + timedelta(days=15),
+        "30_days": today + timedelta(days=30),
+        "90_days": today + timedelta(days=90),
+        "1_year": today + timedelta(days=365),
+    }
+
+    active_loans = db.query(Loan).filter(
+        Loan.is_deleted == False, Loan.status == "active"
+    ).all()
+    loans_given = [l for l in active_loans if l.loan_direction == "given"]
+    loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
+
+    # ── INFLOWS: Loans Given ─────────────────────────────────────────────
+    def _loan_inflow_items(loan, horizon_date):
+        """Calculate expected inflow from a single loan given within horizon."""
+        items = []
+        contact_name = loan.contact.name if loan.contact else f"Contact #{loan.contact_id}"
+
+        if loan.loan_type == "emi":
+            schedule = get_emi_schedule_with_payments(loan, db)
+            for entry in schedule:
+                dd = entry["due_date"]
+                if dd < today or dd > horizon_date:
+                    continue
+                if entry["status"] in ("paid",):
+                    continue
+                remaining = entry["outstanding"]
+                if remaining > 0:
+                    items.append({
+                        "source": "emi_receipt",
+                        "contact": contact_name,
+                        "loan_id": loan.id,
+                        "amount": float(remaining),
+                        "due_date": dd.isoformat(),
+                        "label": f"EMI #{entry['emi_number']}",
+                    })
+
+        elif loan.loan_type == "interest_only":
+            # Monthly interest expected
+            rate = _D(loan.interest_rate)
+            if rate <= 0:
+                return items
+            try:
+                out = calculate_outstanding(loan.id, today, db)
+                principal = _D(out.get("principal_outstanding", loan.principal_amount))
+            except Exception:
+                principal = _D(loan.principal_amount)
+            monthly_interest = principal * rate / Decimal("100")
+            start = loan.interest_start_date or loan.disbursed_date
+            if not start:
+                return items
+            # Generate future monthly due dates
+            from dateutil.relativedelta import relativedelta
+            cur = date(today.year, today.month, start.day if start.day <= 28 else 28)
+            if cur <= today:
+                cur += relativedelta(months=1)
+            while cur <= horizon_date:
+                items.append({
+                    "source": "interest_receipt",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(monthly_interest.quantize(Decimal("0.01"))),
+                    "due_date": cur.isoformat(),
+                    "label": f"Monthly interest ({rate}%)",
+                })
+                cur += relativedelta(months=1)
+
+            # Expected principal return if end date is within horizon
+            if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
+                items.append({
+                    "source": "principal_return",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(principal),
+                    "due_date": loan.expected_end_date.isoformat(),
+                    "label": "Principal return (expected)",
+                })
+
+        elif loan.loan_type == "short_term":
+            # Principal expected back by end date
+            try:
+                out = calculate_outstanding(loan.id, today, db)
+                total_owed = _D(out.get("total_outstanding", loan.principal_amount))
+            except Exception:
+                total_owed = _D(loan.principal_amount)
+            end = loan.expected_end_date or loan.interest_free_till
+            if end and today < end <= horizon_date:
+                items.append({
+                    "source": "principal_return",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(total_owed),
+                    "due_date": end.isoformat(),
+                    "label": "Short-term loan return",
+                })
+            elif not end:
+                # No end date — still show as expected within period
+                items.append({
+                    "source": "principal_return",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(total_owed),
+                    "due_date": None,
+                    "label": "Short-term loan (no end date set)",
+                })
+
+        return items
+
+    # ── OUTFLOWS: Loans Taken ─────────────────────────────────────────────
+    def _loan_outflow_items(loan, horizon_date):
+        """Calculate expected outflow for a single loan taken within horizon."""
+        items = []
+        contact_name = loan.contact.name if loan.contact else (loan.institution_name or f"Contact #{loan.contact_id}")
+
+        if loan.loan_type == "emi":
+            schedule = get_emi_schedule_with_payments(loan, db)
+            for entry in schedule:
+                dd = entry["due_date"]
+                if dd < today or dd > horizon_date:
+                    continue
+                if entry["status"] in ("paid",):
+                    continue
+                remaining = entry["outstanding"]
+                if remaining > 0:
+                    items.append({
+                        "source": "emi_payment",
+                        "contact": contact_name,
+                        "loan_id": loan.id,
+                        "amount": float(remaining),
+                        "due_date": dd.isoformat(),
+                        "label": f"EMI #{entry['emi_number']}",
+                    })
+
+        elif loan.loan_type == "interest_only":
+            rate = _D(loan.interest_rate)
+            if rate <= 0:
+                return items
+            try:
+                out = calculate_outstanding(loan.id, today, db)
+                principal = _D(out.get("principal_outstanding", loan.principal_amount))
+            except Exception:
+                principal = _D(loan.principal_amount)
+            monthly_interest = principal * rate / Decimal("100")
+            start = loan.interest_start_date or loan.disbursed_date
+            if not start:
+                return items
+            from dateutil.relativedelta import relativedelta
+            cur = date(today.year, today.month, min(start.day, 28))
+            if cur <= today:
+                cur += relativedelta(months=1)
+            while cur <= horizon_date:
+                items.append({
+                    "source": "interest_payment",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(monthly_interest.quantize(Decimal("0.01"))),
+                    "due_date": cur.isoformat(),
+                    "label": f"Interest due ({rate}%)",
+                })
+                cur += relativedelta(months=1)
+
+            if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
+                items.append({
+                    "source": "principal_payment",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(principal),
+                    "due_date": loan.expected_end_date.isoformat(),
+                    "label": "Principal due (expected)",
+                })
+
+        elif loan.loan_type == "short_term":
+            try:
+                out = calculate_outstanding(loan.id, today, db)
+                total_owed = _D(out.get("total_outstanding", loan.principal_amount))
+            except Exception:
+                total_owed = _D(loan.principal_amount)
+            end = loan.expected_end_date or loan.interest_free_till
+            if end and today < end <= horizon_date:
+                items.append({
+                    "source": "principal_payment",
+                    "contact": contact_name,
+                    "loan_id": loan.id,
+                    "amount": float(total_owed),
+                    "due_date": end.isoformat(),
+                    "label": "Short-term loan return due",
+                })
+
+        return items
+
+    # ── Build per-period forecast ──────────────────────────────────────────
+    result = {}
+
+    for period_key, horizon in periods.items():
+        inflow_items = []
+        outflow_items = []
+
+        # --- Loan inflows (given) ---
+        for loan in loans_given:
+            inflow_items.extend(_loan_inflow_items(loan, horizon))
+
+        # --- Loan outflows (taken) ---
+        for loan in loans_taken:
+            outflow_items.extend(_loan_outflow_items(loan, horizon))
+
+        # --- Property inflows: unsettled properties with buyer values ---
+        properties = db.query(PropertyDeal).filter(
+            PropertyDeal.is_deleted == False,
+            PropertyDeal.status.notin_(["settled", "cancelled"]),
+        ).all()
+        for prop in properties:
+            buyer_val = _D(prop.total_buyer_value)
+            if buyer_val > 0:
+                seller_val = _D(prop.total_seller_value)
+                advance = _D(prop.advance_paid)
+                expected_return = buyer_val - seller_val + advance  # net money back
+                net_profit = buyer_val - seller_val - _D(prop.broker_commission) - _D(getattr(prop, "other_expenses", None))
+                inflow_items.append({
+                    "source": "property",
+                    "contact": prop.title,
+                    "loan_id": None,
+                    "amount": float(buyer_val),
+                    "due_date": None,
+                    "label": f"Property: {prop.title} (buyer ₹{float(buyer_val):,.0f}, profit ₹{float(net_profit):,.0f})",
+                })
+
+        # --- Beesi: remaining installments to receive / pay ---
+        active_beesis = db.query(Beesi).filter(
+            Beesi.is_deleted == False, Beesi.status == "active"
+        ).all()
+        from dateutil.relativedelta import relativedelta
+        for b in active_beesis:
+            paid_months = len(b.installments)
+            remaining_months = max(b.tenure_months - paid_months, 0)
+            installment_amt = _D(b.base_installment)
+
+            # Remaining installments I need to pay (outflow)
+            months_in_period = 0
+            check_date = b.start_date + relativedelta(months=paid_months)
+            while check_date <= horizon and months_in_period < remaining_months:
+                if check_date >= today:
+                    outflow_items.append({
+                        "source": "beesi_installment",
+                        "contact": b.title,
+                        "loan_id": None,
+                        "amount": float(installment_amt),
+                        "due_date": check_date.isoformat(),
+                        "label": f"Beesi installment: {b.title}",
+                    })
+                months_in_period += 1
+                check_date += relativedelta(months=1)
+
+            # If not yet withdrawn, entire pot is withdrawable
+            if not b.withdrawals:
+                pot = _D(b.pot_size)
+                total_paid_so_far = sum(_D(i.actual_paid) for i in b.installments)
+                remaining_to_pay = installment_amt * remaining_months
+                net_if_withdraw = pot - total_paid_so_far - remaining_to_pay
+                inflow_items.append({
+                    "source": "beesi",
+                    "contact": b.title,
+                    "loan_id": None,
+                    "amount": float(pot),
+                    "due_date": None,
+                    "label": f"Beesi pot: {b.title} (withdrawable ₹{float(pot):,.0f}, net ₹{float(net_if_withdraw):,.0f})",
+                })
+
+        # --- Money Flow Obligations ---
+        pending_obligations = db.query(MoneyObligation).filter(
+            MoneyObligation.status.in_(["pending", "partial"]),
+        ).all()
+        for obl in pending_obligations:
+            remaining = _D(obl.amount) - _D(obl.amount_settled)
+            if remaining <= Decimal("0"):
+                continue
+            contact = None
+            if obl.contact_id:
+                contact = db.query(Contact).filter(Contact.id == obl.contact_id).first()
+            contact_name = contact.name if contact else "Self (You)"
+
+            if obl.obligation_type == "receivable":
+                inflow_items.append({
+                    "source": "obligation_receivable",
+                    "contact": contact_name,
+                    "loan_id": None,
+                    "amount": float(remaining),
+                    "due_date": None,
+                    "label": obl.reason or "Receivable",
+                })
+            else:
+                outflow_items.append({
+                    "source": "obligation_payable",
+                    "contact": contact_name,
+                    "loan_id": None,
+                    "amount": float(remaining),
+                    "due_date": None,
+                    "label": obl.reason or "Payable",
+                })
+
+        # --- Aggregate by category ---
+        def _sum_by(items, source_prefix):
+            return sum(it["amount"] for it in items if it["source"].startswith(source_prefix))
+
+        total_inflow = sum(it["amount"] for it in inflow_items)
+        total_outflow = sum(it["amount"] for it in outflow_items)
+
+        result[period_key] = {
+            "horizon_date": horizon.isoformat(),
+            "inflow": {
+                "total": round(total_inflow, 2),
+                "emi_receipts": round(_sum_by(inflow_items, "emi_"), 2),
+                "interest_receipts": round(_sum_by(inflow_items, "interest_"), 2),
+                "principal_returns": round(_sum_by(inflow_items, "principal_"), 2),
+                "property": round(_sum_by(inflow_items, "property"), 2),
+                "beesi": round(_sum_by(inflow_items, "beesi"), 2),
+                "receivables": round(_sum_by(inflow_items, "obligation_"), 2),
+                "items": sorted(inflow_items, key=lambda x: x["due_date"] or "9999-12-31"),
+            },
+            "outflow": {
+                "total": round(total_outflow, 2),
+                "emi_payments": round(_sum_by(outflow_items, "emi_"), 2),
+                "interest_payments": round(_sum_by(outflow_items, "interest_"), 2),
+                "principal_payments": round(_sum_by(outflow_items, "principal_"), 2),
+                "beesi_installments": round(_sum_by(outflow_items, "beesi_"), 2),
+                "payables": round(_sum_by(outflow_items, "obligation_"), 2),
+                "items": sorted(outflow_items, key=lambda x: x["due_date"] or "9999-12-31"),
+            },
+            "net": round(total_inflow - total_outflow, 2),
+        }
+
+    return {"as_of_date": today.isoformat(), "periods": result}

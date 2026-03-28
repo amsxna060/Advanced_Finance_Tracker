@@ -102,6 +102,7 @@ class PropertyDealOut(BaseModel):
     actual_registry_date: Optional[date]
     broker_name: Optional[str]
     broker_commission: Decimal
+    other_expenses: Optional[Decimal] = Decimal("0")
     gross_profit: Optional[Decimal]
     net_profit: Optional[Decimal]
     purchase_price: Optional[Decimal]

@@ -64,10 +64,12 @@ class PartnershipTransaction(Base):
     payment_mode = Column(String(30))
     description = Column(Text)
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
+    received_by_member_id = Column(Integer, ForeignKey("partnership_members.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     partnership = relationship("Partnership", back_populates="transactions")
     member = relationship("PartnershipMember", foreign_keys=[member_id])
+    received_by = relationship("PartnershipMember", foreign_keys=[received_by_member_id])
     creator = relationship("User", foreign_keys=[created_by])
     account = relationship("CashAccount", foreign_keys=[account_id])

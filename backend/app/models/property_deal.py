@@ -38,6 +38,7 @@ class PropertyDeal(Base):
     # Profit tracking
     broker_name = Column(String(255))
     broker_commission = Column(Numeric(15, 2), default=0)
+    other_expenses = Column(Numeric(15, 2), default=0)
     gross_profit = Column(Numeric(15, 2))
     net_profit = Column(Numeric(15, 2))
 

@@ -18,6 +18,7 @@ export default function BeesiDetail() {
     payment_date: "",
     actual_paid: "",
     notes: "",
+    account_id: "",
   });
   const [withdrawForm, setWithdrawForm] = useState({
     withdrawal_date: "",
@@ -37,6 +38,14 @@ export default function BeesiDetail() {
     },
   });
 
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts", "for-form"],
+    queryFn: async () => {
+      const res = await api.get("/api/accounts");
+      return res.data;
+    },
+  });
+
   const addInstallment = useMutation({
     mutationFn: (data) => api.post(`/api/beesi/${id}/installments`, data),
     onSuccess: () => {
@@ -47,6 +56,7 @@ export default function BeesiDetail() {
         payment_date: "",
         actual_paid: "",
         notes: "",
+        account_id: "",
       });
     },
     onError: (e) => setInstError(e.response?.data?.detail || "Failed to save"),
@@ -295,6 +305,22 @@ export default function BeesiDetail() {
                     className="w-full px-2 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-purple-400"
                   />
                 </div>
+                <div className="mt-2 text-sm">
+                  <label className="block text-gray-600 mb-1">Account</label>
+                  <select
+                    name="account_id"
+                    value={instForm.account_id}
+                    onChange={handleInstChange}
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-purple-400"
+                  >
+                    <option value="">— Select Account —</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="flex gap-2 mt-3">
                   <button
                     onClick={() => {
@@ -303,6 +329,9 @@ export default function BeesiDetail() {
                         payment_date: instForm.payment_date,
                         actual_paid: Number(instForm.actual_paid),
                         notes: instForm.notes,
+                        account_id: instForm.account_id
+                          ? parseInt(instForm.account_id)
+                          : null,
                       });
                     }}
                     disabled={addInstallment.isPending}

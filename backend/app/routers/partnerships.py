@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import date as date_type
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,13 +9,15 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.contact import Contact
-from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
+from app.models.obligation import MoneyObligation
 from app.models.property_deal import PropertyDeal
+from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.user import User
 from app.schemas.partnership import (
     PartnershipCreate,
     PartnershipMemberCreate,
     PartnershipMemberOut,
+    PartnershipMemberUpdate,
     PartnershipOut,
     PartnershipSettleRequest,
     PartnershipTransactionCreate,
@@ -53,6 +56,155 @@ def _ensure_contact_exists(contact_id: Optional[int], db: Session) -> None:
     ).first()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
+
+
+def _create_buyer_payment_obligations(
+    db: Session,
+    partnership,
+    amount: Decimal,
+    receiving_member,
+    current_user_id: int,
+) -> None:
+    """
+    Auto-create MoneyObligation records when a buyer payment is recorded.
+
+    - If received by self (receiving_member is None or is_self):
+        Create PAYABLE obligations to each non-self partner (advance + profit share).
+        Also create PAYABLE to seller for remaining balance (if linked property exists).
+    - If received by a partner:
+        Create RECEIVABLE obligation from that partner for my (self) share.
+    """
+    members = db.query(PartnershipMember).filter(
+        PartnershipMember.partnership_id == partnership.id,
+    ).all()
+
+    total_advance = sum(_decimal(m.advance_contributed) for m in members)
+
+    # Derive profit to distribute among partners.
+    # If linked to a settled property: use stored net_profit (= buyer - seller - broker - other, already correct).
+    # If linked but not yet settled: calculate from raw values.
+    # Standalone: subtract broker_paid transactions from amount, then subtract advances.
+    profit = Decimal("0")
+    if partnership.linked_property_deal_id:
+        prop_for_calc = db.query(PropertyDeal).filter(
+            PropertyDeal.id == partnership.linked_property_deal_id,
+        ).first()
+        if prop_for_calc and prop_for_calc.net_profit is not None:
+            # Property already settled — use stored net_profit directly
+            profit = max(_decimal(prop_for_calc.net_profit), Decimal("0"))
+        elif prop_for_calc:
+            # Property not yet settled — derive from raw fields
+            total_seller = _decimal(prop_for_calc.total_seller_value)
+            broker_comm = _decimal(prop_for_calc.broker_commission)
+            other_exp = _decimal(getattr(prop_for_calc, "other_expenses", None))
+            profit = max(amount - total_seller - broker_comm - other_exp, Decimal("0"))
+        else:
+            profit = max(amount - total_advance, Decimal("0"))
+    else:
+        # Standalone partnership: deduct broker_paid transactions from amount
+        from sqlalchemy import func as sql_func
+        broker_paid_total = _decimal(
+            db.query(sql_func.sum(PartnershipTransaction.amount)).filter(
+                PartnershipTransaction.partnership_id == partnership.id,
+                PartnershipTransaction.txn_type == "broker_paid",
+            ).scalar() or Decimal("0")
+        )
+        profit = max(amount - broker_paid_total - total_advance, Decimal("0"))
+
+    self_received = receiving_member is None or receiving_member.is_self
+
+    if self_received:
+        # 1. PAYABLE → Broker commission + Other expenses (from linked property)
+        if partnership.linked_property_deal_id:
+            prop = db.query(PropertyDeal).filter(
+                PropertyDeal.id == partnership.linked_property_deal_id,
+            ).first()
+            if prop:
+                broker_comm = _decimal(prop.broker_commission)
+                if broker_comm > Decimal("0"):
+                    broker_label = prop.broker_name or "Broker"
+                    # Try to find broker as a contact by name
+                    broker_contact = None
+                    if prop.broker_name:
+                        from app.models.contact import Contact as _Contact
+                        broker_contact = db.query(_Contact).filter(
+                            _Contact.name.ilike(prop.broker_name),
+                            _Contact.is_deleted == False,
+                        ).first()
+                    db.add(MoneyObligation(
+                        obligation_type="payable",
+                        contact_id=broker_contact.id if broker_contact else None,
+                        amount=broker_comm,
+                        reason=f"Broker: {broker_label}",
+                        linked_type="partnership",
+                        linked_id=partnership.id,
+                        created_by=current_user_id,
+                    ))
+
+                # Other expenses (stamp duty, registry, legal, etc.)
+                other_exp = _decimal(getattr(prop, "other_expenses", None))
+                if other_exp > Decimal("0"):
+                    db.add(MoneyObligation(
+                        obligation_type="payable",
+                        contact_id=None,
+                        amount=other_exp,
+                        reason=f"Other expenses — {prop.title}",
+                        linked_type="partnership",
+                        linked_id=partnership.id,
+                        created_by=current_user_id,
+                    ))
+
+                # 2. PAYABLE → Seller remaining (total_seller_value - advance_already_paid)
+                if prop.seller_contact_id:
+                    seller_remaining = _decimal(prop.total_seller_value) - _decimal(prop.advance_paid)
+                    if seller_remaining > Decimal("0"):
+                        db.add(MoneyObligation(
+                            obligation_type="payable",
+                            contact_id=prop.seller_contact_id,
+                            amount=seller_remaining,
+                            reason=f"Property '{prop.title}': remaining seller payment",
+                            linked_type="partnership",
+                            linked_id=partnership.id,
+                            created_by=current_user_id,
+                        ))
+
+        # 3. PAYABLE → each non-self partner (advance + profit share)
+        for member in members:
+            if member.is_self or not member.contact_id:
+                continue
+            member_advance = _decimal(member.advance_contributed)
+            member_share = _decimal(member.share_percentage)
+            member_profit = profit * (member_share / Decimal("100"))
+            owed = member_advance + member_profit
+            if owed > Decimal("0"):
+                db.add(MoneyObligation(
+                    obligation_type="payable",
+                    contact_id=member.contact_id,
+                    amount=owed,
+                    reason=f"Partnership '{partnership.title}': partner settlement",
+                    linked_type="partnership",
+                    linked_id=partnership.id,
+                    created_by=current_user_id,
+                ))
+    else:
+        # A partner received the money — create RECEIVABLE from them for my share
+        self_member = next((m for m in members if m.is_self), None)
+        if self_member and receiving_member.contact_id:
+            self_advance = _decimal(self_member.advance_contributed)
+            self_share = _decimal(self_member.share_percentage)
+            self_profit = profit * (self_share / Decimal("100"))
+            my_owed = self_advance + self_profit
+            if my_owed > Decimal("0"):
+                partner_name = receiving_member.contact.name if receiving_member.contact else "partner"
+                db.add(MoneyObligation(
+                    obligation_type="receivable",
+                    contact_id=receiving_member.contact_id,
+                    amount=my_owed,
+                    reason=f"Partnership '{partnership.title}': my share (received by {partner_name})",
+                    linked_type="partnership",
+                    linked_id=partnership.id,
+                    created_by=current_user_id,
+                ))
 
 
 def _ensure_property_exists(property_id: Optional[int], db: Session) -> None:
@@ -207,7 +359,7 @@ def add_partnership_member(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    _get_partnership_or_404(partnership_id, db)
+    partnership = _get_partnership_or_404(partnership_id, db)
 
     if not member_data.is_self and not member_data.contact_id:
         raise HTTPException(status_code=400, detail="contact_id is required for non-self members")
@@ -216,11 +368,120 @@ def add_partnership_member(
 
     _ensure_contact_exists(member_data.contact_id, db)
 
-    member = PartnershipMember(partnership_id=partnership_id, **member_data.model_dump())
+    # Validate total share_percentage <= 100%
+    existing_members = db.query(PartnershipMember).filter(
+        PartnershipMember.partnership_id == partnership_id,
+    ).all()
+    existing_total = sum(_decimal(m.share_percentage) for m in existing_members)
+    new_share = _decimal(member_data.share_percentage)
+    if existing_total + new_share > Decimal("100"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total share would be {existing_total + new_share}%. Cannot exceed 100%.",
+        )
+
+    member = PartnershipMember(partnership_id=partnership_id, **{k: v for k, v in member_data.model_dump().items() if k != 'advance_account_id'})
     db.add(member)
+    db.flush()  # get member.id
+
+    # Auto-create advance debit when self-member with advance
+    if member.is_self and _decimal(member.advance_contributed) > 0:
+        advance_account_id = member_data.advance_account_id or 1  # default: Cash In Home
+        adv_amount = _decimal(member.advance_contributed)
+        today = date_type.today()
+
+        # PartnershipTransaction for advance
+        adv_txn = PartnershipTransaction(
+            partnership_id=partnership_id,
+            member_id=member.id,
+            txn_type="advance_given",
+            amount=adv_amount,
+            txn_date=today,
+            account_id=advance_account_id,
+            description="Advance given (auto-recorded on member add)",
+            created_by=current_user.id,
+        )
+        db.add(adv_txn)
+
+        # Auto-ledger debit from account
+        auto_ledger(
+            db=db,
+            account_id=advance_account_id,
+            txn_type="debit",
+            amount=adv_amount,
+            txn_date=today,
+            linked_type="partnership",
+            linked_id=partnership_id,
+            description=f"Partnership ({partnership.title}): advance given by self",
+            created_by=current_user.id,
+        )
+
+        # Update partnership investment total
+        partnership.our_investment = _decimal(partnership.our_investment) + adv_amount
+
     db.commit()
     db.refresh(member)
     return member
+
+
+@router.put("/{partnership_id}/members/{member_id}", response_model=PartnershipMemberOut)
+def update_partnership_member(
+    partnership_id: int,
+    member_id: int,
+    member_data: PartnershipMemberUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _get_partnership_or_404(partnership_id, db)
+    member = db.query(PartnershipMember).filter(
+        PartnershipMember.id == member_id,
+        PartnershipMember.partnership_id == partnership_id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Partnership member not found")
+
+    update_data = member_data.model_dump(exclude_unset=True)
+
+    # Validate total share_percentage <= 100% if share is being updated
+    if "share_percentage" in update_data:
+        other_members = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == partnership_id,
+            PartnershipMember.id != member_id,
+        ).all()
+        other_total = sum(_decimal(m.share_percentage) for m in other_members)
+        new_share = _decimal(update_data["share_percentage"])
+        if other_total + new_share > Decimal("100"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Total share would be {other_total + new_share}%. Cannot exceed 100%.",
+            )
+
+    for field, value in update_data.items():
+        setattr(member, field, value)
+
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+@router.delete("/{partnership_id}/members/{member_id}")
+def delete_partnership_member(
+    partnership_id: int,
+    member_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _get_partnership_or_404(partnership_id, db)
+    member = db.query(PartnershipMember).filter(
+        PartnershipMember.id == member_id,
+        PartnershipMember.partnership_id == partnership_id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Partnership member not found")
+
+    db.delete(member)
+    db.commit()
+    return {"message": "Partner removed successfully"}
 
 
 @router.post("/{partnership_id}/transactions", response_model=PartnershipTransactionOut)
@@ -231,6 +492,16 @@ def create_partnership_transaction(
     current_user: User = Depends(require_admin),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
+    # Allow transactions regardless of partnership status
+
+    receiving_member = None
+    if transaction_data.received_by_member_id:
+        receiving_member = db.query(PartnershipMember).filter(
+            PartnershipMember.id == transaction_data.received_by_member_id,
+            PartnershipMember.partnership_id == partnership_id,
+        ).first()
+        if not receiving_member:
+            raise HTTPException(status_code=404, detail="Receiving member not found")
 
     if transaction_data.member_id:
         member = db.query(PartnershipMember).filter(
@@ -248,27 +519,63 @@ def create_partnership_transaction(
     db.add(transaction)
     db.flush()
 
-    # Auto-ledger
-    if transaction.account_id:
-        is_outflow = transaction_data.txn_type in {"invested", "expense"}
-        auto_ledger(
-            db=db,
-            account_id=transaction.account_id,
-            txn_type="debit" if is_outflow else "credit",
-            amount=_decimal(transaction_data.amount),
-            txn_date=transaction_data.txn_date,
-            linked_type="partnership",
-            linked_id=partnership_id,
-            description=f"Partnership ({partnership.title}): {transaction_data.txn_type}",
-            payment_mode=transaction_data.payment_mode,
-            created_by=current_user.id,
-        )
-
+    txn_type = transaction_data.txn_type
     amount = _decimal(transaction_data.amount)
-    if transaction_data.txn_type == "invested":
+
+    # Determine account impact
+    # buyer_payment_received by a non-self partner → skip my account ledger
+    buyer_received_by_partner = (
+        txn_type == "buyer_payment_received"
+        and receiving_member is not None
+        and not receiving_member.is_self
+    )
+
+    if transaction.account_id and not buyer_received_by_partner:
+        outflow_types = {"advance_given", "broker_paid", "invested", "expense"}
+        inflow_types = {"buyer_payment_received", "received", "profit_distributed"}
+        if txn_type in outflow_types:
+            auto_ledger(
+                db=db,
+                account_id=transaction.account_id,
+                txn_type="debit",
+                amount=amount,
+                txn_date=transaction_data.txn_date,
+                linked_type="partnership",
+                linked_id=partnership_id,
+                description=f"Partnership ({partnership.title}): {txn_type.replace('_', ' ')}",
+                payment_mode=transaction_data.payment_mode,
+                created_by=current_user.id,
+            )
+        elif txn_type in inflow_types:
+            auto_ledger(
+                db=db,
+                account_id=transaction.account_id,
+                txn_type="credit",
+                amount=amount,
+                txn_date=transaction_data.txn_date,
+                linked_type="partnership",
+                linked_id=partnership_id,
+                description=f"Partnership ({partnership.title}): {txn_type.replace('_', ' ')}",
+                payment_mode=transaction_data.payment_mode,
+                created_by=current_user.id,
+            )
+
+    # Update partnership totals
+    if txn_type in {"advance_given", "invested"}:
         partnership.our_investment = _decimal(partnership.our_investment) + amount
-    elif transaction_data.txn_type in {"received", "profit_distributed"}:
-        partnership.total_received = _decimal(partnership.total_received) + amount
+    elif txn_type in {"buyer_payment_received", "received", "profit_distributed"}:
+        if not buyer_received_by_partner:
+            partnership.total_received = _decimal(partnership.total_received) + amount
+
+    # Auto-create money flow obligations for buyer payment
+    if txn_type == "buyer_payment_received":
+        _create_buyer_payment_obligations(
+            db=db,
+            partnership=partnership,
+            amount=amount,
+            receiving_member=receiving_member,
+            current_user_id=current_user.id,
+        )
 
     db.commit()
     db.refresh(transaction)

@@ -33,7 +33,29 @@ export default function PartnershipDetail() {
     is_self: false,
     share_percentage: "",
     advance_contributed: "0",
+    advance_account_id: "1",
     notes: "",
+  });
+
+  // Edit member modal
+  const [showEditMemberModal, setShowEditMemberModal] = useState(false);
+  const [editMemberId, setEditMemberId] = useState(null);
+  const [editMemberForm, setEditMemberForm] = useState({
+    share_percentage: "",
+    advance_contributed: "",
+    notes: "",
+  });
+
+  // Add transaction form
+  const [showTxnForm, setShowTxnForm] = useState(false);
+  const [txnForm, setTxnForm] = useState({
+    txn_type: "buyer_payment_received",
+    amount: "",
+    txn_date: new Date().toISOString().split("T")[0],
+    payment_mode: "cash",
+    description: "",
+    account_id: "1",
+    received_by: "self",
   });
 
   // Standalone settle modal (only when NOT linked to property)
@@ -57,6 +79,14 @@ export default function PartnershipDetail() {
     queryKey: ["contacts", "for-form"],
     queryFn: async () => {
       const res = await api.get("/api/contacts", { params: { limit: 500 } });
+      return res.data;
+    },
+  });
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts", "for-form"],
+    queryFn: async () => {
+      const res = await api.get("/api/accounts");
       return res.data;
     },
   });
@@ -85,6 +115,7 @@ export default function PartnershipDetail() {
         is_self: false,
         share_percentage: "",
         advance_contributed: "0",
+        advance_account_id: "1",
         notes: "",
       });
     },
@@ -104,7 +135,85 @@ export default function PartnershipDetail() {
     onError: (err) => alert(err?.response?.data?.detail || "Failed to settle"),
   });
 
+  const editMemberMutation = useMutation({
+    mutationFn: async ({ memberId, payload }) => {
+      const res = await api.put(
+        `/api/partnerships/${id}/members/${memberId}`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partnership", id] });
+      setShowEditMemberModal(false);
+      setEditMemberId(null);
+    },
+    onError: (err) =>
+      alert(err?.response?.data?.detail || "Failed to update member"),
+  });
+
+  const deleteMemberMutation = useMutation({
+    mutationFn: async (memberId) => {
+      await api.delete(`/api/partnerships/${id}/members/${memberId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partnership", id] });
+    },
+    onError: (err) =>
+      alert(err?.response?.data?.detail || "Failed to remove member"),
+  });
+
+  const addTxnMutation = useMutation({
+    mutationFn: async (payload) => {
+      const res = await api.post(
+        `/api/partnerships/${id}/transactions`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["partnership", id] });
+      if (variables?.txn_type === "buyer_payment_received") {
+        queryClient.invalidateQueries({ queryKey: ["obligations"] });
+        queryClient.invalidateQueries({ queryKey: ["obligations-summary"] });
+      }
+      setShowTxnForm(false);
+      setTxnForm({
+        txn_type: "buyer_payment_received",
+        amount: "",
+        txn_date: new Date().toISOString().split("T")[0],
+        payment_mode: "cash",
+        description: "",
+        account_id: "1",
+        received_by: "self",
+      });
+    },
+    onError: (err) =>
+      alert(err?.response?.data?.detail || "Failed to add transaction"),
+  });
+
+  const handleAddTxn = () => {
+    const receivedByPartner = txnForm.received_by !== "self";
+    addTxnMutation.mutate({
+      txn_type: "buyer_payment_received",
+      amount: parseFloat(txnForm.amount) || 0,
+      txn_date: txnForm.txn_date,
+      payment_mode: txnForm.payment_mode,
+      description: txnForm.description?.trim() || null,
+      account_id: receivedByPartner
+        ? null
+        : txnForm.account_id
+          ? parseInt(txnForm.account_id)
+          : null,
+      member_id: null,
+      received_by_member_id: receivedByPartner
+        ? parseInt(txnForm.received_by)
+        : null,
+    });
+  };
+
   const handleAddMember = () => {
+    const advance = parseFloat(memberForm.advance_contributed) || 0;
     const payload = {
       contact_id: memberForm.is_self
         ? null
@@ -113,8 +222,12 @@ export default function PartnershipDetail() {
           : null,
       is_self: memberForm.is_self,
       share_percentage: parseFloat(memberForm.share_percentage) || 0,
-      advance_contributed: parseFloat(memberForm.advance_contributed) || 0,
+      advance_contributed: advance,
       notes: memberForm.notes?.trim() || null,
+      advance_account_id:
+        memberForm.is_self && advance > 0
+          ? parseInt(memberForm.advance_account_id || "1")
+          : null,
     };
     addMemberMutation.mutate(payload);
   };
@@ -127,6 +240,28 @@ export default function PartnershipDetail() {
       actual_end_date: settleForm.actual_end_date || null,
       notes: settleForm.notes?.trim() || null,
     });
+  };
+
+  const openEditMember = (m) => {
+    setEditMemberId(m.member?.id);
+    setEditMemberForm({
+      share_percentage: String(m.member?.share_percentage ?? ""),
+      advance_contributed: String(m.member?.advance_contributed ?? ""),
+      notes: m.member?.notes || "",
+    });
+    setShowEditMemberModal(true);
+  };
+
+  const handleEditMember = () => {
+    const payload = {};
+    if (editMemberForm.share_percentage !== "")
+      payload.share_percentage = parseFloat(editMemberForm.share_percentage);
+    if (editMemberForm.advance_contributed !== "")
+      payload.advance_contributed = parseFloat(
+        editMemberForm.advance_contributed,
+      );
+    payload.notes = editMemberForm.notes?.trim() || null;
+    editMemberMutation.mutate({ memberId: editMemberId, payload });
   };
 
   if (isLoading) {
@@ -168,6 +303,17 @@ export default function PartnershipDetail() {
     (sum, m) => sum + parseFloat(m.member?.total_received || 0),
     0,
   );
+
+  // Compute buyer payments total from actual transactions (not partnership.total_received)
+  const buyerPaymentsTotal = (data.transactions || [])
+    .filter((t) => t.txn_type === "buyer_payment_received")
+    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
+  // Net profit: prefer linked property's net_profit (already deducts broker + other expenses)
+  const netProfit =
+    linkedProperty && linkedProperty.net_profit != null
+      ? parseFloat(linkedProperty.net_profit)
+      : parseFloat(partnership.total_received || 0) - totalAdvance;
 
   // Standalone settle preview (when not linked to property)
   const settleTotal = parseFloat(settleForm.total_received || 0);
@@ -263,17 +409,19 @@ export default function PartnershipDetail() {
                 </div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-                <div className="text-xs text-gray-400 mb-1">Total Received</div>
+                <div className="text-xs text-gray-400 mb-1">
+                  Received from Buyer
+                </div>
                 <div className="text-lg font-bold text-green-700">
-                  {formatCurrency(totalReceived)}
+                  {formatCurrency(buyerPaymentsTotal)}
                 </div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
                 <div className="text-xs text-gray-400 mb-1">Net Profit</div>
                 <div
-                  className={`text-lg font-bold ${totalReceived - totalAdvance >= 0 ? "text-green-700" : "text-red-600"}`}
+                  className={`text-lg font-bold ${netProfit >= 0 ? "text-green-700" : "text-red-600"}`}
                 >
-                  {formatCurrency(totalReceived - totalAdvance)}
+                  {formatCurrency(netProfit)}
                 </div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
@@ -321,6 +469,11 @@ export default function PartnershipDetail() {
                         <th className="text-right py-2 text-gray-500 font-medium">
                           Total Received
                         </th>
+                        {isActive && (
+                          <th className="text-right py-2 text-gray-500 font-medium">
+                            Actions
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -359,6 +512,29 @@ export default function PartnershipDetail() {
                             >
                               {isFullyReceived ? formatCurrency(received) : "—"}
                             </td>
+                            {isActive && (
+                              <td className="text-right py-2 space-x-1">
+                                <button
+                                  onClick={() => openEditMember(m)}
+                                  className="text-xs text-blue-600 hover:underline"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        `Remove ${name} from this partnership?`,
+                                      )
+                                    )
+                                      deleteMemberMutation.mutate(m.member?.id);
+                                  }}
+                                  className="text-xs text-red-600 hover:underline"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -380,6 +556,7 @@ export default function PartnershipDetail() {
                         <td className="text-right py-2">
                           {isSettled ? formatCurrency(totalReceived) : "—"}
                         </td>
+                        {isActive && <td />}
                       </tr>
                     </tbody>
                   </table>
@@ -388,11 +565,171 @@ export default function PartnershipDetail() {
             </div>
 
             {/* Transactions */}
-            {data.transactions?.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-semibold text-gray-800">
                   Transactions
                 </h2>
+                <button
+                  onClick={() => {
+                    setShowTxnForm(!showTxnForm);
+                    if (!showTxnForm && linkedProperty?.total_buyer_value) {
+                      setTxnForm((p) => ({
+                        ...p,
+                        amount: String(parseFloat(linkedProperty.total_buyer_value)),
+                      }));
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm hover:bg-blue-100"
+                >
+                  + Record Buyer Payment
+                </button>
+              </div>
+
+              {showTxnForm && (
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Amount (₹)
+                      </label>
+                      <input
+                        type="number"
+                        value={txnForm.amount}
+                        onChange={(e) =>
+                          setTxnForm((p) => ({ ...p, amount: e.target.value }))
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        placeholder="0"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        value={txnForm.txn_date}
+                        onChange={(e) =>
+                          setTxnForm((p) => ({
+                            ...p,
+                            txn_date: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Received by
+                      </label>
+                      <select
+                        value={txnForm.received_by}
+                        onChange={(e) =>
+                          setTxnForm((p) => ({
+                            ...p,
+                            received_by: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="self">Self (Me)</option>
+                        {members
+                          .filter((m) => !m.member?.is_self)
+                          .map((m) => (
+                            <option
+                              key={m.member?.id}
+                              value={String(m.member?.id)}
+                            >
+                              {m.contact?.name || "Partner"}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    {txnForm.received_by === "self" ? (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Deposit to Account
+                        </label>
+                        <select
+                          value={txnForm.account_id}
+                          onChange={(e) =>
+                            setTxnForm((p) => ({
+                              ...p,
+                              account_id: e.target.value,
+                            }))
+                          }
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        >
+                          <option value="">— Select Account —</option>
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Description
+                        </label>
+                        <input
+                          type="text"
+                          value={txnForm.description}
+                          onChange={(e) =>
+                            setTxnForm((p) => ({
+                              ...p,
+                              description: e.target.value,
+                            }))
+                          }
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          placeholder="Optional"
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {txnForm.received_by === "self" && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Description
+                      </label>
+                      <input
+                        type="text"
+                        value={txnForm.description}
+                        onChange={(e) =>
+                          setTxnForm((p) => ({
+                            ...p,
+                            description: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        placeholder="Optional"
+                      />
+                    </div>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => setShowTxnForm(false)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAddTxn}
+                      disabled={!txnForm.amount || addTxnMutation.isPending}
+                      className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {addTxnMutation.isPending ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {data.transactions?.length > 0 ? (
                 <div className="space-y-2">
                   {data.transactions.map((txn) => (
                     <div
@@ -403,6 +740,27 @@ export default function PartnershipDetail() {
                         <p className="text-sm font-medium text-gray-800 capitalize">
                           {txn.txn_type.replace(/_/g, " ")}
                         </p>
+                        {txn.txn_type === "buyer_payment_received" &&
+                          txn.received_by_member_id && (
+                            <p className="text-xs text-amber-600">
+                              Received by:{" "}
+                              {members.find(
+                                (m) =>
+                                  m.member?.id === txn.received_by_member_id,
+                              )?.contact?.name || "Partner"}{" "}
+                              — obligation created
+                            </p>
+                          )}
+                        {txn.txn_type === "buyer_payment_received" &&
+                          !txn.received_by_member_id && (
+                            <p className="text-xs text-green-600">
+                              Received by you — see{" "}
+                              <Link to="/obligations" className="underline">
+                                Money Flow
+                              </Link>{" "}
+                              for distribution
+                            </p>
+                          )}
                         {txn.description && (
                           <p className="text-xs text-gray-400">
                             {txn.description}
@@ -418,8 +776,12 @@ export default function PartnershipDetail() {
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-4">
+                  No transactions yet.
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Sidebar */}
@@ -592,6 +954,35 @@ export default function PartnershipDetail() {
                 />
               </div>
 
+              {memberForm.is_self &&
+                parseFloat(memberForm.advance_contributed) > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Debit from Account (for advance)
+                    </label>
+                    <select
+                      value={memberForm.advance_account_id}
+                      onChange={(e) =>
+                        setMemberForm((p) => ({
+                          ...p,
+                          advance_account_id: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Advance will be auto-debited from this account and
+                      recorded as a transaction.
+                    </p>
+                  </div>
+                )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Notes (optional)
@@ -620,6 +1011,88 @@ export default function PartnershipDetail() {
                 className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
                 {addMemberMutation.isPending ? "Adding..." : "Add Partner"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Member Modal */}
+      {showEditMemberModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-5 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900">Edit Partner</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Share %
+                </label>
+                <input
+                  type="number"
+                  value={editMemberForm.share_percentage}
+                  onChange={(e) =>
+                    setEditMemberForm((p) => ({
+                      ...p,
+                      share_percentage: e.target.value,
+                    }))
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. 40"
+                  min="0"
+                  max="100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Advance Contributed (₹)
+                </label>
+                <input
+                  type="number"
+                  value={editMemberForm.advance_contributed}
+                  onChange={(e) =>
+                    setEditMemberForm((p) => ({
+                      ...p,
+                      advance_contributed: e.target.value,
+                    }))
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="0"
+                  min="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes (optional)
+                </label>
+                <input
+                  type="text"
+                  value={editMemberForm.notes}
+                  onChange={(e) =>
+                    setEditMemberForm((p) => ({ ...p, notes: e.target.value }))
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditMemberModal(false);
+                  setEditMemberId(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditMember}
+                disabled={editMemberMutation.isPending}
+                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {editMemberMutation.isPending ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>

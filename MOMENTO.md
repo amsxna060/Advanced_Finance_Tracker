@@ -845,6 +845,82 @@ Results sorted: Bad first → Irregular → Good (worst offenders visible at top
 
 ---
 
+## 🔄 Session 3 — Partnership/Property Fixes, Account Linking, Money Flow Log (2026-03-28)
+
+### Changes Made
+
+#### 1. Partnership Edit / Delete / Share Validation
+
+- **Backend**: Added `PartnershipMemberUpdate` schema, `PUT` and `DELETE` member endpoints in `partnerships.py`
+- **Validation**: Share percentage sum validated ≤ 100% on add and edit
+- **Frontend**: Added Edit/Delete buttons in member table, edit member modal in `PartnershipDetail.jsx`
+
+#### 2. Property Plot Drawing Fix
+
+- **Problem**: Fixed rectangle `<rect>` always showed straight lines regardless of unequal sides; dimension labels cut off
+- **Solution**: Replaced with proportional `<polygon>` SVG in both `PropertyDetail.jsx` and `PropertyForm.jsx`
+- Increased padding from 30/36 to 55 to prevent label cutoff
+
+#### 3. Relink Past Transactions to Cash In Home
+
+- Created `POST /api/analytics/relink-to-cash-home` one-time endpoint
+- Moved 61 backfilled account_transactions from "Cash in Hand" (id=5) to "Cash" (id=1)
+- Updated 15 loans, 43 payments, 2 property txns, 1 partnership txn
+- Recalculated opening_balance to 1,685,016 so final balance = ₹4,40,000
+
+#### 4. Account Selector on All Payment Flows
+
+- **LoanDetail.jsx**: Account selector dropdown in payment modal
+- **BeesiDetail.jsx**: Account selector in installment form
+- **Backend `beesi.py`**: Per-installment account_id override (falls back to beesi.account_id)
+
+#### 5. Property/Partnership Transaction Recording
+
+- Added inline transaction recording forms to `PropertyDetail.jsx` and `PartnershipDetail.jsx`
+- Forms include: type (credit/debit), amount, date, payment mode, account selector, description
+- Transactions auto-ledger to selected account
+
+#### 6. Money Flow Log System (Obligations)
+
+- **New model**: `MoneyObligation` (receivable/payable tracking) + `ObligationSettlement`
+- **Tables**: `money_obligations`, `obligation_settlements` (migration `007_money_obligations`)
+- **Router**: `backend/app/routers/obligations.py` — CRUD + settle + summary
+- **Settlement auto-ledger**: Receivable settlement → credit, payable settlement → debit
+- **Frontend**: `ObligationList.jsx` — full page with summary cards, filters, expandable rows, create modal, settle modal
+- **Route**: `/obligations` accessible from Dashboard as "Money Flow" card
+
+### Files Modified
+
+| File                                                    | Changes                                     |
+| ------------------------------------------------------- | ------------------------------------------- |
+| `backend/app/schemas/partnership.py`                    | Added `PartnershipMemberUpdate`             |
+| `backend/app/routers/partnerships.py`                   | PUT/DELETE member, share validation         |
+| `frontend/src/pages/Partnerships/PartnershipDetail.jsx` | Edit/delete members, txn form               |
+| `frontend/src/pages/Properties/PropertyDetail.jsx`      | Proportional plot, txn form                 |
+| `frontend/src/pages/Properties/PropertyForm.jsx`        | Proportional plot preview                   |
+| `backend/app/routers/analytics.py`                      | Relink endpoint                             |
+| `frontend/src/pages/Loans/LoanDetail.jsx`               | Account selector                            |
+| `frontend/src/pages/Beesi/BeesiDetail.jsx`              | Account selector                            |
+| `backend/app/routers/beesi.py`                          | Per-txn account_id override                 |
+| `backend/app/models/obligation.py`                      | NEW — MoneyObligation, ObligationSettlement |
+| `backend/app/schemas/obligation.py`                     | NEW — obligation schemas                    |
+| `backend/app/routers/obligations.py`                    | NEW — obligation CRUD + settle              |
+| `backend/app/models/__init__.py`                        | Registered obligation models                |
+| `backend/app/main.py`                                   | Included obligations router                 |
+| `backend/alembic/versions/007_money_obligations.py`     | NEW — migration                             |
+| `frontend/src/pages/Obligations/ObligationList.jsx`     | NEW — full obligations page                 |
+| `frontend/src/App.jsx`                                  | Added /obligations route                    |
+| `frontend/src/pages/Dashboard.jsx`                      | Added Money Flow nav card                   |
+
+### Database Changes
+
+- **New table**: `money_obligations` — obligation_type, contact_id, amount, amount_settled, reason, linked_type/id, due_date, status, notes
+- **New table**: `obligation_settlements` — obligation_id, amount, settlement_date, payment_mode, account_id, notes
+- **Account 1 (Cash)**: opening_balance recalculated to 1,685,016 (final balance = 440,000)
+- **Migration**: `007_money_obligations` (down_revision: `006_account_linking`)
+
+---
+
 > 📝 **Update this file** every time you:
 >
 > - Add a new table or column

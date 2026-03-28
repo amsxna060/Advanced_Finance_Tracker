@@ -16,48 +16,71 @@ function PlotDiagram({ left, right, top, bottom, area }) {
   const hasAny = left || right || top || bottom;
   if (!hasAny) return null;
 
-  const W = 220;
-  const H = 140;
-  const PAD = 30;
+  const l = parseFloat(left) || 0;
+  const r = parseFloat(right) || 0;
+  const t = parseFloat(top) || 0;
+  const b = parseFloat(bottom) || 0;
+
+  const maxSide = Math.max(l, r, t, b, 1);
+  const BASE_W = 200,
+    BASE_H = 140,
+    PAD = 55;
+
+  const topW = t > 0 ? Math.max((t / maxSide) * BASE_W, 80) : BASE_W;
+  const botW = b > 0 ? Math.max((b / maxSide) * BASE_W, 80) : BASE_W;
+  const leftH = l > 0 ? Math.max((l / maxSide) * BASE_H, 60) : BASE_H;
+  const rightH = r > 0 ? Math.max((r / maxSide) * BASE_H, 60) : BASE_H;
+  const plotH = Math.max(leftH, rightH);
+
+  const svgW = Math.max(topW, botW) + PAD * 2;
+  const svgH = plotH + PAD * 2;
+  const cx = svgW / 2;
+
+  const x3 = cx + botW / 2,
+    y4 = PAD + plotH;
+  const x4 = cx - botW / 2;
+  const y1L = PAD + (plotH - leftH);
+  const y1R = PAD + (plotH - rightH);
+
+  const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y4}`;
+  const midY = (Math.min(y1L, y1R) + y4) / 2;
 
   return (
     <div className="mt-3 flex justify-center">
-      <svg width={W + PAD * 2} height={H + PAD * 2} className="text-blue-700">
-        {/* Rectangle */}
-        <rect
-          x={PAD}
-          y={PAD}
-          width={W}
-          height={H}
+      <svg
+        width={svgW}
+        height={svgH}
+        className="text-blue-700"
+        style={{ overflow: "visible" }}
+      >
+        <polygon
+          points={points}
           fill="#eff6ff"
           stroke="#3b82f6"
           strokeWidth={2}
+          strokeLinejoin="round"
         />
-
-        {/* Top label */}
         <text
-          x={PAD + W / 2}
-          y={PAD - 8}
+          x={cx}
+          y={Math.min(y1L, y1R) - 8}
           textAnchor="middle"
           fontSize={12}
           fill="#1d4ed8"
         >
           {top ? `${top} ft` : "—"}
         </text>
-        {/* Bottom label */}
         <text
-          x={PAD + W / 2}
-          y={PAD + H + 18}
+          x={cx}
+          y={y4 + 18}
           textAnchor="middle"
           fontSize={12}
           fill="#1d4ed8"
         >
           {bottom ? `${bottom} ft` : "—"}
         </text>
-        {/* Left label */}
         <text
-          x={PAD - 6}
-          y={PAD + H / 2}
+          x={Math.min(x4, cx - topW / 2) - 8}
+          y={(y1L + y4) / 2}
           textAnchor="end"
           dominantBaseline="middle"
           fontSize={12}
@@ -65,10 +88,9 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         >
           {left ? `${left} ft` : "—"}
         </text>
-        {/* Right label */}
         <text
-          x={PAD + W + 6}
-          y={PAD + H / 2}
+          x={Math.max(x3, cx + topW / 2) + 8}
+          y={(y1R + y4) / 2}
           textAnchor="start"
           dominantBaseline="middle"
           fontSize={12}
@@ -76,11 +98,10 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         >
           {right ? `${right} ft` : "—"}
         </text>
-        {/* Area in center */}
         {area && (
           <text
-            x={PAD + W / 2}
-            y={PAD + H / 2}
+            x={cx}
+            y={midY}
             textAnchor="middle"
             dominantBaseline="middle"
             fontSize={13}

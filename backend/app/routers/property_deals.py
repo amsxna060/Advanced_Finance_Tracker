@@ -508,6 +508,7 @@ def settle_property_deal(
     property_deal.gross_profit = gross_profit
     property_deal.net_profit = net_profit
     property_deal.broker_commission = broker_commission
+    property_deal.other_expenses = other_expenses
     property_deal.total_buyer_value = total_buyer_value
     if settle_data.total_seller_value is not None:
         property_deal.total_seller_value = total_seller_value
@@ -526,9 +527,12 @@ def settle_property_deal(
             "deal_type": "plot",
             "total_buyer_value": float(total_buyer_value),
             "total_seller_value": float(total_seller_value),
-            "gross_profit": float(gross_profit),
+            "advance_paid": float(_decimal(property_deal.advance_paid)),
+            "seller_remaining": float(total_seller_value - _decimal(property_deal.advance_paid)),
+            "broker_name": property_deal.broker_name,
             "broker_commission": float(broker_commission),
             "other_expenses": float(other_expenses),
+            "gross_profit": float(gross_profit),
             "net_profit": float(net_profit),
             "total_advance_pool": float(total_advance_pool),
             "partner_settlements": partner_settlements,

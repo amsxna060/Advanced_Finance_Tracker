@@ -11,7 +11,7 @@ import {
   Building,
 } from "lucide-react";
 import api from "../../lib/api";
-import { formatCurrency } from "../../lib/utils";
+import { formatCurrency, formatDate } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 
 export default function ContactDetail() {
@@ -33,6 +33,16 @@ export default function ContactDetail() {
     staleTime: 0,
     gcTime: 0,
     retry: 2,
+  });
+
+  const { data: paymentBehavior } = useQuery({
+    queryKey: ["contact-payment-behavior", id],
+    queryFn: async () => {
+      const res = await api.get("/api/dashboard/payment-behavior", {
+        params: { contact_id: id },
+      });
+      return res.data;
+    },
   });
 
   const deleteContactMutation = useMutation({
@@ -420,6 +430,64 @@ export default function ContactDetail() {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+            {paymentBehavior && paymentBehavior.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Payment Behavior
+                </h3>
+                {paymentBehavior.map((row) => (
+                  <div key={row.contact_id} className="space-y-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <span
+                        className={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${
+                          row.score_color === "green"
+                            ? "bg-green-100 text-green-700"
+                            : row.score_color === "red"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-yellow-100 text-yellow-700"
+                        }`}
+                      >
+                        {row.score}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        Avg repayment rate:{" "}
+                        <strong className="text-gray-900">
+                          {row.avg_payment_rate_pct}%
+                        </strong>
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-gray-500 text-xs mb-1">Active Loans</p>
+                        <p className="font-semibold text-gray-900">
+                          {row.active_loans}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-gray-500 text-xs mb-1">Total Principal</p>
+                        <p className="font-semibold text-gray-900">
+                          {formatCurrency(row.total_principal)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-gray-500 text-xs mb-1">Total Payments Made</p>
+                        <p className="font-semibold text-gray-900">
+                          {row.total_payments_made}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-gray-500 text-xs mb-1">Last Payment</p>
+                        <p className="font-semibold text-gray-900">
+                          {row.last_payment_date
+                            ? formatDate(row.last_payment_date)
+                            : "Never"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

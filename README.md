@@ -2,22 +2,26 @@
 
 A full-stack personal finance management web application for tracking money lending, property deals, partnerships, Beesi (chit funds), cash/bank accounts, and expenses.
 
-## 🎉 Status: Phase 7 Complete! ✅
+## 🎉 Status: Phase 8 Complete! ✅
 
 **Current Features (All Working):**
 
 - ✅ **Contacts Management**: Full CRUD with search, filtering, and financial summaries
 - ✅ **Loans Management**: Track all 3 loan types (Interest Only, EMI, Short Term)
-- ✅ **Payment Recording**: Real-time allocation preview before committing
+- ✅ **Payment Recording**: Real-time allocation preview, account selector per payment
 - ✅ **Outstanding Calculation**: Day-level precision interest calculation
 - ✅ **Collateral Tracking**: Gold rate API integration with auto-value calculation
 - ✅ **Interest Capitalization**: Admin-only feature to add interest to principal
-- ✅ **Property Deals**: Track middleman deals and purchase-and-hold with full P&L
-- ✅ **Partnerships**: Track investments and returns with per-member share tracking
+- ✅ **Property Deals**: Track middleman deals and purchase-and-hold with full P&L, proportional plot drawing
+- ✅ **Partnerships**: Track investments and returns with per-member share tracking, edit/delete members, share ≤ 100% validation
 - ✅ **Expenses**: Log and categorize expenses with monthly trends
 - ✅ **Reports**: Export to CSV/Excel for any module
-- ✅ **Beesi (BC/Chit Fund)**: Track rotating savings pools with installment log, pot withdrawal, and P&L
+- ✅ **Beesi (BC/Chit Fund)**: Track rotating savings pools with installment log, pot withdrawal, account selector per installment
 - ✅ **Cash & Bank Accounts**: Named accounts with full debit/credit ledger and running balance
+- ✅ **Account Linking**: All payment flows (loans, beesi, property, partnership) have account selector for auto-ledger
+- ✅ **Analytics Dashboard**: Investment breakdown, cash flow trends, account balance summaries
+- ✅ **Property/Partnership Transactions**: Inline transaction recording forms with auto-ledger
+- ✅ **Money Flow Log**: Track receivables & payables, settlement recording with auto-ledger, summary overview
 - ✅ **Enhanced Dashboard**: EMIs due this month, overdue interest, payment behavior scoring, Beesi metrics, all quick links
 - ✅ **JWT Authentication**: Auto-refresh tokens with role-based access (admin/viewer)
 

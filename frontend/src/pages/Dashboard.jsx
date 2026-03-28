@@ -142,6 +142,20 @@ const quickLinks = [
       />
     ),
   },
+  {
+    title: "Money Flow",
+    description: "Receivables & payables tracker",
+    route: "/obligations",
+    color: "amber",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+      />
+    ),
+  },
 ];
 
 const colorClasses = {
@@ -630,20 +644,17 @@ export default function Dashboard() {
                 <thead>
                   <tr className="border-b border-gray-200 text-left">
                     <th className="pb-2 text-gray-500 font-medium">Contact</th>
-                    <th className="pb-2 text-gray-500 font-medium">
-                      Loan Type
+                    <th className="pb-2 text-right text-gray-500 font-medium">
+                      Active Loans
                     </th>
                     <th className="pb-2 text-right text-gray-500 font-medium">
-                      Principal
-                    </th>
-                    <th className="pb-2 text-right text-gray-500 font-medium">
-                      Months Active
+                      Total Principal
                     </th>
                     <th className="pb-2 text-right text-gray-500 font-medium">
                       Payments Made
                     </th>
                     <th className="pb-2 text-right text-gray-500 font-medium">
-                      Rate
+                      Avg Repayment Rate
                     </th>
                     <th className="pb-2 text-gray-500 font-medium">
                       Last Payment
@@ -656,26 +667,26 @@ export default function Dashboard() {
                 <tbody>
                   {paymentBehavior.map((row) => (
                     <tr
-                      key={row.loan_id}
-                      className="border-b border-gray-100 hover:bg-gray-50"
+                      key={row.contact_id}
+                      className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                      onClick={() =>
+                        (window.location.href = `/contacts/${row.contact_id}`)
+                      }
                     >
-                      <td className="py-2 text-gray-800 font-medium">
+                      <td className="py-2 text-gray-800 font-semibold">
                         {row.contact_name}
                       </td>
-                      <td className="py-2 text-gray-600 capitalize">
-                        {row.loan_type}
+                      <td className="py-2 text-right text-gray-600">
+                        {row.active_loans}
                       </td>
                       <td className="py-2 text-right text-gray-800">
-                        {formatCurrency(row.principal)}
+                        {formatCurrency(row.total_principal)}
                       </td>
                       <td className="py-2 text-right text-gray-600">
-                        {row.months_active}
+                        {row.total_payments_made}
                       </td>
                       <td className="py-2 text-right text-gray-600">
-                        {row.payments_made}
-                      </td>
-                      <td className="py-2 text-right text-gray-600">
-                        {row.payment_rate_pct}%
+                        {row.avg_payment_rate_pct}%
                       </td>
                       <td className="py-2 text-gray-600">
                         {row.last_payment_date

@@ -27,6 +27,7 @@ function LoanDetail() {
   const [paymentMode, setPaymentMode] = useState("cash");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [paymentPreview, setPaymentPreview] = useState(null);
+  const [paymentAccountId, setPaymentAccountId] = useState("");
 
   const [showCollateralModal, setShowCollateralModal] = useState(false);
   const [collateralForm, setCollateralForm] = useState({
@@ -77,6 +78,14 @@ function LoanDetail() {
       enabled: showMonthlySchedule,
       staleTime: 0,
     });
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts", "for-form"],
+    queryFn: async () => {
+      const res = await api.get("/api/accounts");
+      return res.data;
+    },
+  });
 
   // Fetch payment preview
   const fetchPreview = async (totalAmt, prAmt) => {
@@ -207,6 +216,7 @@ function LoanDetail() {
       payment_date: paymentDate,
       payment_mode: paymentMode,
       notes: paymentNotes,
+      account_id: paymentAccountId ? parseInt(paymentAccountId) : null,
     };
     if (!isEmi && parseFloat(principalRepaymentAmount) > 0) {
       payload.principal_repayment = parseFloat(principalRepaymentAmount);
@@ -221,6 +231,7 @@ function LoanDetail() {
     setPrincipalRepaymentAmount("");
     setPaymentNotes("");
     setPaymentPreview(null);
+    setPaymentAccountId("");
   };
 
   const handleDeletePayment = (paymentId) => {
@@ -1164,6 +1175,23 @@ function LoanDetail() {
                   rows="2"
                   placeholder="Notes..."
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Account
+                </label>
+                <select
+                  value={paymentAccountId}
+                  onChange={(e) => setPaymentAccountId(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="">— Select Account —</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               {paymentPreview && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

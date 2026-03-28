@@ -31,6 +31,7 @@ import BeesiDetail from "./pages/Beesi/BeesiDetail";
 import AccountList from "./pages/Accounts/AccountList";
 import AccountForm from "./pages/Accounts/AccountForm";
 import AccountDetail from "./pages/Accounts/AccountDetail";
+import ObligationList from "./pages/Obligations/ObligationList";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -270,6 +271,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AccountDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/obligations"
+              element={
+                <ProtectedRoute>
+                  <ObligationList />
                 </ProtectedRoute>
               }
             />

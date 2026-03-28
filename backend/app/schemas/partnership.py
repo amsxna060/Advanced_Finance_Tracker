@@ -58,6 +58,13 @@ class PartnershipMemberCreate(BaseModel):
     advance_contributed: Decimal = Decimal("0")
     total_received: Decimal = Decimal("0")
     notes: Optional[str] = None
+    advance_account_id: Optional[int] = None  # account to debit when is_self + advance > 0
+
+
+class PartnershipMemberUpdate(BaseModel):
+    share_percentage: Optional[Decimal] = None
+    advance_contributed: Optional[Decimal] = None
+    notes: Optional[str] = None
 
 
 class PartnershipMemberOut(BaseModel):
@@ -82,6 +89,7 @@ class PartnershipTransactionCreate(BaseModel):
     payment_mode: Optional[str] = None
     description: Optional[str] = None
     account_id: Optional[int] = None
+    received_by_member_id: Optional[int] = None  # for buyer_payment_received: which partner got the money
 
 
 class PartnershipTransactionOut(BaseModel):
@@ -94,6 +102,7 @@ class PartnershipTransactionOut(BaseModel):
     payment_mode: Optional[str]
     description: Optional[str]
     account_id: Optional[int] = None
+    received_by_member_id: Optional[int] = None
     created_by: Optional[int]
     created_at: datetime
 
