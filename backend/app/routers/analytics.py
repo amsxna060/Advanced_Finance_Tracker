@@ -429,30 +429,24 @@ def relink_to_cash_home(
 
 
 # ── FORECAST / CASH FLOW PROJECTION ─────────────────────────────────────────
+#
+# Confidence scoring (think like a CA):
+#   HIGH   – EMI receipts (contractual, proven track), recurring monthly interest
+#   MEDIUM – Short-term loan returns with end date, beesi installments (committed)
+#   LOW    – Property deals (timing uncertain), principal returns without end date,
+#            obligations, beesi pots (speculative)
+#
+# Interest is always on ORIGINAL principal (loan.principal_amount), not on
+# compounded/capitalized outstanding — because the borrower pays interest on the
+# original amount each month regardless of capitalization in our books.
 
 @router.get("/forecast")
 def analytics_forecast(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Projects money inflows and outflows over 15, 30, 90 days and 1 year.
+    from dateutil.relativedelta import relativedelta
 
-    INFLOWS (money coming to me):
-      - Loan principal repayments (from loans given - EMI principal portions)
-      - Interest payments due (from loans given)
-      - EMI receipts (from EMI loans given)
-      - Property deal expectations (unsettled properties with buyer value)
-      - Beesi withdrawable / completion amounts
-      - Money Flow receivables (pending obligations)
-
-    OUTFLOWS (money I need to pay):
-      - EMI payments due (on loans taken)
-      - Interest I owe (on loans taken)
-      - Principal returns (on loans taken - short_term with end dates)
-      - Money Flow payables (pending obligations)
-      - Beesi installments due
-    """
     today = date.today()
     periods = {
         "15_days": today + timedelta(days=15),
@@ -467,11 +461,18 @@ def analytics_forecast(
     loans_given = [l for l in active_loans if l.loan_direction == "given"]
     loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
 
+    # ── helper: contact name ─────────────────────────────────────────────
+    def _contact(loan):
+        if loan.contact:
+            return loan.contact.name
+        if loan.institution_name:
+            return loan.institution_name
+        return f"Contact #{loan.contact_id}"
+
     # ── INFLOWS: Loans Given ─────────────────────────────────────────────
     def _loan_inflow_items(loan, horizon_date):
-        """Calculate expected inflow from a single loan given within horizon."""
         items = []
-        contact_name = loan.contact.name if loan.contact else f"Contact #{loan.contact_id}"
+        name = _contact(loan)
 
         if loan.loan_type == "emi":
             schedule = get_emi_schedule_with_payments(loan, db)
@@ -479,168 +480,137 @@ def analytics_forecast(
                 dd = entry["due_date"]
                 if dd < today or dd > horizon_date:
                     continue
-                if entry["status"] in ("paid",):
+                if entry["status"] == "paid":
                     continue
-                remaining = entry["outstanding"]
+                remaining = float(entry["outstanding"])
                 if remaining > 0:
                     items.append({
-                        "source": "emi_receipt",
-                        "contact": contact_name,
-                        "loan_id": loan.id,
-                        "amount": float(remaining),
+                        "source": "emi_receipt", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": remaining,
                         "due_date": dd.isoformat(),
                         "label": f"EMI #{entry['emi_number']}",
-                    })
-
-        elif loan.loan_type == "interest_only":
-            # Monthly interest expected
-            rate = _D(loan.interest_rate)
-            if rate <= 0:
-                return items
-            try:
-                out = calculate_outstanding(loan.id, today, db)
-                principal = _D(out.get("principal_outstanding", loan.principal_amount))
-            except Exception:
-                principal = _D(loan.principal_amount)
-            monthly_interest = principal * rate / Decimal("100")
-            start = loan.interest_start_date or loan.disbursed_date
-            if not start:
-                return items
-            # Generate future monthly due dates
-            from dateutil.relativedelta import relativedelta
-            cur = date(today.year, today.month, start.day if start.day <= 28 else 28)
-            if cur <= today:
-                cur += relativedelta(months=1)
-            while cur <= horizon_date:
-                items.append({
-                    "source": "interest_receipt",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
-                    "amount": float(monthly_interest.quantize(Decimal("0.01"))),
-                    "due_date": cur.isoformat(),
-                    "label": f"Monthly interest ({rate}%)",
-                })
-                cur += relativedelta(months=1)
-
-            # Expected principal return if end date is within horizon
-            if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
-                items.append({
-                    "source": "principal_return",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
-                    "amount": float(principal),
-                    "due_date": loan.expected_end_date.isoformat(),
-                    "label": "Principal return (expected)",
-                })
-
-        elif loan.loan_type == "short_term":
-            # Principal expected back by end date
-            try:
-                out = calculate_outstanding(loan.id, today, db)
-                total_owed = _D(out.get("total_outstanding", loan.principal_amount))
-            except Exception:
-                total_owed = _D(loan.principal_amount)
-            end = loan.expected_end_date or loan.interest_free_till
-            if end and today < end <= horizon_date:
-                items.append({
-                    "source": "principal_return",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
-                    "amount": float(total_owed),
-                    "due_date": end.isoformat(),
-                    "label": "Short-term loan return",
-                })
-            elif not end:
-                # No end date — still show as expected within period
-                items.append({
-                    "source": "principal_return",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
-                    "amount": float(total_owed),
-                    "due_date": None,
-                    "label": "Short-term loan (no end date set)",
-                })
-
-        return items
-
-    # ── OUTFLOWS: Loans Taken ─────────────────────────────────────────────
-    def _loan_outflow_items(loan, horizon_date):
-        """Calculate expected outflow for a single loan taken within horizon."""
-        items = []
-        contact_name = loan.contact.name if loan.contact else (loan.institution_name or f"Contact #{loan.contact_id}")
-
-        if loan.loan_type == "emi":
-            schedule = get_emi_schedule_with_payments(loan, db)
-            for entry in schedule:
-                dd = entry["due_date"]
-                if dd < today or dd > horizon_date:
-                    continue
-                if entry["status"] in ("paid",):
-                    continue
-                remaining = entry["outstanding"]
-                if remaining > 0:
-                    items.append({
-                        "source": "emi_payment",
-                        "contact": contact_name,
-                        "loan_id": loan.id,
-                        "amount": float(remaining),
-                        "due_date": dd.isoformat(),
-                        "label": f"EMI #{entry['emi_number']}",
+                        "confidence": "high",
                     })
 
         elif loan.loan_type == "interest_only":
             rate = _D(loan.interest_rate)
             if rate <= 0:
                 return items
-            try:
-                out = calculate_outstanding(loan.id, today, db)
-                principal = _D(out.get("principal_outstanding", loan.principal_amount))
-            except Exception:
-                principal = _D(loan.principal_amount)
-            monthly_interest = principal * rate / Decimal("100")
+            # Use ORIGINAL principal for monthly interest projection
+            principal = _D(loan.principal_amount)
+            monthly_interest = float((principal * rate / Decimal("100")).quantize(Decimal("0.01")))
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
-            from dateutil.relativedelta import relativedelta
             cur = date(today.year, today.month, min(start.day, 28))
             if cur <= today:
                 cur += relativedelta(months=1)
             while cur <= horizon_date:
                 items.append({
-                    "source": "interest_payment",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
-                    "amount": float(monthly_interest.quantize(Decimal("0.01"))),
+                    "source": "interest_receipt", "contact": name,
+                    "contact_id": loan.contact_id, "loan_id": loan.id,
+                    "amount": monthly_interest,
                     "due_date": cur.isoformat(),
-                    "label": f"Interest due ({rate}%)",
+                    "label": f"Monthly interest ({rate}%)",
+                    "confidence": "high",
                 })
                 cur += relativedelta(months=1)
-
+            # Principal return only if end date exists and falls in window
             if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
                 items.append({
-                    "source": "principal_payment",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
+                    "source": "principal_return", "contact": name,
+                    "contact_id": loan.contact_id, "loan_id": loan.id,
                     "amount": float(principal),
                     "due_date": loan.expected_end_date.isoformat(),
-                    "label": "Principal due (expected)",
+                    "label": "Principal return (expected end date)",
+                    "confidence": "medium",
                 })
 
         elif loan.loan_type == "short_term":
-            try:
-                out = calculate_outstanding(loan.id, today, db)
-                total_owed = _D(out.get("total_outstanding", loan.principal_amount))
-            except Exception:
-                total_owed = _D(loan.principal_amount)
+            principal = _D(loan.principal_amount)
             end = loan.expected_end_date or loan.interest_free_till
             if end and today < end <= horizon_date:
                 items.append({
-                    "source": "principal_payment",
-                    "contact": contact_name,
-                    "loan_id": loan.id,
-                    "amount": float(total_owed),
+                    "source": "principal_return", "contact": name,
+                    "contact_id": loan.contact_id, "loan_id": loan.id,
+                    "amount": float(principal),
+                    "due_date": end.isoformat(),
+                    "label": "Short-term loan return",
+                    "confidence": "medium",
+                })
+            # If no end date — skip entirely for time-bound forecast
+
+        return items
+
+    # ── OUTFLOWS: Loans Taken ─────────────────────────────────────────────
+    def _loan_outflow_items(loan, horizon_date):
+        items = []
+        name = _contact(loan)
+
+        if loan.loan_type == "emi":
+            schedule = get_emi_schedule_with_payments(loan, db)
+            for entry in schedule:
+                dd = entry["due_date"]
+                if dd < today or dd > horizon_date:
+                    continue
+                if entry["status"] == "paid":
+                    continue
+                remaining = float(entry["outstanding"])
+                if remaining > 0:
+                    items.append({
+                        "source": "emi_payment", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": remaining,
+                        "due_date": dd.isoformat(),
+                        "label": f"EMI #{entry['emi_number']}",
+                        "confidence": "high",
+                    })
+
+        elif loan.loan_type == "interest_only":
+            rate = _D(loan.interest_rate)
+            if rate <= 0:
+                return items
+            # Use ORIGINAL principal for interest projection
+            principal = _D(loan.principal_amount)
+            monthly_interest = float((principal * rate / Decimal("100")).quantize(Decimal("0.01")))
+            start = loan.interest_start_date or loan.disbursed_date
+            if not start:
+                return items
+            cur = date(today.year, today.month, min(start.day, 28))
+            if cur <= today:
+                cur += relativedelta(months=1)
+            while cur <= horizon_date:
+                items.append({
+                    "source": "interest_payment", "contact": name,
+                    "contact_id": loan.contact_id, "loan_id": loan.id,
+                    "amount": monthly_interest,
+                    "due_date": cur.isoformat(),
+                    "label": f"Interest due ({rate}%)",
+                    "confidence": "high",
+                })
+                cur += relativedelta(months=1)
+            if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
+                items.append({
+                    "source": "principal_payment", "contact": name,
+                    "contact_id": loan.contact_id, "loan_id": loan.id,
+                    "amount": float(principal),
+                    "due_date": loan.expected_end_date.isoformat(),
+                    "label": "Principal due (expected end date)",
+                    "confidence": "medium",
+                })
+
+        elif loan.loan_type == "short_term":
+            principal = _D(loan.principal_amount)
+            end = loan.expected_end_date or loan.interest_free_till
+            if end and today < end <= horizon_date:
+                items.append({
+                    "source": "principal_payment", "contact": name,
+                    "contact_id": loan.contact_id, "loan_id": loan.id,
+                    "amount": float(principal),
                     "due_date": end.isoformat(),
                     "label": "Short-term loan return due",
+                    "confidence": "medium",
                 })
 
         return items
@@ -652,75 +622,73 @@ def analytics_forecast(
         inflow_items = []
         outflow_items = []
 
-        # --- Loan inflows (given) ---
         for loan in loans_given:
             inflow_items.extend(_loan_inflow_items(loan, horizon))
-
-        # --- Loan outflows (taken) ---
         for loan in loans_taken:
             outflow_items.extend(_loan_outflow_items(loan, horizon))
 
-        # --- Property inflows: unsettled properties with buyer values ---
+        # --- Property inflows: only show NET PROFIT as inflow, not buyer amount
         properties = db.query(PropertyDeal).filter(
             PropertyDeal.is_deleted == False,
             PropertyDeal.status.notin_(["settled", "cancelled"]),
         ).all()
         for prop in properties:
             buyer_val = _D(prop.total_buyer_value)
-            if buyer_val > 0:
-                seller_val = _D(prop.total_seller_value)
-                advance = _D(prop.advance_paid)
-                expected_return = buyer_val - seller_val + advance  # net money back
-                net_profit = buyer_val - seller_val - _D(prop.broker_commission) - _D(getattr(prop, "other_expenses", None))
-                inflow_items.append({
-                    "source": "property",
-                    "contact": prop.title,
-                    "loan_id": None,
-                    "amount": float(buyer_val),
-                    "due_date": None,
-                    "label": f"Property: {prop.title} (buyer ₹{float(buyer_val):,.0f}, profit ₹{float(net_profit):,.0f})",
-                })
+            seller_val = _D(prop.total_seller_value)
+            if buyer_val <= 0:
+                continue
+            advance_back = _D(prop.advance_paid)
+            net_profit = buyer_val - seller_val - _D(prop.broker_commission) - _D(getattr(prop, "other_expenses", None))
+            my_return = advance_back + net_profit  # advance comes back + profit
+            if my_return <= 0:
+                continue
+            inflow_items.append({
+                "source": "property", "contact": prop.title,
+                "contact_id": None, "loan_id": None,
+                "amount": float(my_return),
+                "due_date": None,
+                "label": f"Advance ₹{float(advance_back):,.0f} + Profit ₹{float(net_profit):,.0f}",
+                "confidence": "low",
+            })
 
-        # --- Beesi: remaining installments to receive / pay ---
+        # --- Beesi ---
         active_beesis = db.query(Beesi).filter(
             Beesi.is_deleted == False, Beesi.status == "active"
         ).all()
-        from dateutil.relativedelta import relativedelta
         for b in active_beesis:
             paid_months = len(b.installments)
             remaining_months = max(b.tenure_months - paid_months, 0)
-            installment_amt = _D(b.base_installment)
-
-            # Remaining installments I need to pay (outflow)
-            months_in_period = 0
+            inst = _D(b.base_installment)
             check_date = b.start_date + relativedelta(months=paid_months)
-            while check_date <= horizon and months_in_period < remaining_months:
+            for _ in range(remaining_months):
+                if check_date > horizon:
+                    break
                 if check_date >= today:
                     outflow_items.append({
-                        "source": "beesi_installment",
-                        "contact": b.title,
-                        "loan_id": None,
-                        "amount": float(installment_amt),
+                        "source": "beesi_installment", "contact": b.title,
+                        "contact_id": None, "loan_id": None,
+                        "amount": float(inst),
                         "due_date": check_date.isoformat(),
-                        "label": f"Beesi installment: {b.title}",
+                        "label": f"Beesi: {b.title}",
+                        "confidence": "medium",
                     })
-                months_in_period += 1
                 check_date += relativedelta(months=1)
 
-            # If not yet withdrawn, entire pot is withdrawable
+            # Beesi pot: show NET inflow (pot minus remaining installments), not gross pot
             if not b.withdrawals:
                 pot = _D(b.pot_size)
-                total_paid_so_far = sum(_D(i.actual_paid) for i in b.installments)
-                remaining_to_pay = installment_amt * remaining_months
-                net_if_withdraw = pot - total_paid_so_far - remaining_to_pay
-                inflow_items.append({
-                    "source": "beesi",
-                    "contact": b.title,
-                    "loan_id": None,
-                    "amount": float(pot),
-                    "due_date": None,
-                    "label": f"Beesi pot: {b.title} (withdrawable ₹{float(pot):,.0f}, net ₹{float(net_if_withdraw):,.0f})",
-                })
+                total_paid = sum(_D(i.actual_paid) for i in b.installments)
+                remaining_to_pay = inst * remaining_months
+                net_return = pot - remaining_to_pay  # what I get after paying all installments
+                if net_return > 0:
+                    inflow_items.append({
+                        "source": "beesi", "contact": b.title,
+                        "contact_id": None, "loan_id": None,
+                        "amount": float(net_return),
+                        "due_date": None,
+                        "label": f"Net after installments (pot ₹{float(pot):,.0f})",
+                        "confidence": "low",
+                    })
 
         # --- Money Flow Obligations ---
         pending_obligations = db.query(MoneyObligation).filter(
@@ -733,56 +701,68 @@ def analytics_forecast(
             contact = None
             if obl.contact_id:
                 contact = db.query(Contact).filter(Contact.id == obl.contact_id).first()
-            contact_name = contact.name if contact else "Self (You)"
+            cname = contact.name if contact else "Self (You)"
 
+            item = {
+                "contact": cname,
+                "contact_id": obl.contact_id,
+                "loan_id": None,
+                "amount": float(remaining),
+                "due_date": None,
+                "label": obl.reason or ("Receivable" if obl.obligation_type == "receivable" else "Payable"),
+                "confidence": "low",
+            }
             if obl.obligation_type == "receivable":
-                inflow_items.append({
-                    "source": "obligation_receivable",
-                    "contact": contact_name,
-                    "loan_id": None,
-                    "amount": float(remaining),
-                    "due_date": None,
-                    "label": obl.reason or "Receivable",
-                })
+                item["source"] = "obligation_receivable"
+                inflow_items.append(item)
             else:
-                outflow_items.append({
-                    "source": "obligation_payable",
-                    "contact": contact_name,
-                    "loan_id": None,
-                    "amount": float(remaining),
-                    "due_date": None,
-                    "label": obl.reason or "Payable",
-                })
+                item["source"] = "obligation_payable"
+                outflow_items.append(item)
 
-        # --- Aggregate by category ---
+        # --- Aggregate ---
         def _sum_by(items, source_prefix):
             return sum(it["amount"] for it in items if it["source"].startswith(source_prefix))
 
-        total_inflow = sum(it["amount"] for it in inflow_items)
-        total_outflow = sum(it["amount"] for it in outflow_items)
+        def _sum_conf(items, conf):
+            return sum(it["amount"] for it in items if it.get("confidence") == conf)
+
+        total_in = sum(it["amount"] for it in inflow_items)
+        total_out = sum(it["amount"] for it in outflow_items)
 
         result[period_key] = {
             "horizon_date": horizon.isoformat(),
             "inflow": {
-                "total": round(total_inflow, 2),
+                "total": round(total_in, 2),
+                "high": round(_sum_conf(inflow_items, "high"), 2),
+                "medium": round(_sum_conf(inflow_items, "medium"), 2),
+                "low": round(_sum_conf(inflow_items, "low"), 2),
                 "emi_receipts": round(_sum_by(inflow_items, "emi_"), 2),
                 "interest_receipts": round(_sum_by(inflow_items, "interest_"), 2),
                 "principal_returns": round(_sum_by(inflow_items, "principal_"), 2),
                 "property": round(_sum_by(inflow_items, "property"), 2),
                 "beesi": round(_sum_by(inflow_items, "beesi"), 2),
                 "receivables": round(_sum_by(inflow_items, "obligation_"), 2),
-                "items": sorted(inflow_items, key=lambda x: x["due_date"] or "9999-12-31"),
+                "items": sorted(inflow_items, key=lambda x: (
+                    {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
+                    x["due_date"] or "9999-12-31",
+                )),
             },
             "outflow": {
-                "total": round(total_outflow, 2),
+                "total": round(total_out, 2),
+                "high": round(_sum_conf(outflow_items, "high"), 2),
+                "medium": round(_sum_conf(outflow_items, "medium"), 2),
+                "low": round(_sum_conf(outflow_items, "low"), 2),
                 "emi_payments": round(_sum_by(outflow_items, "emi_"), 2),
                 "interest_payments": round(_sum_by(outflow_items, "interest_"), 2),
                 "principal_payments": round(_sum_by(outflow_items, "principal_"), 2),
                 "beesi_installments": round(_sum_by(outflow_items, "beesi_"), 2),
                 "payables": round(_sum_by(outflow_items, "obligation_"), 2),
-                "items": sorted(outflow_items, key=lambda x: x["due_date"] or "9999-12-31"),
+                "items": sorted(outflow_items, key=lambda x: (
+                    {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
+                    x["due_date"] or "9999-12-31",
+                )),
             },
-            "net": round(total_inflow - total_outflow, 2),
+            "net": round(total_in - total_out, 2),
         }
 
     return {"as_of_date": today.isoformat(), "periods": result}
