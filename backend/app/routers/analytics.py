@@ -430,14 +430,17 @@ def relink_to_cash_home(
 
 # ── FORECAST / CASH FLOW PROJECTION ─────────────────────────────────────────
 #
-# Confidence scoring (think like a CA):
-#   HIGH   – EMI receipts (contractual, proven track), recurring monthly interest
-#   MEDIUM – Short-term loan returns with end date, beesi installments (committed)
-#   LOW    – Property deals (timing uncertain), principal returns without end date,
-#            obligations, beesi pots (speculative)
+# CONFIDENCE SCORING (based on actual payment behavior, not just loan type):
+#   HIGH   – Borrower paid within last 30 days
+#   MEDIUM – Borrower paid within last 60 days (but not last 30)
+#   LOW    – Borrower hasn't paid in 60+ days, or never paid
+#
+# For EMI loans (taken by us, contractual obligation) — outflows stay HIGH.
+# For beesi installments — outflows stay MEDIUM (committed).
 #
 # interest_rate is stored as ANNUAL percentage.  Monthly interest = principal * rate / 100 / 12.
 # Interest is on ORIGINAL principal (loan.principal_amount), not on compounded outstanding.
+# Beesi pot withdrawal: use 85% of pot_size (realistic minimum withdrawal).
 
 @router.get("/forecast")
 def analytics_forecast(
@@ -468,10 +471,38 @@ def analytics_forecast(
             return loan.institution_name
         return f"Contact #{loan.contact_id}"
 
+    # ── helper: confidence based on ACTUAL payment behavior ──────────────
+    # Build a map: contact_id → days since last payment
+    _contact_last_payment = {}
+    for loan in loans_given:
+        cid = loan.contact_id
+        if cid is None:
+            continue
+        for p in (loan.payments or []):
+            pd_date = p.payment_date
+            if pd_date:
+                existing = _contact_last_payment.get(cid)
+                if existing is None or pd_date > existing:
+                    _contact_last_payment[cid] = pd_date
+
+    def _payment_confidence(contact_id):
+        """Confidence based on how recently this contact actually paid."""
+        last = _contact_last_payment.get(contact_id)
+        if last is None:
+            return "low"  # never paid
+        days_since = (today - last).days
+        if days_since <= 30:
+            return "high"
+        elif days_since <= 60:
+            return "medium"
+        else:
+            return "low"
+
     # ── INFLOWS: Loans Given ─────────────────────────────────────────────
     def _loan_inflow_items(loan, horizon_date):
         items = []
         name = _contact(loan)
+        conf = _payment_confidence(loan.contact_id)
 
         if loan.loan_type == "emi":
             schedule = get_emi_schedule_with_payments(loan, db)
@@ -489,7 +520,7 @@ def analytics_forecast(
                         "amount": remaining,
                         "due_date": dd.isoformat(),
                         "label": f"EMI #{entry['emi_number']}",
-                        "confidence": "high",
+                        "confidence": conf,
                     })
 
         elif loan.loan_type == "interest_only":
@@ -512,7 +543,7 @@ def analytics_forecast(
                     "amount": monthly_interest,
                     "due_date": cur.isoformat(),
                     "label": f"Monthly interest ({rate}% p.a.)",
-                    "confidence": "high",
+                    "confidence": conf,
                 })
                 cur += relativedelta(months=1)
             # Principal return only if end date exists and falls in window
@@ -523,7 +554,7 @@ def analytics_forecast(
                     "amount": float(principal),
                     "due_date": loan.expected_end_date.isoformat(),
                     "label": "Principal return (expected end date)",
-                    "confidence": "medium",
+                    "confidence": "low" if conf == "low" else "medium",
                 })
 
         elif loan.loan_type == "short_term":
@@ -536,13 +567,13 @@ def analytics_forecast(
                     "amount": float(principal),
                     "due_date": end.isoformat(),
                     "label": "Short-term loan return",
-                    "confidence": "medium",
+                    "confidence": conf if conf != "high" else "medium",
                 })
             # If no end date — skip entirely for time-bound forecast
 
         return items
 
-    # ── OUTFLOWS: Loans Taken ─────────────────────────────────────────────
+    # ── OUTFLOWS: Loans Taken (our obligations — always high confidence) ──
     def _loan_outflow_items(loan, horizon_date):
         items = []
         name = _contact(loan)
@@ -673,19 +704,17 @@ def analytics_forecast(
                     })
                 check_date += relativedelta(months=1)
 
-            # Beesi pot: show NET inflow (pot minus remaining installments), not gross pot
+            # Beesi pot withdrawal: use 85% of pot_size (realistic minimum)
             if not b.withdrawals:
                 pot = _D(b.pot_size)
-                total_paid = sum(_D(i.actual_paid) for i in b.installments)
-                remaining_to_pay = inst * remaining_months
-                net_return = pot - remaining_to_pay  # what I get after paying all installments
-                if net_return > 0:
+                withdrawal_estimate = pot * Decimal("0.85")
+                if withdrawal_estimate > 0:
                     inflow_items.append({
                         "source": "beesi", "contact": b.title,
                         "contact_id": None, "loan_id": None,
-                        "amount": float(net_return),
+                        "amount": float(withdrawal_estimate.quantize(Decimal("0.01"))),
                         "due_date": None,
-                        "label": f"Net after installments (pot ₹{float(pot):,.0f})",
+                        "label": f"~85% of pot (₹{float(pot):,.0f})",
                         "confidence": "low",
                     })
 
@@ -765,3 +794,276 @@ def analytics_forecast(
         }
 
     return {"as_of_date": today.isoformat(), "periods": result}
+
+
+# ── HISTORICAL ACTIVITY — What actually happened in the past ─────────────────
+#
+# Shows: EMIs collected, Interest collected, Loans given, Loans taken,
+#        Investments made, Returns received — all with contact drill-down.
+
+@router.get("/activity")
+def analytics_activity(
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    to_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    period: Optional[str] = Query("30_days", description="30_days|90_days|1_year|custom"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Historical money movement — what actually happened.
+    Period presets: 30_days, 90_days, 1_year, or custom with from_date/to_date.
+    """
+    today = date.today()
+
+    if period == "custom" and from_date and to_date:
+        start = date.fromisoformat(from_date)
+        end = date.fromisoformat(to_date)
+    elif period == "90_days":
+        start = today - timedelta(days=90)
+        end = today
+    elif period == "1_year":
+        start = today - timedelta(days=365)
+        end = today
+    else:  # 30_days default
+        start = today - timedelta(days=30)
+        end = today
+
+    # ── EMIs Collected (payments received on EMI loans given) ────────────
+    emi_payments = (
+        db.query(LoanPayment, Loan)
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(
+            Loan.loan_direction == "given",
+            Loan.loan_type == "emi",
+            Loan.is_deleted == False,
+            LoanPayment.payment_date >= start,
+            LoanPayment.payment_date <= end,
+        )
+        .all()
+    )
+    emis_collected = []
+    for pay, loan in emi_payments:
+        cname = loan.contact.name if loan.contact else f"Contact #{loan.contact_id}"
+        emis_collected.append({
+            "contact": cname, "contact_id": loan.contact_id, "loan_id": loan.id,
+            "amount": float(_D(pay.amount_paid)),
+            "interest_portion": float(_D(pay.allocated_to_current_interest) + _D(pay.allocated_to_overdue_interest)),
+            "principal_portion": float(_D(pay.allocated_to_principal)),
+            "date": pay.payment_date.isoformat(),
+            "payment_mode": pay.payment_mode,
+        })
+
+    # ── Interest Collected (payments on interest_only / short_term loans given) ──
+    interest_payments = (
+        db.query(LoanPayment, Loan)
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(
+            Loan.loan_direction == "given",
+            Loan.loan_type.in_(["interest_only", "short_term"]),
+            Loan.is_deleted == False,
+            LoanPayment.payment_date >= start,
+            LoanPayment.payment_date <= end,
+        )
+        .all()
+    )
+    interest_collected = []
+    for pay, loan in interest_payments:
+        cname = loan.contact.name if loan.contact else f"Contact #{loan.contact_id}"
+        interest_collected.append({
+            "contact": cname, "contact_id": loan.contact_id, "loan_id": loan.id,
+            "amount": float(_D(pay.amount_paid)),
+            "interest_portion": float(_D(pay.allocated_to_current_interest) + _D(pay.allocated_to_overdue_interest)),
+            "principal_portion": float(_D(pay.allocated_to_principal)),
+            "date": pay.payment_date.isoformat(),
+            "loan_type": loan.loan_type,
+        })
+
+    # ── Loans Given (new disbursements in period) ────────────────────────
+    new_loans_given = (
+        db.query(Loan).filter(
+            Loan.loan_direction == "given",
+            Loan.is_deleted == False,
+            Loan.disbursed_date >= start,
+            Loan.disbursed_date <= end,
+        ).all()
+    )
+    loans_given_list = []
+    for loan in new_loans_given:
+        cname = loan.contact.name if loan.contact else f"Contact #{loan.contact_id}"
+        loans_given_list.append({
+            "contact": cname, "contact_id": loan.contact_id, "loan_id": loan.id,
+            "amount": float(_D(loan.principal_amount)),
+            "date": loan.disbursed_date.isoformat(),
+            "loan_type": loan.loan_type,
+            "interest_rate": float(_D(loan.interest_rate)),
+        })
+
+    # ── Loans Taken (new borrowings in period) ───────────────────────────
+    new_loans_taken = (
+        db.query(Loan).filter(
+            Loan.loan_direction == "taken",
+            Loan.is_deleted == False,
+            Loan.disbursed_date >= start,
+            Loan.disbursed_date <= end,
+        ).all()
+    )
+    loans_taken_list = []
+    for loan in new_loans_taken:
+        cname = loan.contact.name if loan.contact else (loan.institution_name or f"Contact #{loan.contact_id}")
+        loans_taken_list.append({
+            "contact": cname, "contact_id": loan.contact_id, "loan_id": loan.id,
+            "amount": float(_D(loan.principal_amount)),
+            "date": loan.disbursed_date.isoformat(),
+            "loan_type": loan.loan_type,
+            "interest_rate": float(_D(loan.interest_rate)),
+        })
+
+    # ── Payments Made (on loans taken — our outflows) ────────────────────
+    payments_made = (
+        db.query(LoanPayment, Loan)
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(
+            Loan.loan_direction == "taken",
+            Loan.is_deleted == False,
+            LoanPayment.payment_date >= start,
+            LoanPayment.payment_date <= end,
+        )
+        .all()
+    )
+    payments_made_list = []
+    for pay, loan in payments_made:
+        cname = loan.contact.name if loan.contact else (loan.institution_name or f"Contact #{loan.contact_id}")
+        payments_made_list.append({
+            "contact": cname, "contact_id": loan.contact_id, "loan_id": loan.id,
+            "amount": float(_D(pay.amount_paid)),
+            "date": pay.payment_date.isoformat(),
+            "loan_type": loan.loan_type,
+        })
+
+    # ── Property Transactions ────────────────────────────────────────────
+    prop_txns = (
+        db.query(PropertyTransaction, PropertyDeal)
+        .join(PropertyDeal, PropertyDeal.id == PropertyTransaction.property_deal_id)
+        .filter(
+            PropertyDeal.is_deleted == False,
+            PropertyTransaction.txn_date >= start,
+            PropertyTransaction.txn_date <= end,
+        )
+        .all()
+    )
+    property_activity = []
+    for txn, prop in prop_txns:
+        property_activity.append({
+            "property": prop.title, "property_id": prop.id,
+            "amount": float(_D(txn.amount)),
+            "date": txn.txn_date.isoformat(),
+            "txn_type": txn.txn_type,
+            "description": txn.description,
+        })
+
+    # ── Partnership Transactions ─────────────────────────────────────────
+    partner_txns = (
+        db.query(PartnershipTransaction, Partnership)
+        .join(Partnership, Partnership.id == PartnershipTransaction.partnership_id)
+        .filter(
+            Partnership.is_deleted == False,
+            PartnershipTransaction.txn_date >= start,
+            PartnershipTransaction.txn_date <= end,
+        )
+        .all()
+    )
+    partnership_activity = []
+    for txn, part in partner_txns:
+        partnership_activity.append({
+            "partnership": part.title, "partnership_id": part.id,
+            "amount": float(_D(txn.amount)),
+            "date": txn.txn_date.isoformat(),
+            "txn_type": txn.txn_type,
+            "description": txn.description,
+        })
+
+    # ── Beesi Activity ───────────────────────────────────────────────────
+    beesi_installments = (
+        db.query(BeesiInstallment, Beesi)
+        .join(Beesi, Beesi.id == BeesiInstallment.beesi_id)
+        .filter(
+            Beesi.is_deleted == False,
+            BeesiInstallment.payment_date >= start,
+            BeesiInstallment.payment_date <= end,
+        )
+        .all()
+    )
+    beesi_activity = []
+    for inst, b in beesi_installments:
+        beesi_activity.append({
+            "beesi": b.title, "beesi_id": b.id,
+            "amount": float(_D(inst.actual_paid)),
+            "date": inst.payment_date.isoformat(),
+            "month_number": inst.month_number,
+        })
+
+    # ── Aggregate summaries ──────────────────────────────────────────────
+    def _group_by_contact(items):
+        groups = {}
+        for it in items:
+            key = it.get("contact") or it.get("property") or it.get("partnership") or it.get("beesi") or "Unknown"
+            if key not in groups:
+                groups[key] = {"contact": key, "contact_id": it.get("contact_id"), "total": 0, "count": 0, "items": []}
+            groups[key]["total"] += it["amount"]
+            groups[key]["count"] += 1
+            groups[key]["items"].append(it)
+        return sorted(groups.values(), key=lambda g: g["total"], reverse=True)
+
+    return {
+        "period": {"from": start.isoformat(), "to": end.isoformat(), "preset": period},
+        "summary": {
+            "emis_collected": round(sum(e["amount"] for e in emis_collected), 2),
+            "interest_collected": round(sum(e["amount"] for e in interest_collected), 2),
+            "total_collected": round(sum(e["amount"] for e in emis_collected) + sum(e["amount"] for e in interest_collected), 2),
+            "loans_given": round(sum(e["amount"] for e in loans_given_list), 2),
+            "loans_taken": round(sum(e["amount"] for e in loans_taken_list), 2),
+            "payments_made": round(sum(e["amount"] for e in payments_made_list), 2),
+            "property_invested": round(sum(t["amount"] for t in property_activity if t["txn_type"] in ("advance_to_seller", "payment_to_seller", "commission_paid", "expense", "other")), 2),
+            "property_received": round(sum(t["amount"] for t in property_activity if t["txn_type"] in ("received_from_buyer", "sale_proceeds", "refund")), 2),
+            "partnership_invested": round(sum(t["amount"] for t in partnership_activity if t["txn_type"] in ("invested", "expense")), 2),
+            "partnership_received": round(sum(t["amount"] for t in partnership_activity if t["txn_type"] in ("received", "profit_distributed")), 2),
+            "beesi_paid": round(sum(b["amount"] for b in beesi_activity), 2),
+        },
+        "sections": {
+            "emis_collected": {
+                "total": round(sum(e["amount"] for e in emis_collected), 2),
+                "count": len(emis_collected),
+                "by_contact": _group_by_contact(emis_collected),
+            },
+            "interest_collected": {
+                "total": round(sum(e["amount"] for e in interest_collected), 2),
+                "count": len(interest_collected),
+                "by_contact": _group_by_contact(interest_collected),
+            },
+            "loans_given": {
+                "total": round(sum(e["amount"] for e in loans_given_list), 2),
+                "count": len(loans_given_list),
+                "by_contact": _group_by_contact(loans_given_list),
+            },
+            "loans_taken": {
+                "total": round(sum(e["amount"] for e in loans_taken_list), 2),
+                "count": len(loans_taken_list),
+                "by_contact": _group_by_contact(loans_taken_list),
+            },
+            "payments_made": {
+                "total": round(sum(e["amount"] for e in payments_made_list), 2),
+                "count": len(payments_made_list),
+                "by_contact": _group_by_contact(payments_made_list),
+            },
+            "property": {
+                "items": property_activity,
+            },
+            "partnerships": {
+                "items": partnership_activity,
+            },
+            "beesi": {
+                "total": round(sum(b["amount"] for b in beesi_activity), 2),
+                "items": beesi_activity,
+            },
+        },
+    }

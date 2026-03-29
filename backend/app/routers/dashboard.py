@@ -59,9 +59,10 @@ def _loan_monthly_expected(loan: Loan) -> Decimal:
     if loan.loan_type == "emi" and loan.emi_amount:
         return _decimal(loan.emi_amount)
     if loan.loan_type == "interest_only":
-        return (principal * rate) / Decimal("100")
+        # interest_rate is ANNUAL — divide by 12 for monthly
+        return (principal * rate) / Decimal("100") / Decimal("12")
     if loan.loan_type == "short_term" and loan.post_due_interest_rate:
-        return (principal * _decimal(loan.post_due_interest_rate)) / Decimal("100")
+        return (principal * _decimal(loan.post_due_interest_rate)) / Decimal("100") / Decimal("12")
     return Decimal("0")
 
 
@@ -387,7 +388,8 @@ def get_this_month_stats(
             if loan.loan_type == "emi" and loan.emi_amount:
                 emis_expected += _decimal(loan.emi_amount)
             elif loan.loan_type == "interest_only" and loan.interest_rate:
-                interest_expected += (_decimal(loan.principal_amount) * _decimal(loan.interest_rate)) / Decimal("100")
+                # interest_rate is ANNUAL — divide by 12 for monthly
+                interest_expected += (_decimal(loan.principal_amount) * _decimal(loan.interest_rate)) / Decimal("100") / Decimal("12")
             outstanding = calculate_outstanding(loan.id, today, db)
             overdue_interest += _decimal(outstanding.get("interest_outstanding"))
         except Exception:
