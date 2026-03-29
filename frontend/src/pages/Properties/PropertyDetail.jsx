@@ -464,13 +464,15 @@ export default function PropertyDetail() {
                       )}
                     </div>
                   </div>
-                  {(displaySettlementSummary.other_expenses > 0) && (
+                  {displaySettlementSummary.other_expenses > 0 && (
                     <div className="bg-orange-50 rounded-lg p-3">
                       <div className="text-xs text-orange-600 font-medium mb-0.5">
                         Other Expenses
                       </div>
                       <div className="font-bold text-orange-800 text-base">
-                        {formatCurrency(displaySettlementSummary.other_expenses)}
+                        {formatCurrency(
+                          displaySettlementSummary.other_expenses,
+                        )}
                       </div>
                     </div>
                   )}

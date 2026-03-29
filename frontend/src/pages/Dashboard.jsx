@@ -653,10 +653,10 @@ export default function Dashboard() {
                     <th className="pb-2 text-right text-gray-500 font-medium">
                       Payments Made
                     </th>
-                    <th className="pb-2 text-right text-gray-500 font-medium">
+                    <th className="pb-2 pr-4 text-right text-gray-500 font-medium">
                       Avg Repayment Rate
                     </th>
-                    <th className="pb-2 text-gray-500 font-medium">
+                    <th className="pb-2 pl-4 text-gray-500 font-medium">
                       Last Payment
                     </th>
                     <th className="pb-2 text-center text-gray-500 font-medium">
@@ -685,10 +685,10 @@ export default function Dashboard() {
                       <td className="py-2 text-right text-gray-600">
                         {row.total_payments_made}
                       </td>
-                      <td className="py-2 text-right text-gray-600">
+                      <td className="py-2 pr-4 text-right text-gray-600">
                         {row.avg_payment_rate_pct}%
                       </td>
-                      <td className="py-2 text-gray-600">
+                      <td className="py-2 pl-4 text-gray-600">
                         {row.last_payment_date
                           ? formatDate(row.last_payment_date)
                           : "Never"}

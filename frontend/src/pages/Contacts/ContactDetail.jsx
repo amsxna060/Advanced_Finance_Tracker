@@ -460,25 +460,33 @@ export default function ContactDetail() {
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-gray-500 text-xs mb-1">Active Loans</p>
+                        <p className="text-gray-500 text-xs mb-1">
+                          Active Loans
+                        </p>
                         <p className="font-semibold text-gray-900">
                           {row.active_loans}
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-gray-500 text-xs mb-1">Total Principal</p>
+                        <p className="text-gray-500 text-xs mb-1">
+                          Total Principal
+                        </p>
                         <p className="font-semibold text-gray-900">
                           {formatCurrency(row.total_principal)}
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-gray-500 text-xs mb-1">Total Payments Made</p>
+                        <p className="text-gray-500 text-xs mb-1">
+                          Total Payments Made
+                        </p>
                         <p className="font-semibold text-gray-900">
                           {row.total_payments_made}
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-gray-500 text-xs mb-1">Last Payment</p>
+                        <p className="text-gray-500 text-xs mb-1">
+                          Last Payment
+                        </p>
                         <p className="font-semibold text-gray-900">
                           {row.last_payment_date
                             ? formatDate(row.last_payment_date)

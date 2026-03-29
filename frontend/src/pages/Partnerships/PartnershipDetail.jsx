@@ -576,7 +576,9 @@ export default function PartnershipDetail() {
                     if (!showTxnForm && linkedProperty?.total_buyer_value) {
                       setTxnForm((p) => ({
                         ...p,
-                        amount: String(parseFloat(linkedProperty.total_buyer_value)),
+                        amount: String(
+                          parseFloat(linkedProperty.total_buyer_value),
+                        ),
                       }));
                     }
                   }}

@@ -436,9 +436,8 @@ def relink_to_cash_home(
 #   LOW    – Property deals (timing uncertain), principal returns without end date,
 #            obligations, beesi pots (speculative)
 #
-# Interest is always on ORIGINAL principal (loan.principal_amount), not on
-# compounded/capitalized outstanding — because the borrower pays interest on the
-# original amount each month regardless of capitalization in our books.
+# interest_rate is stored as ANNUAL percentage.  Monthly interest = principal * rate / 100 / 12.
+# Interest is on ORIGINAL principal (loan.principal_amount), not on compounded outstanding.
 
 @router.get("/forecast")
 def analytics_forecast(
@@ -497,9 +496,9 @@ def analytics_forecast(
             rate = _D(loan.interest_rate)
             if rate <= 0:
                 return items
-            # Use ORIGINAL principal for monthly interest projection
+            # interest_rate is ANNUAL — divide by 12 for monthly projection
             principal = _D(loan.principal_amount)
-            monthly_interest = float((principal * rate / Decimal("100")).quantize(Decimal("0.01")))
+            monthly_interest = float((principal * rate / Decimal("100") / Decimal("12")).quantize(Decimal("0.01")))
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
@@ -512,7 +511,7 @@ def analytics_forecast(
                     "contact_id": loan.contact_id, "loan_id": loan.id,
                     "amount": monthly_interest,
                     "due_date": cur.isoformat(),
-                    "label": f"Monthly interest ({rate}%)",
+                    "label": f"Monthly interest ({rate}% p.a.)",
                     "confidence": "high",
                 })
                 cur += relativedelta(months=1)
@@ -571,9 +570,9 @@ def analytics_forecast(
             rate = _D(loan.interest_rate)
             if rate <= 0:
                 return items
-            # Use ORIGINAL principal for interest projection
+            # interest_rate is ANNUAL — divide by 12 for monthly projection
             principal = _D(loan.principal_amount)
-            monthly_interest = float((principal * rate / Decimal("100")).quantize(Decimal("0.01")))
+            monthly_interest = float((principal * rate / Decimal("100") / Decimal("12")).quantize(Decimal("0.01")))
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
@@ -586,7 +585,7 @@ def analytics_forecast(
                     "contact_id": loan.contact_id, "loan_id": loan.id,
                     "amount": monthly_interest,
                     "due_date": cur.isoformat(),
-                    "label": f"Interest due ({rate}%)",
+                    "label": f"Interest due ({rate}% p.a.)",
                     "confidence": "high",
                 })
                 cur += relativedelta(months=1)

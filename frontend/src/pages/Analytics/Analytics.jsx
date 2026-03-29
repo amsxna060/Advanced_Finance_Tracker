@@ -478,9 +478,7 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
     <div className="bg-white rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">
-            30-Day Forecast
-          </h2>
+          <h2 className="text-lg font-bold text-gray-900">30-Day Forecast</h2>
           <p className="text-xs text-gray-500 mt-0.5">
             Only high-confidence items (EMIs, recurring interest)
           </p>
@@ -545,7 +543,10 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
           <p
             className={`text-[10px] mt-0.5 ${pd.net >= 0 ? "text-emerald-500" : "text-orange-500"}`}
           >
-            High: {formatCurrency(pd.inflow.high - pd.outflow.high - pd.outflow.medium)}
+            High:{" "}
+            {formatCurrency(
+              pd.inflow.high - pd.outflow.high - pd.outflow.medium,
+            )}
           </p>
         </div>
       </div>
