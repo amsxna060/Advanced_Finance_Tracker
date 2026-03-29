@@ -59,8 +59,7 @@ export default function Analytics() {
     queryKey: ["analytics-activity", activityPeriod, customFrom, customTo],
     queryFn: async () =>
       (await api.get(`/api/analytics/activity${activityParams}`)).data,
-    enabled:
-      activityPeriod !== "custom" || (!!customFrom && !!customTo),
+    enabled: activityPeriod !== "custom" || (!!customFrom && !!customTo),
   });
 
   if (isLoading) {
@@ -98,8 +97,7 @@ export default function Analytics() {
     { name: "Partner Payables", value: liabilities.partner_payables },
   ].filter((d) => d.value > 0);
 
-  const toggle = (key) =>
-    setExpandedSection((p) => (p === key ? null : key));
+  const toggle = (key) => setExpandedSection((p) => (p === key ? null : key));
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
@@ -171,7 +169,8 @@ export default function Analytics() {
                   Money Movement
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  What actually happened — collections, disbursements, investments
+                  What actually happened — collections, disbursements,
+                  investments
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -334,6 +333,63 @@ export default function Analytics() {
                 color="red"
               />
 
+              {/* Property Investments */}
+              {activity.sections.property?.total > 0 && (
+                <div className="border rounded-lg">
+                  <button
+                    onClick={() => toggle("property")}
+                    className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                      <span className="text-sm font-semibold text-gray-800">
+                        Property Investments
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {activity.sections.property.count} transaction
+                        {activity.sections.property.count !== 1 ? "s" : ""}
+                      </span>
+                      <span className="text-[10px] text-gray-400 hidden md:inline">
+                        — Advances &amp; investments in plots/sites
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-purple-700">
+                        {formatCurrency(activity.sections.property.total)}
+                      </span>
+                      <span className={`text-gray-400 text-xs transition-transform ${expandedSection === "property" ? "rotate-90" : ""}`}>
+                        ▶
+                      </span>
+                    </div>
+                  </button>
+                  {expandedSection === "property" && (
+                    <div className="border-t divide-y">
+                      {activity.sections.property.items.map((it, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center justify-between px-4 py-2 text-xs"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-gray-400 font-mono w-20">
+                              {it.date}
+                            </span>
+                            <span className="text-sm font-medium text-gray-800">
+                              {it.property}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px] uppercase">
+                              {it.txn_type?.replace(/_/g, " ")}
+                            </span>
+                          </div>
+                          <span className="font-semibold text-gray-800">
+                            {formatCurrency(it.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Beesi */}
               {activity.sections.beesi?.total > 0 && (
                 <div className="border rounded-lg">
@@ -386,11 +442,31 @@ export default function Analytics() {
         {/* ── Portfolio Overview (existing sections) ────── */}
         {/* Counts */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <CountCard label="Active Loans Given" value={counts.active_loans_given} color="green" />
-          <CountCard label="Active Loans Taken" value={counts.active_loans_taken} color="red" />
-          <CountCard label="Active Properties" value={counts.active_properties} color="purple" />
-          <CountCard label="Active Partnerships" value={counts.active_partnerships} color="orange" />
-          <CountCard label="Active Beesi" value={counts.active_beesis} color="blue" />
+          <CountCard
+            label="Active Loans Given"
+            value={counts.active_loans_given}
+            color="green"
+          />
+          <CountCard
+            label="Active Loans Taken"
+            value={counts.active_loans_taken}
+            color="red"
+          />
+          <CountCard
+            label="Active Properties"
+            value={counts.active_properties}
+            color="purple"
+          />
+          <CountCard
+            label="Active Partnerships"
+            value={counts.active_partnerships}
+            color="orange"
+          />
+          <CountCard
+            label="Active Beesi"
+            value={counts.active_beesis}
+            color="blue"
+          />
         </div>
 
         {/* Investments & Liabilities detail */}
@@ -400,22 +476,56 @@ export default function Analytics() {
               Investments Breakdown
             </h3>
             <div className="space-y-3 mb-6">
-              <DetailRow label="Loans Given (Outstanding)" value={investments.loans_given_outstanding} />
-              <DetailRow label="Interest Pending (Receivable)" value={investments.loans_given_interest_pending} sub />
-              <DetailRow label="Property Advances" value={investments.property_advances} />
-              <DetailRow label="Property Site Investments" value={investments.property_site_investments} />
-              <DetailRow label="Partnership Invested" value={investments.partnership_invested} />
-              <DetailRow label="Beesi Invested" value={investments.beesi_invested} />
+              <DetailRow
+                label="Loans Given (Outstanding)"
+                value={investments.loans_given_outstanding}
+              />
+              <DetailRow
+                label="Interest Pending (Receivable)"
+                value={investments.loans_given_interest_pending}
+                sub
+              />
+              <DetailRow
+                label="Property Advances"
+                value={investments.property_advances}
+              />
+              <DetailRow
+                label="Property Site Investments"
+                value={investments.property_site_investments}
+              />
+              <DetailRow
+                label="Partnership Invested"
+                value={investments.partnership_invested}
+              />
+              <DetailRow
+                label="Beesi Invested"
+                value={investments.beesi_invested}
+              />
               <div className="border-t pt-3">
-                <DetailRow label="Total Investments" value={investments.total} bold />
+                <DetailRow
+                  label="Total Investments"
+                  value={investments.total}
+                  bold
+                />
               </div>
             </div>
             {investmentPie.length > 0 && (
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
-                  <Pie data={investmentPie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                    {investmentPie.map((_, i) => (<Cell key={i} fill={COLORS[i % COLORS.length]} />))}
+                  <Pie
+                    data={investmentPie}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={({ name, percent }) =>
+                      `${name} ${(percent * 100).toFixed(0)}%`
+                    }
+                  >
+                    {investmentPie.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
                   </Pie>
                   <Tooltip formatter={(v) => formatCurrency(v)} />
                 </PieChart>
@@ -428,19 +538,44 @@ export default function Analytics() {
               Liabilities Breakdown
             </h3>
             <div className="space-y-3 mb-6">
-              <DetailRow label="Loans Taken (Outstanding)" value={liabilities.loans_taken_outstanding} />
-              <DetailRow label="Interest Pending (Payable)" value={liabilities.loans_taken_interest_pending} sub />
-              <DetailRow label="Partner Payables" value={liabilities.partner_payables} />
+              <DetailRow
+                label="Loans Taken (Outstanding)"
+                value={liabilities.loans_taken_outstanding}
+              />
+              <DetailRow
+                label="Interest Pending (Payable)"
+                value={liabilities.loans_taken_interest_pending}
+                sub
+              />
+              <DetailRow
+                label="Partner Payables"
+                value={liabilities.partner_payables}
+              />
               <div className="border-t pt-3">
-                <DetailRow label="Total Liabilities" value={liabilities.total} bold />
+                <DetailRow
+                  label="Total Liabilities"
+                  value={liabilities.total}
+                  bold
+                />
               </div>
             </div>
             {liabilityPie.length > 0 && (
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
-                  <Pie data={liabilityPie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                    {liabilityPie.map((_, i) => (<Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />))}
+                  <Pie
+                    data={liabilityPie}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={({ name, percent }) =>
+                      `${name} ${(percent * 100).toFixed(0)}%`
+                    }
+                  >
+                    {liabilityPie.map((_, i) => (
+                      <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />
+                    ))}
                   </Pie>
                   <Tooltip formatter={(v) => formatCurrency(v)} />
                 </PieChart>
@@ -458,8 +593,16 @@ export default function Analytics() {
             <PnlCard label="Property Profit" value={pnl.property_profit} />
             <PnlCard label="Partnership P&L" value={pnl.partnership_pnl} />
             <PnlCard label="Beesi P&L" value={pnl.beesi_pnl} />
-            <PnlCard label="Total Expenses" value={-pnl.total_expenses} negative />
-            <PnlCard label="Expenses This Month" value={-pnl.expenses_this_month} negative />
+            <PnlCard
+              label="Total Expenses"
+              value={-pnl.total_expenses}
+              negative
+            />
+            <PnlCard
+              label="Expenses This Month"
+              value={-pnl.expenses_this_month}
+              negative
+            />
           </div>
         </div>
 
@@ -481,7 +624,9 @@ export default function Analytics() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-gray-500 text-sm">No cash flow data available yet.</p>
+            <p className="text-gray-500 text-sm">
+              No cash flow data available yet.
+            </p>
           )}
         </div>
 
@@ -494,13 +639,22 @@ export default function Analytics() {
             {accounts.length > 0 ? (
               <div className="space-y-3">
                 {accounts.map((a) => (
-                  <button key={a.id} onClick={() => navigate(`/accounts/${a.id}`)}
-                    className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left">
+                  <button
+                    key={a.id}
+                    onClick={() => navigate(`/accounts/${a.id}`)}
+                    className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left"
+                  >
                     <div>
-                      <span className="text-sm font-medium text-gray-900">{a.name}</span>
-                      <span className="text-xs text-gray-500 ml-2 capitalize">{a.account_type}</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {a.name}
+                      </span>
+                      <span className="text-xs text-gray-500 ml-2 capitalize">
+                        {a.account_type}
+                      </span>
                     </div>
-                    <span className={`text-sm font-semibold ${a.balance >= 0 ? "text-green-700" : "text-red-700"}`}>
+                    <span
+                      className={`text-sm font-semibold ${a.balance >= 0 ? "text-green-700" : "text-red-700"}`}
+                    >
                       {formatCurrency(a.balance)}
                     </span>
                   </button>
@@ -508,7 +662,13 @@ export default function Analytics() {
               </div>
             ) : (
               <p className="text-gray-500 text-sm">
-                No accounts. <button onClick={() => navigate("/accounts/new")} className="text-blue-600 hover:underline">Create one</button>
+                No accounts.{" "}
+                <button
+                  onClick={() => navigate("/accounts/new")}
+                  className="text-blue-600 hover:underline"
+                >
+                  Create one
+                </button>
               </p>
             )}
           </div>
@@ -520,13 +680,22 @@ export default function Analytics() {
             {top_contacts.length > 0 ? (
               <div className="space-y-3">
                 {top_contacts.map((c, idx) => (
-                  <button key={c.id} onClick={() => navigate(`/contacts/${c.id}`)}
-                    className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left">
+                  <button
+                    key={c.id}
+                    onClick={() => navigate(`/contacts/${c.id}`)}
+                    className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left"
+                  >
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold text-gray-400 w-5">#{idx + 1}</span>
-                      <span className="text-sm font-medium text-gray-900">{c.name}</span>
+                      <span className="text-xs font-bold text-gray-400 w-5">
+                        #{idx + 1}
+                      </span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {c.name}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold text-blue-700">{formatCurrency(c.outstanding)}</span>
+                    <span className="text-sm font-semibold text-blue-700">
+                      {formatCurrency(c.outstanding)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -569,7 +738,9 @@ function ActivityCard({ label, value, color, icon }) {
         <span className="text-sm">{icon}</span>
         <p className="text-[11px] text-gray-600 font-medium">{label}</p>
       </div>
-      <p className={`text-lg font-bold mt-1 ${textStyles[color] || "text-gray-800"}`}>
+      <p
+        className={`text-lg font-bold mt-1 ${textStyles[color] || "text-gray-800"}`}
+      >
         {formatCurrency(value)}
       </p>
     </div>
@@ -588,12 +759,18 @@ function ActivitySection({
 }) {
   if (!section || section.total === 0) return null;
   const dotColors = {
-    green: "bg-green-500", emerald: "bg-emerald-500", blue: "bg-blue-500",
-    orange: "bg-orange-500", red: "bg-red-500",
+    green: "bg-green-500",
+    emerald: "bg-emerald-500",
+    blue: "bg-blue-500",
+    orange: "bg-orange-500",
+    red: "bg-red-500",
   };
   const textColors = {
-    green: "text-green-700", emerald: "text-emerald-700", blue: "text-blue-700",
-    orange: "text-orange-700", red: "text-red-700",
+    green: "text-green-700",
+    emerald: "text-emerald-700",
+    blue: "text-blue-700",
+    orange: "text-orange-700",
+    red: "text-red-700",
   };
 
   return (
@@ -603,7 +780,9 @@ function ActivitySection({
         className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
       >
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${dotColors[color] || "bg-gray-500"}`} />
+          <span
+            className={`w-2 h-2 rounded-full ${dotColors[color] || "bg-gray-500"}`}
+          />
           <span className="text-sm font-semibold text-gray-800">{title}</span>
           <span className="text-xs text-gray-500">
             {section.count} transaction{section.count !== 1 ? "s" : ""}
@@ -613,10 +792,14 @@ function ActivitySection({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-bold ${textColors[color] || "text-gray-700"}`}>
+          <span
+            className={`text-sm font-bold ${textColors[color] || "text-gray-700"}`}
+          >
             {formatCurrency(section.total)}
           </span>
-          <span className={`text-gray-400 text-xs transition-transform ${expanded ? "rotate-90" : ""}`}>
+          <span
+            className={`text-gray-400 text-xs transition-transform ${expanded ? "rotate-90" : ""}`}
+          >
             ▶
           </span>
         </div>
@@ -644,7 +827,9 @@ function ActivitySection({
                     {group.count} payment{group.count !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <span className={`text-sm font-bold ${textColors[color] || "text-gray-700"}`}>
+                <span
+                  className={`text-sm font-bold ${textColors[color] || "text-gray-700"}`}
+                >
                   {formatCurrency(group.total)}
                 </span>
               </div>
@@ -739,26 +924,53 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-          <p className="text-[11px] text-green-600 font-medium">Reliable Inflow</p>
-          <p className="text-xl font-bold text-green-800 mt-1">{formatCurrency(pd.inflow.high)}</p>
-          <p className="text-[10px] text-green-500 mt-0.5">Paid within 30 days</p>
+          <p className="text-[11px] text-green-600 font-medium">
+            Reliable Inflow
+          </p>
+          <p className="text-xl font-bold text-green-800 mt-1">
+            {formatCurrency(pd.inflow.high)}
+          </p>
+          <p className="text-[10px] text-green-500 mt-0.5">
+            Paid within 30 days
+          </p>
         </div>
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <p className="text-[11px] text-red-600 font-medium">Committed Outflow</p>
-          <p className="text-xl font-bold text-red-800 mt-1">{formatCurrency(pd.outflow.high + pd.outflow.medium)}</p>
+          <p className="text-[11px] text-red-600 font-medium">
+            Committed Outflow
+          </p>
+          <p className="text-xl font-bold text-red-800 mt-1">
+            {formatCurrency(pd.outflow.high + pd.outflow.medium)}
+          </p>
           <p className="text-[10px] text-red-500 mt-0.5">EMIs + Beesi</p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <p className="text-[11px] text-amber-600 font-medium">Possible Inflow</p>
-          <p className="text-xl font-bold text-amber-800 mt-1">{formatCurrency(pd.inflow.medium + pd.inflow.low)}</p>
-          <p className="text-[10px] text-amber-500 mt-0.5">Irregular / overdue payers</p>
-        </div>
-        <div className={`border rounded-lg p-3 ${pd.net >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-orange-50 border-orange-200"}`}>
-          <p className={`text-[11px] font-medium ${pd.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}>Net Position</p>
-          <p className={`text-xl font-bold mt-1 ${pd.net >= 0 ? "text-emerald-800" : "text-orange-800"}`}>
-            {pd.net >= 0 ? "+" : ""}{formatCurrency(pd.net)}
+          <p className="text-[11px] text-amber-600 font-medium">
+            Possible Inflow
           </p>
-          <p className={`text-[10px] mt-0.5 ${pd.net >= 0 ? "text-emerald-500" : "text-orange-500"}`}>
+          <p className="text-xl font-bold text-amber-800 mt-1">
+            {formatCurrency(pd.inflow.medium + pd.inflow.low)}
+          </p>
+          <p className="text-[10px] text-amber-500 mt-0.5">
+            Irregular / overdue payers
+          </p>
+        </div>
+        <div
+          className={`border rounded-lg p-3 ${pd.net >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-orange-50 border-orange-200"}`}
+        >
+          <p
+            className={`text-[11px] font-medium ${pd.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}
+          >
+            Net Position
+          </p>
+          <p
+            className={`text-xl font-bold mt-1 ${pd.net >= 0 ? "text-emerald-800" : "text-orange-800"}`}
+          >
+            {pd.net >= 0 ? "+" : ""}
+            {formatCurrency(pd.net)}
+          </p>
+          <p
+            className={`text-[10px] mt-0.5 ${pd.net >= 0 ? "text-emerald-500" : "text-orange-500"}`}
+          >
             All confidence levels
           </p>
         </div>
@@ -767,13 +979,28 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
       {(pd.inflow.emi_receipts > 0 || pd.inflow.interest_receipts > 0) && (
         <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600">
           {pd.inflow.emi_receipts > 0 && (
-            <span>EMI Receipts: <strong className="text-green-700">{formatCurrency(pd.inflow.emi_receipts)}</strong></span>
+            <span>
+              EMI Receipts:{" "}
+              <strong className="text-green-700">
+                {formatCurrency(pd.inflow.emi_receipts)}
+              </strong>
+            </span>
           )}
           {pd.inflow.interest_receipts > 0 && (
-            <span>Interest: <strong className="text-green-700">{formatCurrency(pd.inflow.interest_receipts)}</strong></span>
+            <span>
+              Interest:{" "}
+              <strong className="text-green-700">
+                {formatCurrency(pd.inflow.interest_receipts)}
+              </strong>
+            </span>
           )}
           {pd.inflow.principal_returns > 0 && (
-            <span>Principal: <strong className="text-teal-700">{formatCurrency(pd.inflow.principal_returns)}</strong></span>
+            <span>
+              Principal:{" "}
+              <strong className="text-teal-700">
+                {formatCurrency(pd.inflow.principal_returns)}
+              </strong>
+            </span>
           )}
         </div>
       )}
@@ -800,10 +1027,14 @@ function CountCard({ label, value, color }) {
 function DetailRow({ label, value, bold, sub }) {
   return (
     <div className={`flex justify-between ${sub ? "pl-4" : ""}`}>
-      <span className={`text-sm ${bold ? "font-semibold text-gray-900" : sub ? "text-gray-500" : "text-gray-700"}`}>
+      <span
+        className={`text-sm ${bold ? "font-semibold text-gray-900" : sub ? "text-gray-500" : "text-gray-700"}`}
+      >
         {label}
       </span>
-      <span className={`text-sm ${bold ? "font-bold text-gray-900" : "font-medium text-gray-800"}`}>
+      <span
+        className={`text-sm ${bold ? "font-bold text-gray-900" : "font-medium text-gray-800"}`}
+      >
         {formatCurrency(value)}
       </span>
     </div>
@@ -815,7 +1046,9 @@ function PnlCard({ label, value, negative }) {
   return (
     <div className="bg-gray-50 rounded-lg p-4">
       <p className="text-xs text-gray-600">{label}</p>
-      <p className={`text-xl font-bold mt-1 ${negative || isNeg ? "text-red-700" : "text-green-700"}`}>
+      <p
+        className={`text-xl font-bold mt-1 ${negative || isNeg ? "text-red-700" : "text-green-700"}`}
+      >
         {formatCurrency(Math.abs(value))}
         {isNeg && !negative ? " (Loss)" : ""}
       </p>

@@ -471,25 +471,22 @@ def analytics_forecast(
             return loan.institution_name
         return f"Contact #{loan.contact_id}"
 
-    # ── helper: confidence based on ACTUAL payment behavior ──────────────
-    # Build a map: contact_id → days since last payment
-    _contact_last_payment = {}
+    # ── helper: confidence based on ACTUAL payment behavior PER LOAN ────
+    # Build a map: loan_id → most recent payment date for THAT specific loan
+    _loan_last_payment = {}
     for loan in loans_given:
-        cid = loan.contact_id
-        if cid is None:
-            continue
         for p in (loan.payments or []):
             pd_date = p.payment_date
             if pd_date:
-                existing = _contact_last_payment.get(cid)
+                existing = _loan_last_payment.get(loan.id)
                 if existing is None or pd_date > existing:
-                    _contact_last_payment[cid] = pd_date
+                    _loan_last_payment[loan.id] = pd_date
 
-    def _payment_confidence(contact_id):
-        """Confidence based on how recently this contact actually paid."""
-        last = _contact_last_payment.get(contact_id)
+    def _payment_confidence(loan_id):
+        """Confidence based on how recently THIS LOAN received a payment."""
+        last = _loan_last_payment.get(loan_id)
         if last is None:
-            return "low"  # never paid
+            return "low"  # never paid on this loan
         days_since = (today - last).days
         if days_since <= 30:
             return "high"
@@ -502,7 +499,7 @@ def analytics_forecast(
     def _loan_inflow_items(loan, horizon_date):
         items = []
         name = _contact(loan)
-        conf = _payment_confidence(loan.contact_id)
+        conf = _payment_confidence(loan.id)
 
         if loan.loan_type == "emi":
             schedule = get_emi_schedule_with_payments(loan, db)
@@ -940,7 +937,38 @@ def analytics_activity(
             "loan_type": loan.loan_type,
         })
 
-    # ── Property Transactions ────────────────────────────────────────────
+    # ── Property Investments (advances + my_investment on deals) ──────────
+    # Include PropertyDeal.advance_paid and my_investment (the actual money invested)
+    # as well as any PropertyTransaction records within the date range.
+    property_activity = []
+
+    # 1) Advances & site investments from PropertyDeal fields
+    prop_deals = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
+    for prop in prop_deals:
+        adv = _D(prop.advance_paid)
+        inv = _D(prop.my_investment)
+        adv_date = prop.advance_date or prop.site_deal_start_date
+        # advance_paid — matches date range if advance_date falls in period
+        if adv > 0 and adv_date and start <= adv_date <= end:
+            property_activity.append({
+                "property": prop.title, "property_id": prop.id,
+                "amount": float(adv),
+                "date": adv_date.isoformat(),
+                "txn_type": "advance_given",
+                "description": f"Advance paid for {prop.title}",
+            })
+        # my_investment — use site_deal_start_date or advance_date
+        inv_date = prop.site_deal_start_date or prop.advance_date
+        if inv > 0 and inv_date and start <= inv_date <= end:
+            property_activity.append({
+                "property": prop.title, "property_id": prop.id,
+                "amount": float(inv),
+                "date": inv_date.isoformat(),
+                "txn_type": "my_investment",
+                "description": f"My investment in {prop.title}",
+            })
+
+    # 2) Explicit PropertyTransaction records (if any)
     prop_txns = (
         db.query(PropertyTransaction, PropertyDeal)
         .join(PropertyDeal, PropertyDeal.id == PropertyTransaction.property_deal_id)
@@ -951,7 +979,6 @@ def analytics_activity(
         )
         .all()
     )
-    property_activity = []
     for txn, prop in prop_txns:
         property_activity.append({
             "property": prop.title, "property_id": prop.id,
@@ -1023,7 +1050,7 @@ def analytics_activity(
             "loans_given": round(sum(e["amount"] for e in loans_given_list), 2),
             "loans_taken": round(sum(e["amount"] for e in loans_taken_list), 2),
             "payments_made": round(sum(e["amount"] for e in payments_made_list), 2),
-            "property_invested": round(sum(t["amount"] for t in property_activity if t["txn_type"] in ("advance_to_seller", "payment_to_seller", "commission_paid", "expense", "other")), 2),
+            "property_invested": round(sum(t["amount"] for t in property_activity if t["txn_type"] in ("advance_given", "my_investment", "advance_to_seller", "payment_to_seller", "commission_paid", "expense", "other")), 2),
             "property_received": round(sum(t["amount"] for t in property_activity if t["txn_type"] in ("received_from_buyer", "sale_proceeds", "refund")), 2),
             "partnership_invested": round(sum(t["amount"] for t in partnership_activity if t["txn_type"] in ("invested", "expense")), 2),
             "partnership_received": round(sum(t["amount"] for t in partnership_activity if t["txn_type"] in ("received", "profit_distributed")), 2),
@@ -1056,6 +1083,8 @@ def analytics_activity(
                 "by_contact": _group_by_contact(payments_made_list),
             },
             "property": {
+                "total": round(sum(t["amount"] for t in property_activity), 2),
+                "count": len(property_activity),
                 "items": property_activity,
             },
             "partnerships": {
