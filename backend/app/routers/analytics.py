@@ -73,12 +73,49 @@ def analytics_overview(
     # ── PARTNERSHIPS (load first — needed by property section) ──────────
     partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
 
-    # User's OWN money in partnerships (self-member contribution, not total pot)
+    # ── PROPERTIES ──────────────────────────────────────────────────────────
+    properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
+    linked_property_ids = {
+        p.linked_property_deal_id for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+    # Build partnership-id → self_member lookup for linked properties
+    _prop_to_partnership = {
+        p.linked_property_deal_id: p for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+
+    # Plot Advances (My Share): standalone → advance_paid, partnership → self contribution
+    total_property_advance = Decimal("0")
+    for prop in properties:
+        if prop.status == "cancelled" or prop.property_type == "site":
+            continue
+        if prop.id in linked_property_ids:
+            part = _prop_to_partnership.get(prop.id)
+            if part:
+                sm = db.query(PartnershipMember).filter(
+                    PartnershipMember.partnership_id == part.id,
+                    PartnershipMember.is_self == True,
+                ).first()
+                if sm:
+                    total_property_advance += _D(sm.advance_contributed)
+        else:
+            total_property_advance += _D(prop.advance_paid)
+
+    # Site Investments: max(my_investment, advance_paid) — they represent the same money
+    total_property_investment = Decimal("0")
+    for prop in properties:
+        if prop.property_type == "site" and prop.status != "cancelled":
+            total_property_investment += max(_D(prop.my_investment), _D(prop.advance_paid))
+
+    # Partnership invested — only non-property partnerships (pure business partnerships)
     total_partnership_invested = Decimal("0")
     total_partnership_received = Decimal("0")
     for p in partnerships:
         if p.status == "cancelled":
             continue
+        if p.linked_property_deal_id:
+            continue  # property-linked → already counted in plot advances
         self_member = db.query(PartnershipMember).filter(
             PartnershipMember.partnership_id == p.id,
             PartnershipMember.is_self == True,
@@ -87,7 +124,6 @@ def analytics_overview(
             total_partnership_invested += _D(self_member.advance_contributed)
             total_partnership_received += _D(self_member.total_received)
         else:
-            # No self-member record — fallback to partnership-level data
             total_partnership_invested += _D(p.our_investment)
             if p.our_share_percentage:
                 total_partnership_received += (
@@ -97,19 +133,6 @@ def analytics_overview(
                 total_partnership_received += _D(p.total_received)
     partnership_pnl = total_partnership_received - total_partnership_invested
 
-    # ── PROPERTIES ──────────────────────────────────────────────────────────
-    properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
-    # Properties linked to partnerships are already tracked through partnership;
-    # only count standalone property advances as the user's own money.
-    linked_property_ids = {
-        p.linked_property_deal_id for p in partnerships
-        if p.linked_property_deal_id and p.status != "cancelled"
-    }
-    total_property_advance = sum(
-        _D(p.advance_paid) for p in properties
-        if p.status != "cancelled" and p.id not in linked_property_ids
-    )
-    total_property_investment = sum(_D(p.my_investment) for p in properties if p.property_type == "site" and p.status != "cancelled")
     # Profit from standalone properties only; partnership-linked deal profits
     # are already captured in partnership P&L via member distributions.
     total_property_profit = sum(
@@ -117,11 +140,13 @@ def analytics_overview(
         if p.net_profit and p.status == "settled" and p.id not in linked_property_ids
     )
 
-    # Partner liabilities: money I've received that belongs to partners
+    # Partner liabilities: only count when buyer money has been received
     partner_liabilities = Decimal("0")
     for p in partnerships:
         if p.status == "cancelled":
             continue
+        if _D(p.total_received) <= 0:
+            continue  # no buyer money received yet — no liability
         members = db.query(PartnershipMember).filter(
             PartnershipMember.partnership_id == p.id,
             PartnershipMember.is_self == False,
@@ -129,7 +154,7 @@ def analytics_overview(
         for m in members:
             owed = _D(m.advance_contributed) + (
                 _D(p.total_received) * _D(m.share_percentage) / Decimal("100")
-                if p.status == "settled" and m.share_percentage else Decimal("0")
+                if m.share_percentage else Decimal("0")
             )
             paid_out = _D(m.total_received)
             if owed > paid_out:
@@ -1002,56 +1027,88 @@ def analytics_activity(
             "loan_type": loan.loan_type,
         })
 
-    # ── Property Investments (advances + my_investment on deals) ──────────
-    # Include PropertyDeal.advance_paid and my_investment (the actual money invested)
-    # as well as any PropertyTransaction records within the date range.
+    # ── Property Investments (only MY money) ─────────────────────────────
     property_activity = []
-
-    # 1) Advances & site investments from PropertyDeal fields
     prop_deals = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
-    for prop in prop_deals:
-        adv = _D(prop.advance_paid)
-        inv = _D(prop.my_investment)
-        adv_date = prop.advance_date or prop.site_deal_start_date
-        # advance_paid — matches date range if advance_date falls in period
-        if adv > 0 and adv_date and start <= adv_date <= end:
-            property_activity.append({
-                "property": prop.title, "property_id": prop.id,
-                "amount": float(adv),
-                "date": adv_date.isoformat(),
-                "txn_type": "advance_given",
-                "description": f"Advance paid for {prop.title}",
-            })
-        # my_investment — use site_deal_start_date or advance_date
-        inv_date = prop.site_deal_start_date or prop.advance_date
-        if inv > 0 and inv_date and start <= inv_date <= end:
-            property_activity.append({
-                "property": prop.title, "property_id": prop.id,
-                "amount": float(inv),
-                "date": inv_date.isoformat(),
-                "txn_type": "my_investment",
-                "description": f"My investment in {prop.title}",
-            })
 
-    # 2) Explicit PropertyTransaction records (if any)
-    prop_txns = (
-        db.query(PropertyTransaction, PropertyDeal)
-        .join(PropertyDeal, PropertyDeal.id == PropertyTransaction.property_deal_id)
-        .filter(
-            PropertyDeal.is_deleted == False,
+    # Build lookup: property_id → linked partnership (for partnership-linked plots)
+    _linked_partnerships = db.query(Partnership).filter(
+        Partnership.is_deleted == False,
+        Partnership.linked_property_deal_id != None,
+        Partnership.status != "cancelled",
+    ).all()
+    _prop_to_part = {p.linked_property_deal_id: p for p in _linked_partnerships}
+    _linked_prop_ids = set(_prop_to_part.keys())
+
+    for prop in prop_deals:
+        if prop.status == "cancelled":
+            continue
+
+        # Site properties: show my investment (max of my_investment, advance_paid)
+        if prop.property_type == "site":
+            inv = max(_D(prop.my_investment), _D(prop.advance_paid))
+            inv_date = prop.site_deal_start_date or prop.advance_date
+            if inv > 0 and inv_date and start <= inv_date <= end:
+                property_activity.append({
+                    "property": prop.title, "property_id": prop.id,
+                    "amount": float(inv),
+                    "date": inv_date.isoformat(),
+                    "txn_type": "my_investment",
+                    "description": f"My investment in {prop.title}",
+                })
+            continue
+
+        # Plot properties linked to partnership: show only self-member advance
+        if prop.id in _linked_prop_ids:
+            part = _prop_to_part[prop.id]
+            sm = db.query(PartnershipMember).filter(
+                PartnershipMember.partnership_id == part.id,
+                PartnershipMember.is_self == True,
+            ).first()
+            if sm and _D(sm.advance_contributed) > 0:
+                adv_date = prop.advance_date or part.start_date
+                if adv_date and start <= adv_date <= end:
+                    property_activity.append({
+                        "property": prop.title, "property_id": prop.id,
+                        "amount": float(_D(sm.advance_contributed)),
+                        "date": adv_date.isoformat(),
+                        "txn_type": "advance_given",
+                        "description": f"My advance for {prop.title} (partnership)",
+                    })
+            continue
+
+        # Standalone plot: prefer PropertyTransaction records over PropertyDeal.advance_paid
+        has_txns = db.query(PropertyTransaction).filter(
+            PropertyTransaction.property_deal_id == prop.id,
             PropertyTransaction.txn_date >= start,
             PropertyTransaction.txn_date <= end,
-        )
-        .all()
-    )
-    for txn, prop in prop_txns:
-        property_activity.append({
-            "property": prop.title, "property_id": prop.id,
-            "amount": float(_D(txn.amount)),
-            "date": txn.txn_date.isoformat(),
-            "txn_type": txn.txn_type,
-            "description": txn.description,
-        })
+        ).count()
+        if has_txns > 0:
+            txns = db.query(PropertyTransaction).filter(
+                PropertyTransaction.property_deal_id == prop.id,
+                PropertyTransaction.txn_date >= start,
+                PropertyTransaction.txn_date <= end,
+            ).all()
+            for txn in txns:
+                property_activity.append({
+                    "property": prop.title, "property_id": prop.id,
+                    "amount": float(_D(txn.amount)),
+                    "date": txn.txn_date.isoformat(),
+                    "txn_type": txn.txn_type,
+                    "description": txn.description,
+                })
+        else:
+            # No transactions — fall back to advance_paid field
+            adv = _D(prop.advance_paid)
+            adv_date = prop.advance_date
+            if adv > 0 and adv_date and start <= adv_date <= end:
+                property_activity.append({
+                    "property": prop.title, "property_id": prop.id,
+                    "amount": float(adv),
+                    "date": adv_date.isoformat(),
+                    "txn_type": "advance_given",
+                    "description": f"Advance paid for {prop.title}",
+                })
 
     # ── Partnership Transactions ─────────────────────────────────────────
     partner_txns = (
