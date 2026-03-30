@@ -13,6 +13,7 @@ const defaultForm = {
   linked_type: "",
   linked_id: "",
   due_date: new Date().toISOString().split("T")[0],
+  account_id: "",
   notes: "",
 };
 
@@ -141,6 +142,7 @@ function ObligationList() {
       linked_type: form.linked_type || null,
       linked_id: form.linked_id ? parseInt(form.linked_id) : null,
       due_date: form.due_date || null,
+      account_id: form.account_id ? parseInt(form.account_id) : null,
     });
   };
 
@@ -586,6 +588,25 @@ function ObligationList() {
                       />
                     )}
                   </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Account
+                  </label>
+                  <select
+                    value={form.account_id}
+                    onChange={(e) =>
+                      setForm({ ...form, account_id: e.target.value })
+                    }
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">— No account —</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.account_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
