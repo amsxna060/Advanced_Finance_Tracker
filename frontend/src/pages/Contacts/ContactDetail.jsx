@@ -324,8 +324,13 @@ export default function ContactDetail() {
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-semibold text-gray-900">
-                          {formatCurrency(l.principal_amount)}
+                          {formatCurrency(l.current_principal ?? l.principal_amount)}
                         </div>
+                        {l.interest_outstanding > 0 && (
+                          <div className="text-xs text-orange-600 mt-0.5">
+                            +{formatCurrency(l.interest_outstanding)} interest
+                          </div>
+                        )}
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${l.status === "active" ? "bg-blue-100 text-blue-800" : l.status === "settled" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}
                         >

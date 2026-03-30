@@ -21,8 +21,8 @@ class PropertyDeal(Base):
     buyer_contact_id = Column(Integer, ForeignKey("contacts.id"))
 
     # Pricing (for middleman deals)
-    seller_rate_per_sqft = Column(Numeric(12, 2))
-    buyer_rate_per_sqft = Column(Numeric(12, 2))
+    seller_rate_per_sqft = Column(Numeric(12, 3))
+    buyer_rate_per_sqft = Column(Numeric(12, 3))
     total_seller_value = Column(Numeric(15, 2))
     total_buyer_value = Column(Numeric(15, 2))
 

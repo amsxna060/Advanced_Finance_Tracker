@@ -672,8 +672,9 @@ export default function PropertyForm() {
                         set("seller_rate_per_sqft", e.target.value)
                       }
                       className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.seller_rate_per_sqft ? "border-red-400" : "border-gray-300"}`}
-                      placeholder="e.g. 500"
+                      placeholder="e.g. 500.000"
                       min="0"
+                      step="0.001"
                     />
                     {errors.seller_rate_per_sqft && (
                       <p className="text-red-500 text-xs mt-1">

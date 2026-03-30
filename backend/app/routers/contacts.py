@@ -113,11 +113,13 @@ def get_contact(
     today = date.today()
     total_interest_due = Decimal("0")
     total_overdue = Decimal("0")
+    outstanding_map = {}
     for loan in loans_given + loans_taken:
         if loan.status != "active":
             continue
         try:
             out = calculate_outstanding(loan.id, today, db)
+            outstanding_map[loan.id] = out
             total_interest_due += Decimal(str(out.get("interest_outstanding", 0)))
             total_overdue += Decimal(str(out.get("total_outstanding", 0)))
         except Exception:
@@ -152,6 +154,8 @@ def get_contact(
                 "loan_direction": l.loan_direction,
                 "loan_type": l.loan_type,
                 "principal_amount": float(l.principal_amount),
+                "current_principal": float(outstanding_map[l.id]["principal_outstanding"]) if l.id in outstanding_map else None,
+                "interest_outstanding": float(outstanding_map[l.id]["interest_outstanding"]) if l.id in outstanding_map else None,
                 "disbursed_date": l.disbursed_date.isoformat() if l.disbursed_date else None,
                 "status": l.status,
                 "interest_rate": float(l.interest_rate) if l.interest_rate else None,
