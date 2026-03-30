@@ -196,6 +196,47 @@ def create_property(
 
     property_deal = PropertyDeal(**data, created_by=current_user.id)
     db.add(property_deal)
+    db.flush()
+
+    # Sites: auto-create advance transaction + set status to advance_given
+    if (
+        data.get("property_type") == "site"
+        and _decimal(data.get("advance_paid")) > 0
+    ):
+        adv_amount = _decimal(data["advance_paid"])
+        adv_date = data.get("advance_date") or property_deal.created_at.date()
+        # Find "Cash in Hand" account (default to id=1)
+        from app.models.cash_account import CashAccount
+        cash_account = db.query(CashAccount).filter(
+            CashAccount.name.ilike("%cash in hand%"),
+            CashAccount.is_deleted == False,
+        ).first()
+        cash_account_id = cash_account.id if cash_account else 1
+
+        adv_txn = PropertyTransaction(
+            property_deal_id=property_deal.id,
+            txn_type="advance_to_seller",
+            amount=adv_amount,
+            txn_date=adv_date,
+            account_id=cash_account_id,
+            description="Advance to seller (auto-recorded on create)",
+            created_by=current_user.id,
+        )
+        db.add(adv_txn)
+
+        auto_ledger(
+            db=db,
+            account_id=cash_account_id,
+            txn_type="debit",
+            amount=adv_amount,
+            txn_date=adv_date,
+            linked_type="property",
+            linked_id=property_deal.id,
+            description=f"Property ({property_deal.title}): advance to seller",
+            created_by=current_user.id,
+        )
+        property_deal.status = "advance_given"
+
     db.commit()
     db.refresh(property_deal)
     return property_deal

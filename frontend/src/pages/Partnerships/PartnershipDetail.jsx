@@ -48,15 +48,21 @@ export default function PartnershipDetail() {
 
   // Add transaction form
   const [showTxnForm, setShowTxnForm] = useState(false);
+  const [txnFormType, setTxnFormType] = useState("advance_given"); // advance_given | buyer_payment_received
   const [txnForm, setTxnForm] = useState({
-    txn_type: "buyer_payment_received",
+    txn_type: "advance_given",
     amount: "",
     txn_date: new Date().toISOString().split("T")[0],
     payment_mode: "cash",
     description: "",
     account_id: "1",
     received_by: "self",
+    given_by: "self", // member_id or "self"
   });
+
+  // Edit transaction
+  const [editingTxnId, setEditingTxnId] = useState(null);
+  const [editTxnForm, setEditTxnForm] = useState(null);
 
   // Standalone settle modal (only when NOT linked to property)
   const [showSettleModal, setShowSettleModal] = useState(false);
@@ -177,38 +183,125 @@ export default function PartnershipDetail() {
         queryClient.invalidateQueries({ queryKey: ["obligations"] });
         queryClient.invalidateQueries({ queryKey: ["obligations-summary"] });
       }
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
       setShowTxnForm(false);
       setTxnForm({
-        txn_type: "buyer_payment_received",
+        txn_type: "advance_given",
         amount: "",
         txn_date: new Date().toISOString().split("T")[0],
         payment_mode: "cash",
         description: "",
         account_id: "1",
         received_by: "self",
+        given_by: "self",
       });
+      setTxnFormType("advance_given");
     },
     onError: (err) =>
       alert(err?.response?.data?.detail || "Failed to add transaction"),
   });
 
   const handleAddTxn = () => {
-    const receivedByPartner = txnForm.received_by !== "self";
-    addTxnMutation.mutate({
-      txn_type: "buyer_payment_received",
-      amount: parseFloat(txnForm.amount) || 0,
-      txn_date: txnForm.txn_date,
-      payment_mode: txnForm.payment_mode,
-      description: txnForm.description?.trim() || null,
-      account_id: receivedByPartner
-        ? null
-        : txnForm.account_id
+    if (txnFormType === "advance_given") {
+      const isSelf = txnForm.given_by === "self";
+      const selfMember = members.find((m) => m.member?.is_self);
+      const memberId = isSelf
+        ? selfMember?.member?.id || null
+        : parseInt(txnForm.given_by);
+      addTxnMutation.mutate({
+        txn_type: "advance_given",
+        amount: parseFloat(txnForm.amount) || 0,
+        txn_date: txnForm.txn_date,
+        payment_mode: txnForm.payment_mode,
+        description: txnForm.description?.trim() || null,
+        account_id: isSelf && txnForm.account_id
           ? parseInt(txnForm.account_id)
           : null,
-      member_id: null,
-      received_by_member_id: receivedByPartner
-        ? parseInt(txnForm.received_by)
-        : null,
+        member_id: memberId,
+        received_by_member_id: null,
+      });
+    } else {
+      // buyer_payment_received
+      const receivedByPartner = txnForm.received_by !== "self";
+      addTxnMutation.mutate({
+        txn_type: "buyer_payment_received",
+        amount: parseFloat(txnForm.amount) || 0,
+        txn_date: txnForm.txn_date,
+        payment_mode: txnForm.payment_mode,
+        description: txnForm.description?.trim() || null,
+        account_id: receivedByPartner
+          ? null
+          : txnForm.account_id
+            ? parseInt(txnForm.account_id)
+            : null,
+        member_id: null,
+        received_by_member_id: receivedByPartner
+          ? parseInt(txnForm.received_by)
+          : null,
+      });
+    }
+  };
+
+  // Delete transaction
+  const deleteTxnMutation = useMutation({
+    mutationFn: async (txnId) => {
+      await api.delete(`/api/partnerships/${id}/transactions/${txnId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partnership", id] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    },
+    onError: (err) =>
+      alert(err?.response?.data?.detail || "Failed to delete transaction"),
+  });
+
+  // Update transaction
+  const updateTxnMutation = useMutation({
+    mutationFn: async ({ txnId, payload }) => {
+      const res = await api.put(
+        `/api/partnerships/${id}/transactions/${txnId}`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["partnership", id] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      setEditingTxnId(null);
+      setEditTxnForm(null);
+    },
+    onError: (err) =>
+      alert(err?.response?.data?.detail || "Failed to update transaction"),
+  });
+
+  const openEditTxn = (txn) => {
+    setEditingTxnId(txn.id);
+    setEditTxnForm({
+      txn_type: txn.txn_type,
+      amount: String(txn.amount),
+      txn_date: txn.txn_date,
+      payment_mode: txn.payment_mode || "cash",
+      description: txn.description || "",
+      account_id: txn.account_id ? String(txn.account_id) : "",
+      member_id: txn.member_id ? String(txn.member_id) : "",
+      received_by_member_id: txn.received_by_member_id ? String(txn.received_by_member_id) : "",
+    });
+  };
+
+  const handleUpdateTxn = () => {
+    if (!editTxnForm || !editingTxnId) return;
+    updateTxnMutation.mutate({
+      txnId: editingTxnId,
+      payload: {
+        txn_type: editTxnForm.txn_type,
+        amount: parseFloat(editTxnForm.amount) || 0,
+        txn_date: editTxnForm.txn_date,
+        payment_mode: editTxnForm.payment_mode,
+        description: editTxnForm.description?.trim() || null,
+        account_id: editTxnForm.account_id ? parseInt(editTxnForm.account_id) : null,
+        member_id: editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null,
+        received_by_member_id: editTxnForm.received_by_member_id ? parseInt(editTxnForm.received_by_member_id) : null,
+      },
     });
   };
 
@@ -573,23 +666,39 @@ export default function PartnershipDetail() {
                 <button
                   onClick={() => {
                     setShowTxnForm(!showTxnForm);
-                    if (!showTxnForm && linkedProperty?.total_buyer_value) {
-                      setTxnForm((p) => ({
-                        ...p,
-                        amount: String(
-                          parseFloat(linkedProperty.total_buyer_value),
-                        ),
-                      }));
-                    }
                   }}
                   className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm hover:bg-blue-100"
                 >
-                  + Record Buyer Payment
+                  + Add Transaction
                 </button>
               </div>
 
               {showTxnForm && (
                 <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                  {/* Transaction Type Selector */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Transaction Type
+                    </label>
+                    <select
+                      value={txnFormType}
+                      onChange={(e) => {
+                        setTxnFormType(e.target.value);
+                        setTxnForm((p) => ({
+                          ...p,
+                          txn_type: e.target.value,
+                          amount: "",
+                          given_by: "self",
+                          received_by: "self",
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    >
+                      <option value="advance_given">Advance</option>
+                      <option value="buyer_payment_received">Money Received from Buyer</option>
+                    </select>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -623,96 +732,142 @@ export default function PartnershipDetail() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Received by
-                      </label>
-                      <select
-                        value={txnForm.received_by}
-                        onChange={(e) =>
-                          setTxnForm((p) => ({
-                            ...p,
-                            received_by: e.target.value,
-                          }))
-                        }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                      >
-                        <option value="self">Self (Me)</option>
-                        {members
-                          .filter((m) => !m.member?.is_self)
-                          .map((m) => (
-                            <option
-                              key={m.member?.id}
-                              value={String(m.member?.id)}
-                            >
-                              {m.contact?.name || "Partner"}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    {txnForm.received_by === "self" ? (
+
+                  {/* Advance-specific fields */}
+                  {txnFormType === "advance_given" && (
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Deposit to Account
+                          Given by
                         </label>
                         <select
-                          value={txnForm.account_id}
+                          value={txnForm.given_by}
                           onChange={(e) =>
                             setTxnForm((p) => ({
                               ...p,
-                              account_id: e.target.value,
+                              given_by: e.target.value,
                             }))
                           }
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                         >
-                          <option value="">— Select Account —</option>
-                          {accounts.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.name}
-                            </option>
-                          ))}
+                          <option value="self">Self (Me)</option>
+                          {members
+                            .filter((m) => !m.member?.is_self)
+                            .map((m) => (
+                              <option
+                                key={m.member?.id}
+                                value={String(m.member?.id)}
+                              >
+                                {m.contact?.name || "Partner"}
+                              </option>
+                            ))}
                         </select>
                       </div>
-                    ) : (
+                      {txnForm.given_by === "self" ? (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            From Account
+                          </label>
+                          <select
+                            value={txnForm.account_id}
+                            onChange={(e) =>
+                              setTxnForm((p) => ({
+                                ...p,
+                                account_id: e.target.value,
+                              }))
+                            }
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          >
+                            <option value="">— Select Account —</option>
+                            {accounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Buyer Payment fields */}
+                  {txnFormType === "buyer_payment_received" && (
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Description
+                          Received by
                         </label>
-                        <input
-                          type="text"
-                          value={txnForm.description}
+                        <select
+                          value={txnForm.received_by}
                           onChange={(e) =>
                             setTxnForm((p) => ({
                               ...p,
-                              description: e.target.value,
+                              received_by: e.target.value,
                             }))
                           }
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                          placeholder="Optional"
-                        />
+                        >
+                          <option value="self">Self (Me)</option>
+                          {members
+                            .filter((m) => !m.member?.is_self)
+                            .map((m) => (
+                              <option
+                                key={m.member?.id}
+                                value={String(m.member?.id)}
+                              >
+                                {m.contact?.name || "Partner"}
+                              </option>
+                            ))}
+                        </select>
                       </div>
-                    )}
-                  </div>
-                  {txnForm.received_by === "self" && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Description
-                      </label>
-                      <input
-                        type="text"
-                        value={txnForm.description}
-                        onChange={(e) =>
-                          setTxnForm((p) => ({
-                            ...p,
-                            description: e.target.value,
-                          }))
-                        }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                        placeholder="Optional"
-                      />
+                      {txnForm.received_by === "self" ? (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Deposit to Account
+                          </label>
+                          <select
+                            value={txnForm.account_id}
+                            onChange={(e) =>
+                              setTxnForm((p) => ({
+                                ...p,
+                                account_id: e.target.value,
+                              }))
+                            }
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          >
+                            <option value="">— Select Account —</option>
+                            {accounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div />
+                      )}
                     </div>
                   )}
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Description
+                    </label>
+                    <input
+                      type="text"
+                      value={txnForm.description}
+                      onChange={(e) =>
+                        setTxnForm((p) => ({
+                          ...p,
+                          description: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="Optional"
+                    />
+                  </div>
                   <div className="flex gap-2 justify-end">
                     <button
                       onClick={() => setShowTxnForm(false)}
@@ -736,45 +891,136 @@ export default function PartnershipDetail() {
                   {data.transactions.map((txn) => (
                     <div
                       key={txn.id}
-                      className="flex justify-between items-start py-2 border-b border-gray-100 last:border-0"
+                      className="py-2 border-b border-gray-100 last:border-0"
                     >
-                      <div>
-                        <p className="text-sm font-medium text-gray-800 capitalize">
-                          {txn.txn_type.replace(/_/g, " ")}
-                        </p>
-                        {txn.txn_type === "buyer_payment_received" &&
-                          txn.received_by_member_id && (
-                            <p className="text-xs text-amber-600">
-                              Received by:{" "}
-                              {members.find(
-                                (m) =>
-                                  m.member?.id === txn.received_by_member_id,
-                              )?.contact?.name || "Partner"}{" "}
-                              — obligation created
+                      {editingTxnId === txn.id && editTxnForm ? (
+                        /* ── Inline Edit Form ── */
+                        <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 space-y-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-0.5">Amount</label>
+                              <input
+                                type="number"
+                                value={editTxnForm.amount}
+                                onChange={(e) => setEditTxnForm((p) => ({ ...p, amount: e.target.value }))}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-0.5">Date</label>
+                              <input
+                                type="date"
+                                value={editTxnForm.txn_date}
+                                onChange={(e) => setEditTxnForm((p) => ({ ...p, txn_date: e.target.value }))}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-0.5">Account</label>
+                              <select
+                                value={editTxnForm.account_id}
+                                onChange={(e) => setEditTxnForm((p) => ({ ...p, account_id: e.target.value }))}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                              >
+                                <option value="">None</option>
+                                {accounts.map((a) => (
+                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-0.5">Description</label>
+                            <input
+                              type="text"
+                              value={editTxnForm.description}
+                              onChange={(e) => setEditTxnForm((p) => ({ ...p, description: e.target.value }))}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                            />
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }}
+                              className="px-2 py-1 border border-gray-300 rounded text-xs text-gray-600"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={handleUpdateTxn}
+                              disabled={updateTxnMutation.isPending}
+                              className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {updateTxnMutation.isPending ? "Saving..." : "Update"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* ── Normal Display ── */
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800 capitalize">
+                              {txn.txn_type.replace(/_/g, " ")}
                             </p>
-                          )}
-                        {txn.txn_type === "buyer_payment_received" &&
-                          !txn.received_by_member_id && (
-                            <p className="text-xs text-green-600">
-                              Received by you — see{" "}
-                              <Link to="/obligations" className="underline">
-                                Money Flow
-                              </Link>{" "}
-                              for distribution
+                            {txn.txn_type === "advance_given" && txn.member_id && (
+                              <p className="text-xs text-blue-600">
+                                Given by:{" "}
+                                {members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
+                                  ? "Self"
+                                  : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner"}
+                              </p>
+                            )}
+                            {txn.txn_type === "buyer_payment_received" &&
+                              txn.received_by_member_id && (
+                                <p className="text-xs text-amber-600">
+                                  Received by:{" "}
+                                  {members.find(
+                                    (m) =>
+                                      m.member?.id === txn.received_by_member_id,
+                                  )?.contact?.name || "Partner"}{" "}
+                                  — obligation created
+                                </p>
+                              )}
+                            {txn.txn_type === "buyer_payment_received" &&
+                              !txn.received_by_member_id && (
+                                <p className="text-xs text-green-600">
+                                  Received by you — see{" "}
+                                  <Link to="/obligations" className="underline">
+                                    Money Flow
+                                  </Link>{" "}
+                                  for distribution
+                                </p>
+                              )}
+                            {txn.description && (
+                              <p className="text-xs text-gray-400">
+                                {txn.description}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-400">
+                              {formatDate(txn.txn_date)}
                             </p>
-                          )}
-                        {txn.description && (
-                          <p className="text-xs text-gray-400">
-                            {txn.description}
-                          </p>
-                        )}
-                        <p className="text-xs text-gray-400">
-                          {formatDate(txn.txn_date)}
-                        </p>
-                      </div>
-                      <span className="text-sm font-semibold">
-                        {formatCurrency(txn.amount)}
-                      </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold">
+                              {formatCurrency(txn.amount)}
+                            </span>
+                            <button
+                              onClick={() => openEditTxn(txn)}
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm("Delete this transaction? This will reverse all linked entries."))
+                                  deleteTxnMutation.mutate(txn.id);
+                              }}
+                              className="text-xs text-red-600 hover:underline"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
