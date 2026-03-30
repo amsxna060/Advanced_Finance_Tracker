@@ -646,14 +646,44 @@ export default function PropertyDetail() {
                         : null
                     }
                   />
-                  <InfoRow
-                    label="My Investment"
-                    value={
-                      property.my_investment
-                        ? formatCurrency(property.my_investment)
-                        : null
-                    }
-                  />
+                  {/* My Investment with per-account breakdown */}
+                  <div className="py-2 border-b border-gray-100 last:border-0">
+                    <div className="flex justify-between items-start">
+                      <span className="text-sm text-gray-500">My Investment</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {property.my_investment ? formatCurrency(property.my_investment) : "—"}
+                      </span>
+                    </div>
+                    {/* Per-account breakdown */}
+                    {(() => {
+                      const advTxns = transactions.filter(t => t.txn_type === "advance_to_seller");
+                      if (advTxns.length === 0) return null;
+                      // Group by account_id
+                      const byAccount = {};
+                      for (const t of advTxns) {
+                        const key = t.account_id ?? "__none__";
+                        byAccount[key] = (byAccount[key] || 0) + parseFloat(t.amount);
+                      }
+                      const entries = Object.entries(byAccount);
+                      if (entries.length === 0) return null;
+                      return (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {entries.map(([accId, total]) => {
+                            const acct = accounts.find(a => a.id === Number(accId));
+                            const name = acct ? acct.name : (accId === "__none__" ? "Unspecified" : "Unknown");
+                            return (
+                              <span
+                                key={accId}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 border border-teal-200 text-teal-700 font-medium"
+                              >
+                                {name}: {formatCurrency(total)}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
                   <InfoRow
                     label="My Share %"
                     value={
