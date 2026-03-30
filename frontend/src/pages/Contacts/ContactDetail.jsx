@@ -323,14 +323,32 @@ export default function ContactDetail() {
                         ) : null}
                       </div>
                       <div className="text-right">
-                        <div className="text-sm font-semibold text-gray-900">
-                          {formatCurrency(l.current_principal ?? l.principal_amount)}
-                        </div>
-                        {l.interest_outstanding > 0 && (
-                          <div className="text-xs text-orange-600 mt-0.5">
-                            +{formatCurrency(l.interest_outstanding)} interest
-                          </div>
-                        )}
+                        {(() => {
+                          // For capitalized loans where interest has been rolled into principal,
+                          // show the original principal and the full true interest (including
+                          // what was capitalized). For all other loans show current outstanding principal.
+                          const capGrown = l.capitalization_enabled &&
+                            l.current_principal != null &&
+                            l.current_principal > l.principal_amount;
+                          const showPrincipal = capGrown
+                            ? l.principal_amount
+                            : (l.current_principal ?? l.principal_amount);
+                          const showInterest = capGrown
+                            ? (l.total_outstanding != null ? l.total_outstanding - l.principal_amount : null)
+                            : l.interest_outstanding;
+                          return (
+                            <>
+                              <div className="text-sm font-semibold text-gray-900">
+                                {formatCurrency(showPrincipal)}
+                              </div>
+                              {showInterest > 0 && (
+                                <div className="text-xs text-orange-600 mt-0.5">
+                                  +{formatCurrency(showInterest)} interest
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${l.status === "active" ? "bg-blue-100 text-blue-800" : l.status === "settled" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}
                         >

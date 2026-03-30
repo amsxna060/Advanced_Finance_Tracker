@@ -156,6 +156,8 @@ def get_contact(
                 "principal_amount": float(l.principal_amount),
                 "current_principal": float(outstanding_map[l.id]["principal_outstanding"]) if l.id in outstanding_map else None,
                 "interest_outstanding": float(outstanding_map[l.id]["interest_outstanding"]) if l.id in outstanding_map else None,
+                "total_outstanding": float(outstanding_map[l.id]["total_outstanding"]) if l.id in outstanding_map else None,
+                "capitalization_enabled": bool(l.capitalization_enabled),
                 "disbursed_date": l.disbursed_date.isoformat() if l.disbursed_date else None,
                 "status": l.status,
                 "interest_rate": float(l.interest_rate) if l.interest_rate else None,
