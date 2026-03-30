@@ -187,12 +187,52 @@ def update_loan(
     
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
-    
+
+    # Capture old values before mutation (to decide if ledger needs updating)
+    old_account_id = loan.account_id
+    old_principal = Decimal(str(loan.principal_amount))
+    old_disbursed_date = loan.disbursed_date
+    old_direction = loan.loan_direction
+
     # Update only provided fields
     update_data = loan_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(loan, field, value)
-    
+
+    # Re-sync disbursement ledger entry if any ledger-relevant field changed
+    ledger_fields = {"account_id", "principal_amount", "disbursed_date", "loan_direction"}
+    if ledger_fields & set(update_data.keys()):
+        # Remove old disbursement ledger entry (if one existed)
+        if old_account_id:
+            old_entry = db.query(AccountTransaction).filter(
+                AccountTransaction.linked_type == "loan",
+                AccountTransaction.linked_id == loan_id,
+                AccountTransaction.txn_type == ("debit" if old_direction == "given" else "credit"),
+                AccountTransaction.amount == old_principal,
+                AccountTransaction.txn_date == old_disbursed_date,
+            ).first()
+            if old_entry:
+                db.delete(old_entry)
+
+        # Create new disbursement ledger entry with updated values
+        if loan.account_id and loan.disbursed_date:
+            contact = db.query(Contact).filter(Contact.id == loan.contact_id).first()
+            contact_name = contact.name if contact else "Unknown"
+            direction = loan.loan_direction
+            auto_ledger(
+                db=db,
+                account_id=loan.account_id,
+                txn_type="debit" if direction == "given" else "credit",
+                amount=Decimal(str(loan.principal_amount)),
+                txn_date=loan.disbursed_date,
+                linked_type="loan",
+                linked_id=loan_id,
+                description=f"Loan {'disbursed to' if direction == 'given' else 'received from'} {contact_name}",
+                payment_mode=None,
+                contact_id=loan.contact_id,
+                created_by=current_user.id,
+            )
+
     db.commit()
     # Re-fetch with joinedload so LoanOut.contact serializes without lazy-load error
     loan = db.query(Loan).options(joinedload(Loan.contact)).filter(Loan.id == loan_id).first()
