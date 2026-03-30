@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
+import LinkedRecordSelect from "../../components/LinkedRecordSelect";
 
 const defaultForm = {
   obligation_type: "receivable",
@@ -11,7 +12,7 @@ const defaultForm = {
   reason: "",
   linked_type: "",
   linked_id: "",
-  due_date: "",
+  due_date: new Date().toISOString().split("T")[0],
   notes: "",
 };
 
@@ -549,7 +550,7 @@ function ObligationList() {
                     <select
                       value={form.linked_type}
                       onChange={(e) =>
-                        setForm({ ...form, linked_type: e.target.value })
+                        setForm({ ...form, linked_type: e.target.value, linked_id: "" })
                       }
                       className="w-full border rounded-lg px-3 py-2 text-sm"
                     >
@@ -562,17 +563,28 @@ function ObligationList() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Linked ID
+                      Linked Record
                     </label>
-                    <input
-                      type="number"
-                      value={form.linked_id}
-                      onChange={(e) =>
-                        setForm({ ...form, linked_id: e.target.value })
-                      }
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                      placeholder="ID"
-                    />
+                    {form.linked_type && form.linked_type !== "other" ? (
+                      <LinkedRecordSelect
+                        linkedType={form.linked_type}
+                        value={form.linked_id}
+                        onChange={(val) =>
+                          setForm({ ...form, linked_id: val })
+                        }
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={form.linked_id}
+                        onChange={(e) =>
+                          setForm({ ...form, linked_id: e.target.value })
+                        }
+                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        placeholder={form.linked_type === "other" ? "Reference" : "Select linked type first"}
+                        disabled={!form.linked_type}
+                      />
+                    )}
                   </div>
                 </div>
                 <div>

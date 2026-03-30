@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
+import LinkedRecordSelect from "../../components/LinkedRecordSelect";
 
 const LINKED_TYPES = [
   "",
@@ -239,7 +240,13 @@ export default function AccountDetail() {
                   <select
                     name="linked_type"
                     value={txnForm.linked_type}
-                    onChange={handleTxnChange}
+                    onChange={(e) =>
+                      setTxnForm((p) => ({
+                        ...p,
+                        linked_type: e.target.value,
+                        linked_id: "",
+                      }))
+                    }
                     className="w-full px-2 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-teal-400"
                   >
                     {LINKED_TYPES.map((m) => (
@@ -249,18 +256,18 @@ export default function AccountDetail() {
                     ))}
                   </select>
                 </div>
-                {txnForm.linked_type && (
+                {txnForm.linked_type &&
+                  txnForm.linked_type !== "manual" && (
                   <div>
                     <label className="block text-gray-600 mb-1">
-                      Linked ID
+                      Linked Record
                     </label>
-                    <input
-                      name="linked_id"
-                      type="number"
+                    <LinkedRecordSelect
+                      linkedType={txnForm.linked_type}
                       value={txnForm.linked_id}
-                      onChange={handleTxnChange}
-                      placeholder="e.g. loan ID 5"
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded focus:ring-2 focus:ring-teal-400"
+                      onChange={(val) =>
+                        setTxnForm((p) => ({ ...p, linked_id: val }))
+                      }
                     />
                   </div>
                 )}

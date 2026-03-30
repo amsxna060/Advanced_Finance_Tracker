@@ -4,6 +4,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
+import LinkedRecordSelect from "../../components/LinkedRecordSelect";
+
+const EXPENSE_CATEGORIES = [
+  "Home",
+  "Market",
+  "Grocery",
+  "Medical",
+  "Personal",
+  "Business",
+  "Travel",
+  "Education",
+  "Rent",
+  "Utilities",
+  "Insurance",
+  "Legal",
+  "Registration",
+  "Fuel",
+  "Maintenance",
+  "Food & Dining",
+  "Shopping",
+  "Entertainment",
+  "Commission",
+  "Miscellaneous",
+];
 
 const defaultForm = {
   category: "",
@@ -357,9 +381,7 @@ function ExpenseList() {
             </h2>
             <form onSubmit={submitExpense} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Category"
+                <select
                   value={form.category}
                   onChange={(event) =>
                     setForm((prev) => ({
@@ -368,7 +390,14 @@ function ExpenseList() {
                     }))
                   }
                   className="px-4 py-2 border border-gray-300 rounded-lg"
-                />
+                >
+                  <option value="">Select Category</option>
+                  {EXPENSE_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="number"
                   step="0.01"
@@ -414,6 +443,7 @@ function ExpenseList() {
                     setForm((prev) => ({
                       ...prev,
                       linked_type: event.target.value,
+                      linked_id: "",
                     }))
                   }
                   className="px-4 py-2 border border-gray-300 rounded-lg"
@@ -423,19 +453,18 @@ function ExpenseList() {
                   <option value="property">Property</option>
                   <option value="partnership">Partnership</option>
                 </select>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="Linked record ID (optional)"
-                  value={form.linked_id}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      linked_id: event.target.value,
-                    }))
-                  }
-                  className="px-4 py-2 border border-gray-300 rounded-lg"
-                />
+                {form.linked_type && form.linked_type !== "general" ? (
+                  <LinkedRecordSelect
+                    linkedType={form.linked_type}
+                    value={form.linked_id}
+                    onChange={(val) =>
+                      setForm((prev) => ({ ...prev, linked_id: val }))
+                    }
+                    className=""
+                  />
+                ) : (
+                  <div />
+                )}
               </div>
               <input
                 type="url"
