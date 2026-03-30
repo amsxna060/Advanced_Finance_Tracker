@@ -603,7 +603,7 @@ function ObligationList() {
                     <option value="">— No account —</option>
                     {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.account_name}
+                        {a.name}
                       </option>
                     ))}
                   </select>
@@ -730,7 +730,7 @@ function ObligationList() {
                       <option value="">— no ledger entry —</option>
                       {accounts.map((a) => (
                         <option key={a.id} value={a.id}>
-                          {a.account_name}
+                          {a.name}
                         </option>
                       ))}
                     </select>
