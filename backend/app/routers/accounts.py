@@ -163,6 +163,10 @@ def delete_account(
     ).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    # Delete all transactions for this account to prevent orphaned ledger entries
+    db.query(AccountTransaction).filter(
+        AccountTransaction.account_id == account_id,
+    ).delete(synchronize_session=False)
     account.is_deleted = True
     db.commit()
     return {"message": "Account deleted"}

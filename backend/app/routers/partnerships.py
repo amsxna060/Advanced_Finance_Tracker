@@ -26,7 +26,8 @@ from app.schemas.partnership import (
 )
 from app.schemas.property_deal import PropertyDealOut
 from app.schemas.loan import ContactBrief
-from app.services.auto_ledger import auto_ledger
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger
+from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/partnerships", tags=["partnerships"])
 
@@ -347,6 +348,16 @@ def delete_partnership(
     current_user: User = Depends(require_admin),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
+    # Clean up all linked AccountTransaction entries
+    reverse_all_ledger(db, "partnership", partnership_id)
+    # Delete child transactions
+    db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.partnership_id == partnership_id,
+    ).delete(synchronize_session=False)
+    # Delete child members
+    db.query(PartnershipMember).filter(
+        PartnershipMember.partnership_id == partnership_id,
+    ).delete(synchronize_session=False)
     partnership.is_deleted = True
     db.commit()
     return {"message": "Partnership deleted successfully"}
@@ -471,13 +482,42 @@ def delete_partnership_member(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    _get_partnership_or_404(partnership_id, db)
+    partnership = _get_partnership_or_404(partnership_id, db)
     member = db.query(PartnershipMember).filter(
         PartnershipMember.id == member_id,
         PartnershipMember.partnership_id == partnership_id,
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Partnership member not found")
+
+    # If self-member with advance, reverse associated transactions + ledger
+    if member.is_self and _decimal(member.advance_contributed) > 0:
+        # Delete advance transaction(s) for this member
+        adv_txns = db.query(PartnershipTransaction).filter(
+            PartnershipTransaction.partnership_id == partnership_id,
+            PartnershipTransaction.member_id == member_id,
+            PartnershipTransaction.txn_type == "advance_given",
+        ).all()
+        total_advance_reversed = Decimal("0")
+        for t in adv_txns:
+            # Reverse ledger for each advance transaction
+            if t.account_id:
+                matching = db.query(AccountTransaction).filter(
+                    AccountTransaction.linked_type == "partnership",
+                    AccountTransaction.linked_id == partnership_id,
+                    AccountTransaction.txn_type == "debit",
+                    AccountTransaction.amount == t.amount,
+                    AccountTransaction.txn_date == t.txn_date,
+                ).all()
+                for m in matching:
+                    db.delete(m)
+            total_advance_reversed += _decimal(t.amount)
+            db.delete(t)
+        # Adjust partnership investment total
+        partnership.our_investment = max(
+            _decimal(partnership.our_investment) - total_advance_reversed,
+            Decimal("0"),
+        )
 
     db.delete(member)
     db.commit()

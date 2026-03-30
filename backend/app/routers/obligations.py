@@ -23,7 +23,8 @@ from app.schemas.obligation import (
     SettlementOut,
 )
 from app.schemas.loan import ContactBrief
-from app.services.auto_ledger import auto_ledger
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger
+from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/obligations", tags=["obligations"])
 
@@ -165,6 +166,12 @@ def delete_obligation(
     ).first()
     if not ob:
         raise HTTPException(status_code=404, detail="Obligation not found")
+    # Clean up all linked AccountTransaction entries (from settlements)
+    reverse_all_ledger(db, "obligation", obligation_id)
+    # Delete child settlements
+    db.query(ObligationSettlement).filter(
+        ObligationSettlement.obligation_id == obligation_id,
+    ).delete(synchronize_session=False)
     ob.is_deleted = True
     db.commit()
     return {"message": "Obligation deleted"}
@@ -220,3 +227,52 @@ def settle_obligation(
     db.commit()
     db.refresh(settlement)
     return settlement
+
+
+@router.delete("/{obligation_id}/settlements/{settlement_id}")
+def delete_settlement(
+    obligation_id: int,
+    settlement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Delete a settlement and reverse its ledger entry."""
+    ob = db.query(MoneyObligation).filter(
+        MoneyObligation.id == obligation_id,
+        MoneyObligation.is_deleted == False,
+    ).first()
+    if not ob:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+
+    settlement = db.query(ObligationSettlement).filter(
+        ObligationSettlement.id == settlement_id,
+        ObligationSettlement.obligation_id == obligation_id,
+    ).first()
+    if not settlement:
+        raise HTTPException(status_code=404, detail="Settlement not found")
+
+    # Reverse linked ledger entry
+    if settlement.account_id:
+        txn_type = "credit" if ob.obligation_type == "receivable" else "debit"
+        matching = db.query(AccountTransaction).filter(
+            AccountTransaction.linked_type == "obligation",
+            AccountTransaction.linked_id == obligation_id,
+            AccountTransaction.txn_type == txn_type,
+            AccountTransaction.amount == settlement.amount,
+            AccountTransaction.txn_date == settlement.settlement_date,
+        ).all()
+        for m in matching:
+            db.delete(m)
+
+    # Reverse amount_settled and recalculate status
+    ob.amount_settled = max(_D(ob.amount_settled) - _D(settlement.amount), Decimal("0"))
+    if ob.amount_settled >= _D(ob.amount):
+        ob.status = "settled"
+    elif ob.amount_settled > 0:
+        ob.status = "partial"
+    else:
+        ob.status = "pending"
+
+    db.delete(settlement)
+    db.commit()
+    return {"message": "Settlement deleted"}

@@ -24,7 +24,8 @@ from app.schemas.property_deal import (
 )
 from app.schemas.loan import ContactBrief
 from app.schemas.partnership import PartnershipOut, PartnershipMemberOut
-from app.services.auto_ledger import auto_ledger
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger
+from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -258,6 +259,12 @@ def delete_property(
     current_user: User = Depends(require_admin),
 ):
     property_deal = _get_property_or_404(property_id, db)
+    # Clean up all linked AccountTransaction entries
+    reverse_all_ledger(db, "property", property_id)
+    # Delete child PropertyTransaction records
+    db.query(PropertyTransaction).filter(
+        PropertyTransaction.property_deal_id == property_id,
+    ).delete(synchronize_session=False)
     property_deal.is_deleted = True
     db.commit()
     return {"message": "Property deal deleted successfully"}
@@ -321,6 +328,50 @@ def get_property_transactions(
     return db.query(PropertyTransaction).filter(
         PropertyTransaction.property_deal_id == property_id,
     ).order_by(PropertyTransaction.txn_date.desc(), PropertyTransaction.id.desc()).all()
+
+
+@router.delete("/{property_id}/transactions/{txn_id}")
+def delete_property_transaction(
+    property_id: int,
+    txn_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Delete a property transaction and its linked ledger entry."""
+    _get_property_or_404(property_id, db)
+    txn = db.query(PropertyTransaction).filter(
+        PropertyTransaction.id == txn_id,
+        PropertyTransaction.property_deal_id == property_id,
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Reverse linked ledger entry
+    if txn.account_id:
+        is_inflow = txn.txn_type in INFLOW_TXN_TYPES
+        matching = db.query(AccountTransaction).filter(
+            AccountTransaction.linked_type == "property",
+            AccountTransaction.linked_id == property_id,
+            AccountTransaction.txn_type == ("credit" if is_inflow else "debit"),
+            AccountTransaction.amount == txn.amount,
+            AccountTransaction.txn_date == txn.txn_date,
+        ).all()
+        for m in matching:
+            db.delete(m)
+
+    # If it was an advance_to_seller, re-sync advance_paid
+    db.delete(txn)
+    db.flush()
+    if txn.txn_type == "advance_to_seller":
+        deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
+        total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
+            PropertyTransaction.property_deal_id == property_id,
+            PropertyTransaction.txn_type == "advance_to_seller",
+        ).scalar()
+        deal.advance_paid = total_advance
+
+    db.commit()
+    return {"message": "Transaction deleted"}
 
 
 @router.get("/{property_id}/profit-summary", response_model=dict)

@@ -746,6 +746,7 @@ def analytics_forecast(
 
         # --- Money Flow Obligations ---
         pending_obligations = db.query(MoneyObligation).filter(
+            MoneyObligation.is_deleted == False,
             MoneyObligation.status.in_(["pending", "partial"]),
         ).all()
         for obl in pending_obligations:

@@ -27,6 +27,7 @@ from app.dependencies import get_current_user, require_admin
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import AccountTransaction
 from app.models.user import User
+from app.services.auto_ledger import reverse_all_ledger
 
 router = APIRouter(prefix="/api/beesi", tags=["beesi"])
 
@@ -318,6 +319,13 @@ def delete_beesi(
     current_user: User = Depends(require_admin),
 ):
     beesi = _get_or_404(beesi_id, db)
+    # Clean up all linked AccountTransaction entries
+    reverse_all_ledger(db, "beesi", beesi.id)
+    # Delete child installments and withdrawals
+    for inst in list(beesi.installments):
+        db.delete(inst)
+    for w in list(beesi.withdrawals):
+        db.delete(w)
     beesi.is_deleted = True
     db.commit()
     return {"message": "Beesi deleted"}
@@ -436,9 +444,47 @@ def delete_installment(
     ).first()
     if not inst:
         raise HTTPException(status_code=404, detail="Installment not found")
+    # Reverse linked ledger entry (debit for this installment)
+    matching = db.query(AccountTransaction).filter(
+        AccountTransaction.linked_type == "beesi",
+        AccountTransaction.linked_id == beesi_id,
+        AccountTransaction.txn_type == "debit",
+        AccountTransaction.amount == inst.actual_paid,
+        AccountTransaction.txn_date == inst.payment_date,
+    ).all()
+    for m in matching:
+        db.delete(m)
     db.delete(inst)
     db.commit()
     return {"message": "Installment deleted"}
+
+
+@router.delete("/{beesi_id}/withdrawals/{withdrawal_id}", response_model=dict)
+def delete_withdrawal(
+    beesi_id: int,
+    withdrawal_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    w = db.query(BeesiWithdrawal).filter(
+        BeesiWithdrawal.id == withdrawal_id,
+        BeesiWithdrawal.beesi_id == beesi_id,
+    ).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    # Reverse linked ledger entry (credit for this withdrawal)
+    matching = db.query(AccountTransaction).filter(
+        AccountTransaction.linked_type == "beesi",
+        AccountTransaction.linked_id == beesi_id,
+        AccountTransaction.txn_type == "credit",
+        AccountTransaction.amount == w.net_received,
+        AccountTransaction.txn_date == w.withdrawal_date,
+    ).all()
+    for m in matching:
+        db.delete(m)
+    db.delete(w)
+    db.commit()
+    return {"message": "Withdrawal deleted"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

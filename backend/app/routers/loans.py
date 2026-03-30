@@ -20,7 +20,8 @@ from app.services.interest import (
     generate_monthly_interest_schedule,
 )
 from app.services.payment_allocation import allocate_payment
-from app.services.auto_ledger import auto_ledger
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger
+from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
 
@@ -204,7 +205,7 @@ def delete_loan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Soft delete a loan"""
+    """Soft delete a loan and clean up all linked ledger entries"""
     loan = db.query(Loan).filter(
         Loan.id == loan_id,
         Loan.is_deleted == False
@@ -213,6 +214,8 @@ def delete_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     
+    # Reverse all linked AccountTransaction entries (disbursement + payments)
+    reverse_all_ledger(db, "loan", loan_id)
     loan.is_deleted = True
     db.commit()
     return {"message": "Loan deleted successfully"}
@@ -338,6 +341,25 @@ def delete_payment(
     ).first()
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
+
+    # Reverse linked ledger entry
+    acct_id = payment.account_id or loan.account_id
+    if acct_id:
+        direction = loan.loan_direction
+        matching = db.query(AccountTransaction).filter(
+            AccountTransaction.linked_type == "loan",
+            AccountTransaction.linked_id == loan_id,
+            AccountTransaction.txn_type == ("credit" if direction == "given" else "debit"),
+            AccountTransaction.amount == payment.amount_paid,
+            AccountTransaction.txn_date == payment.payment_date,
+        ).all()
+        for m in matching:
+            db.delete(m)
+
+    # Re-open loan if it was auto-closed
+    if loan.status == "closed":
+        loan.status = "active"
+        loan.actual_end_date = None
 
     db.delete(payment)
     db.commit()
