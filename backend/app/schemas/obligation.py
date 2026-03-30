@@ -12,6 +12,7 @@ class ObligationCreate(BaseModel):
     linked_type: Optional[str] = None
     linked_id: Optional[int] = None
     due_date: Optional[date] = None
+    account_id: Optional[int] = None
     notes: Optional[str] = None
 
 

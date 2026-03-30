@@ -3,6 +3,7 @@ Money obligations (receivables / payables) router.
 
 Tracks who owes what, settlement progress, and linked deals.
 """
+from datetime import date as date_today
 from decimal import Decimal
 from typing import List, Optional
 
@@ -78,7 +79,7 @@ def create_obligation(
     if data.obligation_type not in ("receivable", "payable"):
         raise HTTPException(status_code=400, detail="obligation_type must be 'receivable' or 'payable'")
 
-    ob = MoneyObligation(**data.model_dump(), created_by=current_user.id)
+    ob = MoneyObligation(**data.model_dump(exclude={"account_id"}), created_by=current_user.id)
     db.add(ob)
     db.flush()  # get ob.id before ledger entry
 
@@ -91,7 +92,7 @@ def create_obligation(
             account_id=data.account_id,
             txn_type=txn_type,
             amount=_D(data.amount),
-            txn_date=data.due_date or __import__("datetime").date.today(),
+            txn_date=data.due_date or date_today.today(),
             linked_type="obligation",
             linked_id=ob.id,
             description=f"Obligation created: {data.reason or ''}".strip(),
