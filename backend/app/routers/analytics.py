@@ -70,17 +70,52 @@ def analytics_overview(
         except Exception:
             total_taken_outstanding += _D(l.principal_amount)
 
+    # ── PARTNERSHIPS (load first — needed by property section) ──────────
+    partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
+
+    # User's OWN money in partnerships (self-member contribution, not total pot)
+    total_partnership_invested = Decimal("0")
+    total_partnership_received = Decimal("0")
+    for p in partnerships:
+        if p.status == "cancelled":
+            continue
+        self_member = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == p.id,
+            PartnershipMember.is_self == True,
+        ).first()
+        if self_member:
+            total_partnership_invested += _D(self_member.advance_contributed)
+            total_partnership_received += _D(self_member.total_received)
+        else:
+            # No self-member record — fallback to partnership-level data
+            total_partnership_invested += _D(p.our_investment)
+            if p.our_share_percentage:
+                total_partnership_received += (
+                    _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
+                )
+            else:
+                total_partnership_received += _D(p.total_received)
+    partnership_pnl = total_partnership_received - total_partnership_invested
+
     # ── PROPERTIES ──────────────────────────────────────────────────────────
     properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
-    total_property_advance = sum(_D(p.advance_paid) for p in properties if p.status != "cancelled")
+    # Properties linked to partnerships are already tracked through partnership;
+    # only count standalone property advances as the user's own money.
+    linked_property_ids = {
+        p.linked_property_deal_id for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+    total_property_advance = sum(
+        _D(p.advance_paid) for p in properties
+        if p.status != "cancelled" and p.id not in linked_property_ids
+    )
     total_property_investment = sum(_D(p.my_investment) for p in properties if p.property_type == "site" and p.status != "cancelled")
-    total_property_profit = sum(_D(p.net_profit) for p in properties if p.net_profit and p.status == "settled")
-
-    # ── PARTNERSHIPS ──────────────────────────────────────────────────────
-    partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
-    total_partnership_invested = sum(_D(p.our_investment) for p in partnerships if p.status != "cancelled")
-    total_partnership_received = sum(_D(p.total_received) for p in partnerships if p.status != "cancelled")
-    partnership_pnl = total_partnership_received - total_partnership_invested
+    # Profit from standalone properties only; partnership-linked deal profits
+    # are already captured in partnership P&L via member distributions.
+    total_property_profit = sum(
+        _D(p.net_profit) for p in properties
+        if p.net_profit and p.status == "settled" and p.id not in linked_property_ids
+    )
 
     # Partner liabilities: money I've received that belongs to partners
     partner_liabilities = Decimal("0")

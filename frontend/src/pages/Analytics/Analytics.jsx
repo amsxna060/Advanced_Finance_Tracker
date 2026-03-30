@@ -86,9 +86,9 @@ export default function Analytics() {
 
   const investmentPie = [
     { name: "Loans Given", value: investments.loans_given_outstanding },
-    { name: "Property Advances", value: investments.property_advances },
+    { name: "Property Advances (Own)", value: investments.property_advances },
     { name: "Property Sites", value: investments.property_site_investments },
-    { name: "Partnership", value: investments.partnership_invested },
+    { name: "My Partnership", value: investments.partnership_invested },
     { name: "Beesi", value: investments.beesi_invested },
   ].filter((d) => d.value > 0);
 
@@ -486,7 +486,7 @@ export default function Analytics() {
                 sub
               />
               <DetailRow
-                label="Property Advances"
+                label="Property Advances (Own)"
                 value={investments.property_advances}
               />
               <DetailRow
@@ -494,7 +494,7 @@ export default function Analytics() {
                 value={investments.property_site_investments}
               />
               <DetailRow
-                label="Partnership Invested"
+                label="My Partnership Investment"
                 value={investments.partnership_invested}
               />
               <DetailRow
