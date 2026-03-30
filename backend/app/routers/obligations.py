@@ -80,6 +80,25 @@ def create_obligation(
 
     ob = MoneyObligation(**data.model_dump(), created_by=current_user.id)
     db.add(ob)
+    db.flush()  # get ob.id before ledger entry
+
+    # If account selected at creation, record the initial money movement
+    if data.account_id:
+        # receivable = I paid money out (debit); payable = I received money in (credit)
+        txn_type = "debit" if data.obligation_type == "receivable" else "credit"
+        auto_ledger(
+            db=db,
+            account_id=data.account_id,
+            txn_type=txn_type,
+            amount=_D(data.amount),
+            txn_date=data.due_date or __import__("datetime").date.today(),
+            linked_type="obligation",
+            linked_id=ob.id,
+            description=f"Obligation created: {data.reason or ''}".strip(),
+            contact_id=data.contact_id,
+            created_by=current_user.id,
+        )
+
     db.commit()
     db.refresh(ob)
     return ob
