@@ -23,6 +23,7 @@ export default function AccountForm() {
   useQuery({
     queryKey: ["account", id],
     enabled: isEdit,
+    staleTime: 0,
     queryFn: async () => {
       const res = await api.get(`/api/accounts/${id}`);
       const d = res.data;

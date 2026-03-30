@@ -138,6 +138,13 @@ export default function PropertyDetail() {
   const queryClient = useQueryClient();
 
   const [showSettleModal, setShowSettleModal] = useState(false);
+  const [showAddAdvance, setShowAddAdvance] = useState(false);
+  const [advanceForm, setAdvanceForm] = useState({
+    amount: "",
+    txn_date: new Date().toISOString().split("T")[0],
+    account_id: "",
+    description: "",
+  });
   const [settleForm, setSettleForm] = useState({
     registry_date: new Date().toISOString().split("T")[0],
     buyer_rate_per_sqft: "",
@@ -166,6 +173,43 @@ export default function PropertyDetail() {
     },
     onError: (err) => alert(err?.response?.data?.detail || "Failed to delete"),
   });
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => (await api.get("/api/accounts")).data,
+  });
+
+  const { data: transactions = [] } = useQuery({
+    queryKey: ["property-transactions", id],
+    queryFn: async () => (await api.get(`/api/properties/${id}/transactions`)).data,
+  });
+
+  const addAdvanceMutation = useMutation({
+    mutationFn: async (payload) => {
+      return api.post(`/api/properties/${id}/transactions`, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      setShowAddAdvance(false);
+      setAdvanceForm({ amount: "", txn_date: new Date().toISOString().split("T")[0], account_id: "", description: "" });
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to add advance"),
+  });
+
+  const handleAddAdvance = (e) => {
+    e.preventDefault();
+    addAdvanceMutation.mutate({
+      txn_type: "advance_to_seller",
+      amount: parseFloat(advanceForm.amount),
+      txn_date: advanceForm.txn_date,
+      account_id: advanceForm.account_id ? Number(advanceForm.account_id) : null,
+      payment_mode: "bank_transfer",
+      description: advanceForm.description || "Advance to seller",
+    });
+  };
 
   const settleMutation = useMutation({
     mutationFn: async (payload) => {
@@ -857,6 +901,120 @@ export default function PropertyDetail() {
                 )}
               </div>
             )}
+
+            {/* Property Transactions / Advance Payments */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-gray-800">
+                  Advance Payments
+                </h2>
+                {!isSettled && (
+                  <button
+                    onClick={() => setShowAddAdvance(!showAddAdvance)}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    {showAddAdvance ? "Cancel" : "+ Add Advance"}
+                  </button>
+                )}
+              </div>
+
+              {showAddAdvance && (
+                <form onSubmit={handleAddAdvance} className="mb-4 p-3 bg-gray-50 rounded-lg space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Amount (₹) *</label>
+                      <input
+                        type="number"
+                        value={advanceForm.amount}
+                        onChange={(e) => setAdvanceForm(p => ({ ...p, amount: e.target.value }))}
+                        required
+                        min="1"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        placeholder="50000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Date *</label>
+                      <input
+                        type="date"
+                        value={advanceForm.txn_date}
+                        onChange={(e) => setAdvanceForm(p => ({ ...p, txn_date: e.target.value }))}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">From Account</label>
+                    <select
+                      value={advanceForm.account_id}
+                      onChange={(e) => setAdvanceForm(p => ({ ...p, account_id: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">— Select Account —</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                    <input
+                      type="text"
+                      value={advanceForm.description}
+                      onChange={(e) => setAdvanceForm(p => ({ ...p, description: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                      placeholder="Advance to seller"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={addAdvanceMutation.isPending}
+                    className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {addAdvanceMutation.isPending ? "Adding…" : "Add Advance Payment"}
+                  </button>
+                </form>
+              )}
+
+              {(() => {
+                const advanceTxns = transactions.filter(t => t.txn_type === "advance_to_seller");
+                const totalAdvance = advanceTxns.reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                return advanceTxns.length > 0 ? (
+                  <>
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-2 text-gray-500 font-medium">Date</th>
+                          <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
+                          <th className="text-left py-2 text-gray-500 font-medium pl-3">Account</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {advanceTxns.map((t) => {
+                          const acct = accounts.find(a => a.id === t.account_id);
+                          return (
+                            <tr key={t.id} className="border-b border-gray-100">
+                              <td className="py-2 text-gray-700">{formatDate(t.txn_date)}</td>
+                              <td className="text-right py-2 font-medium text-gray-900">{formatCurrency(t.amount)}</td>
+                              <td className="py-2 text-gray-600 pl-3">{acct?.name || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="border-t border-gray-300 font-semibold">
+                          <td className="py-2">Total</td>
+                          <td className="text-right py-2 text-blue-700">{formatCurrency(totalAdvance)}</td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">No advance payments recorded yet.</p>
+                );
+              })()}
+            </div>
+
           </div>
 
           {/* Sidebar */}

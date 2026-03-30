@@ -39,6 +39,7 @@ export default function BeesiForm() {
   useQuery({
     queryKey: ["beesi", id],
     enabled: isEdit,
+    staleTime: 0,
     queryFn: async () => {
       const res = await api.get(`/api/beesi/${id}`);
       const d = res.data;

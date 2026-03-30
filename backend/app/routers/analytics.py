@@ -471,7 +471,7 @@ def analytics_forecast(
             return loan.institution_name
         return f"Contact #{loan.contact_id}"
 
-    # ── helper: confidence based on ACTUAL payment behavior PER LOAN ────
+    # ── helper: confidence based on loan type + payment behavior ────────
     # Build a map: loan_id → most recent payment date for THAT specific loan
     _loan_last_payment = {}
     for loan in loans_given:
@@ -482,24 +482,45 @@ def analytics_forecast(
                 if existing is None or pd_date > existing:
                     _loan_last_payment[loan.id] = pd_date
 
-    def _payment_confidence(loan_id):
-        """Confidence based on how recently THIS LOAN received a payment."""
+    def _interest_payment_confidence(loan_id):
+        """Confidence for interest_only loans based on payment recency."""
         last = _loan_last_payment.get(loan_id)
         if last is None:
-            return "low"  # never paid on this loan
+            return "low"            # never paid on this loan
         days_since = (today - last).days
         if days_since <= 30:
-            return "high"
+            return "high"           # paying regularly each month
         elif days_since <= 60:
-            return "medium"
+            return "medium"         # not paid in ~2 months
         else:
-            return "low"
+            return "low"            # not paid in 4+ months
+
+    def _loan_confidence(loan):
+        """Type-based confidence: short_term=HIGH, emi=HIGH,
+        interest_only=payment-history-based, beesi=LOW."""
+        if loan.loan_type == "short_term":
+            return "high"
+        if loan.loan_type == "emi":
+            return "high"
+        if loan.loan_type == "interest_only":
+            return _interest_payment_confidence(loan.id)
+        return "low"
+
+    # ── helper: remaining principal for a loan (principal − payments toward principal)
+    def _remaining_principal(loan):
+        principal = _D(loan.principal_amount)
+        paid = sum(
+            _D(p.allocated_to_principal)
+            for p in (loan.payments or [])
+            if p.allocated_to_principal
+        )
+        return max(principal - paid, Decimal("0"))
 
     # ── INFLOWS: Loans Given ─────────────────────────────────────────────
     def _loan_inflow_items(loan, horizon_date):
         items = []
         name = _contact(loan)
-        conf = _payment_confidence(loan.id)
+        conf = _loan_confidence(loan)
 
         if loan.loan_type == "emi":
             schedule = get_emi_schedule_with_payments(loan, db)
@@ -545,26 +566,30 @@ def analytics_forecast(
                 cur += relativedelta(months=1)
             # Principal return only if end date exists and falls in window
             if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
-                items.append({
-                    "source": "principal_return", "contact": name,
-                    "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": float(principal),
-                    "due_date": loan.expected_end_date.isoformat(),
-                    "label": "Principal return (expected end date)",
-                    "confidence": "low" if conf == "low" else "medium",
-                })
+                rem = _remaining_principal(loan)
+                if rem > 0:
+                    items.append({
+                        "source": "principal_return", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": float(rem),
+                        "due_date": loan.expected_end_date.isoformat(),
+                        "label": "Principal return (expected end date)",
+                        "confidence": "low" if conf == "low" else "medium",
+                    })
 
         elif loan.loan_type == "short_term":
-            principal = _D(loan.principal_amount)
+            remaining = _remaining_principal(loan)
+            if remaining <= 0:
+                return items  # fully repaid
             end = loan.expected_end_date or loan.interest_free_till
             if end and today < end <= horizon_date:
                 items.append({
                     "source": "principal_return", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": float(principal),
+                    "amount": float(remaining),
                     "due_date": end.isoformat(),
                     "label": "Short-term loan return",
-                    "confidence": conf if conf != "high" else "medium",
+                    "confidence": conf,
                 })
             # If no end date — skip entirely for time-bound forecast
 
@@ -618,23 +643,27 @@ def analytics_forecast(
                 })
                 cur += relativedelta(months=1)
             if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
-                items.append({
-                    "source": "principal_payment", "contact": name,
-                    "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": float(principal),
-                    "due_date": loan.expected_end_date.isoformat(),
-                    "label": "Principal due (expected end date)",
-                    "confidence": "medium",
-                })
+                rem = _remaining_principal(loan)
+                if rem > 0:
+                    items.append({
+                        "source": "principal_payment", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": float(rem),
+                        "due_date": loan.expected_end_date.isoformat(),
+                        "label": "Principal due (expected end date)",
+                        "confidence": "medium",
+                    })
 
         elif loan.loan_type == "short_term":
-            principal = _D(loan.principal_amount)
+            remaining = _remaining_principal(loan)
+            if remaining <= 0:
+                return items
             end = loan.expected_end_date or loan.interest_free_till
             if end and today < end <= horizon_date:
                 items.append({
                     "source": "principal_payment", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": float(principal),
+                    "amount": float(remaining),
                     "due_date": end.isoformat(),
                     "label": "Short-term loan return due",
                     "confidence": "medium",
@@ -697,7 +726,7 @@ def analytics_forecast(
                         "amount": float(inst),
                         "due_date": check_date.isoformat(),
                         "label": f"Beesi: {b.title}",
-                        "confidence": "medium",
+                        "confidence": "low",
                     })
                 check_date += relativedelta(months=1)
 

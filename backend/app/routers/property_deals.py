@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -294,6 +294,17 @@ def create_property_transaction(
             payment_mode=transaction.payment_mode,
             created_by=current_user.id,
         )
+
+    # Auto-sync advance_paid from all advance_to_seller transactions
+    if transaction.txn_type == "advance_to_seller":
+        deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
+        total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
+            PropertyTransaction.property_deal_id == property_id,
+            PropertyTransaction.txn_type == "advance_to_seller",
+        ).scalar()
+        deal.advance_paid = total_advance
+        if not deal.advance_date:
+            deal.advance_date = transaction.txn_date
 
     db.commit()
     db.refresh(transaction)
