@@ -113,6 +113,7 @@ def get_contact(
     today = date.today()
     total_interest_due = Decimal("0")
     total_overdue = Decimal("0")
+    total_principal_outstanding = Decimal("0")  # sum of current outstanding principals
     outstanding_map = {}
     for loan in loans_given + loans_taken:
         if loan.status != "active":
@@ -120,15 +121,11 @@ def get_contact(
         try:
             out = calculate_outstanding(loan.id, today, db)
             outstanding_map[loan.id] = out
-            orig = Decimal(str(loan.principal_amount))
-            tout = Decimal(str(out.get("total_outstanding", 0)))
+            pout = Decimal(str(out.get("principal_outstanding", 0)))
             iout = Decimal(str(out.get("interest_outstanding", 0)))
-            # For cap loans where outstanding exceeds original, show full true interest
-            # (including capitalized portions). For heavily-repaid loans, fall back to
-            # interest_outstanding (the capitalized portion was repaid with the principal).
-            true_interest = max(tout - orig, iout)
-            total_interest_due += true_interest
-            total_overdue += tout
+            total_principal_outstanding += pout
+            total_interest_due += iout
+            total_overdue += pout + iout
         except Exception:
             pass
 
@@ -148,6 +145,7 @@ def get_contact(
         "summary": {
             "total_lent": float(total_lent),
             "total_borrowed": float(total_borrowed),
+            "principal_outstanding": float(total_principal_outstanding),
             "active_loans_count": active_loans_count,
             "total_loans_count": len(loans_given) + len(loans_taken),
             "total_interest_due": float(total_interest_due),

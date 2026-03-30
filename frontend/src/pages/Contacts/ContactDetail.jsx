@@ -234,16 +234,25 @@ export default function ContactDetail() {
                     {formatCurrency(summary?.total_borrowed || 0)}
                   </p>
                 </div>
+                <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+                  <p className="text-sm text-teal-600 mb-1">Principal Outstanding</p>
+                  <p className="text-2xl font-bold text-teal-900">
+                    {formatCurrency(summary?.principal_outstanding || 0)}
+                  </p>
+                </div>
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                   <p className="text-sm text-orange-600 mb-1">
-                    Total Interest Accrued
+                    Interest Accrued
                   </p>
                   <p className="text-2xl font-bold text-orange-900">
                     {formatCurrency(summary?.total_interest_due || 0)}
                   </p>
                 </div>
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-sm text-red-600 mb-1">Total Outstanding</p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 col-span-2">
+                  <p className="text-sm text-red-600 mb-1">
+                    Total Outstanding
+                    <span className="text-xs text-red-400 ml-1">(Principal + Interest)</span>
+                  </p>
                   <p className="text-2xl font-bold text-red-900">
                     {formatCurrency(summary?.total_outstanding || 0)}
                   </p>
