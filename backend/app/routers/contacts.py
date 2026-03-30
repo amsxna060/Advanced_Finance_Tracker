@@ -120,8 +120,15 @@ def get_contact(
         try:
             out = calculate_outstanding(loan.id, today, db)
             outstanding_map[loan.id] = out
-            total_interest_due += Decimal(str(out.get("interest_outstanding", 0)))
-            total_overdue += Decimal(str(out.get("total_outstanding", 0)))
+            orig = Decimal(str(loan.principal_amount))
+            tout = Decimal(str(out.get("total_outstanding", 0)))
+            iout = Decimal(str(out.get("interest_outstanding", 0)))
+            # For cap loans where outstanding exceeds original, show full true interest
+            # (including capitalized portions). For heavily-repaid loans, fall back to
+            # interest_outstanding (the capitalized portion was repaid with the principal).
+            true_interest = max(tout - orig, iout)
+            total_interest_due += true_interest
+            total_overdue += tout
         except Exception:
             pass
 

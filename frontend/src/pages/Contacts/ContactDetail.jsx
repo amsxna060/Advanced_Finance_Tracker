@@ -236,7 +236,7 @@ export default function ContactDetail() {
                 </div>
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                   <p className="text-sm text-orange-600 mb-1">
-                    Interest Due (Today)
+                    Total Interest Accrued
                   </p>
                   <p className="text-2xl font-bold text-orange-900">
                     {formatCurrency(summary?.total_interest_due || 0)}
