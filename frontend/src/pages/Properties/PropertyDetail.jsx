@@ -139,6 +139,8 @@ export default function PropertyDetail() {
 
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [showAddAdvance, setShowAddAdvance] = useState(false);
+  const [editingTxnId, setEditingTxnId] = useState(null);
+  const [editTxnForm, setEditTxnForm] = useState({ amount: "", txn_date: "", account_id: "", description: "" });
   const [advanceForm, setAdvanceForm] = useState({
     amount: "",
     txn_date: new Date().toISOString().split("T")[0],
@@ -199,6 +201,30 @@ export default function PropertyDetail() {
     onError: (err) => alert(err?.response?.data?.detail || "Failed to add advance"),
   });
 
+  const deleteAdvanceMutation = useMutation({
+    mutationFn: async (txnId) => api.delete(`/api/properties/${id}/transactions/${txnId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to delete"),
+  });
+
+  const updateAdvanceMutation = useMutation({
+    mutationFn: async ({ txnId, payload }) =>
+      api.put(`/api/properties/${id}/transactions/${txnId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      setEditingTxnId(null);
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to update"),
+  });
+
   const handleAddAdvance = (e) => {
     e.preventDefault();
     addAdvanceMutation.mutate({
@@ -208,6 +234,28 @@ export default function PropertyDetail() {
       account_id: advanceForm.account_id ? Number(advanceForm.account_id) : null,
       payment_mode: "bank_transfer",
       description: advanceForm.description || "Advance to seller",
+    });
+  };
+
+  const handleStartEditTxn = (t) => {
+    setEditingTxnId(t.id);
+    setEditTxnForm({
+      amount: String(parseFloat(t.amount)),
+      txn_date: t.txn_date,
+      account_id: t.account_id ? String(t.account_id) : "",
+      description: t.description || "",
+    });
+  };
+
+  const handleSaveEditTxn = (txnId) => {
+    updateAdvanceMutation.mutate({
+      txnId,
+      payload: {
+        amount: parseFloat(editTxnForm.amount),
+        txn_date: editTxnForm.txn_date,
+        account_id: editTxnForm.account_id ? Number(editTxnForm.account_id) : null,
+        description: editTxnForm.description || null,
+      },
     });
   };
 
@@ -1018,16 +1066,91 @@ export default function PropertyDetail() {
                           <th className="text-left py-2 text-gray-500 font-medium">Date</th>
                           <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
                           <th className="text-left py-2 text-gray-500 font-medium pl-3">Account</th>
+                          {!isSettled && <th className="py-2 w-20"></th>}
                         </tr>
                       </thead>
                       <tbody>
                         {advanceTxns.map((t) => {
                           const acct = accounts.find(a => a.id === t.account_id);
+                          const isEditing = editingTxnId === t.id;
+                          if (isEditing) {
+                            return (
+                              <tr key={t.id} className="border-b border-blue-100 bg-blue-50">
+                                <td className="py-2 pr-2">
+                                  <input
+                                    type="date"
+                                    value={editTxnForm.txn_date}
+                                    onChange={(e) => setEditTxnForm(p => ({ ...p, txn_date: e.target.value }))}
+                                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
+                                  />
+                                </td>
+                                <td className="py-2 pr-2">
+                                  <input
+                                    type="number"
+                                    value={editTxnForm.amount}
+                                    onChange={(e) => setEditTxnForm(p => ({ ...p, amount: e.target.value }))}
+                                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-right focus:ring-1 focus:ring-blue-500"
+                                    min="1"
+                                  />
+                                </td>
+                                <td className="py-2 pl-3 pr-2">
+                                  <select
+                                    value={editTxnForm.account_id}
+                                    onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))}
+                                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
+                                  >
+                                    <option value="">— None —</option>
+                                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                  </select>
+                                </td>
+                                <td className="py-2 pl-2">
+                                  <div className="flex gap-1 justify-end">
+                                    <button
+                                      onClick={() => handleSaveEditTxn(t.id)}
+                                      disabled={updateAdvanceMutation.isPending}
+                                      className="px-2 py-1 text-[10px] bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingTxnId(null)}
+                                      className="px-2 py-1 text-[10px] bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
                           return (
                             <tr key={t.id} className="border-b border-gray-100">
                               <td className="py-2 text-gray-700">{formatDate(t.txn_date)}</td>
                               <td className="text-right py-2 font-medium text-gray-900">{formatCurrency(t.amount)}</td>
                               <td className="py-2 text-gray-600 pl-3">{acct?.name || "—"}</td>
+                              {!isSettled && (
+                                <td className="py-2 pl-2">
+                                  <div className="flex gap-1 justify-end">
+                                    <button
+                                      onClick={() => handleStartEditTxn(t)}
+                                      className="px-2 py-0.5 text-[10px] text-blue-600 border border-blue-200 rounded hover:bg-blue-50"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (window.confirm("Delete this advance payment?")) {
+                                          deleteAdvanceMutation.mutate(t.id);
+                                        }
+                                      }}
+                                      disabled={deleteAdvanceMutation.isPending}
+                                      className="px-2 py-0.5 text-[10px] text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                                    >
+                                      Del
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -1035,6 +1158,7 @@ export default function PropertyDetail() {
                           <td className="py-2">Total</td>
                           <td className="text-right py-2 text-blue-700">{formatCurrency(totalAdvance)}</td>
                           <td></td>
+                          {!isSettled && <td></td>}
                         </tr>
                       </tbody>
                     </table>

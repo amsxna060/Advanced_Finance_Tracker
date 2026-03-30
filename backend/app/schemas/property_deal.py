@@ -139,6 +139,14 @@ class PropertyTransactionCreate(BaseModel):
     account_id: Optional[int] = None
 
 
+class PropertyTransactionUpdate(BaseModel):
+    amount: Optional[Decimal] = None
+    txn_date: Optional[date] = None
+    account_id: Optional[int] = None
+    description: Optional[str] = None
+    payment_mode: Optional[str] = None
+
+
 class PropertySettleRequest(BaseModel):
     # For PLOT (middleman) settlement
     registry_date: Optional[date] = None

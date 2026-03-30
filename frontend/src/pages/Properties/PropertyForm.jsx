@@ -129,8 +129,6 @@ const EMPTY_FORM_PLOT = {
   seller_contact_id: "",
   seller_rate_per_sqft: "",
   total_seller_value: "",
-  advance_paid: "0",
-  advance_date: "",
   deal_locked_date: "",
   expected_registry_date: "",
   broker_name: "",
@@ -147,7 +145,6 @@ const EMPTY_FORM_SITE = {
   deal_type: "middleman",
   total_area_sqft: "",
   total_seller_value: "",
-  my_investment: "",
   my_share_percentage: "",
   site_deal_start_date: "",
   notes: "",
@@ -178,8 +175,6 @@ function normalizeForForm(property) {
     total_seller_value: property.total_seller_value
       ? String(property.total_seller_value)
       : "",
-    advance_paid: property.advance_paid ? String(property.advance_paid) : "0",
-    advance_date: property.advance_date || "",
     deal_locked_date: property.deal_locked_date || "",
     expected_registry_date: property.expected_registry_date || "",
     actual_registry_date: property.actual_registry_date || "",
@@ -190,7 +185,6 @@ function normalizeForForm(property) {
     notes: property.notes || "",
     status: property.status || "negotiating",
     // site fields
-    my_investment: property.my_investment ? String(property.my_investment) : "",
     my_share_percentage: property.my_share_percentage
       ? String(property.my_share_percentage)
       : "",
@@ -213,7 +207,6 @@ function buildPayload(formData, isEditMode) {
   if (isSite) {
     payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
-    payload.my_investment = toNullableNumber(formData.my_investment);
     payload.my_share_percentage = toNullableNumber(
       formData.my_share_percentage,
     );
@@ -231,8 +224,6 @@ function buildPayload(formData, isEditMode) {
       formData.seller_rate_per_sqft,
     );
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
-    payload.advance_paid = toNullableNumber(formData.advance_paid) ?? 0;
-    payload.advance_date = toNullableString(formData.advance_date);
     payload.deal_locked_date = toNullableString(formData.deal_locked_date);
     payload.expected_registry_date = toNullableString(
       formData.expected_registry_date,
@@ -359,8 +350,6 @@ export default function PropertyForm() {
     const errs = {};
     if (!formData.title.trim()) errs.title = "Title is required";
     if (formData.property_type === "site") {
-      if (!formData.my_investment)
-        errs.my_investment = "My investment is required";
       if (!formData.my_share_percentage)
         errs.my_share_percentage = "Share % is required";
       if (!formData.site_deal_start_date)
@@ -513,26 +502,6 @@ export default function PropertyForm() {
                     placeholder="Total amount paid to seller"
                     min="0"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    My Investment Amount (₹){" "}
-                    <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.my_investment}
-                    onChange={(e) => set("my_investment", e.target.value)}
-                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.my_investment ? "border-red-400" : "border-gray-300"}`}
-                    placeholder="How much I personally invested"
-                    min="0"
-                  />
-                  {errors.my_investment && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {errors.my_investment}
-                    </p>
-                  )}
                 </div>
 
                 <div>
@@ -738,32 +707,6 @@ export default function PropertyForm() {
                         )}
                       </p>
                     )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Advance Paid to Seller (₹)
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.advance_paid}
-                      onChange={(e) => set("advance_paid", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="0"
-                      min="0"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Advance Date
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.advance_date}
-                      onChange={(e) => set("advance_date", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
                   </div>
 
                   <div>

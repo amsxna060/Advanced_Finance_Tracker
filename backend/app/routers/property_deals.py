@@ -19,6 +19,7 @@ from app.schemas.property_deal import (
     PropertyDealOut,
     PropertyDealUpdate,
     PropertyTransactionCreate,
+    PropertyTransactionUpdate,
     PropertyTransactionOut,
     PropertySettleRequest,
 )
@@ -363,6 +364,79 @@ def create_property_transaction(
     db.commit()
     db.refresh(transaction)
     return transaction
+
+
+@router.put("/{property_id}/transactions/{txn_id}", response_model=PropertyTransactionOut)
+def update_property_transaction(
+    property_id: int,
+    txn_id: int,
+    update_data: PropertyTransactionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Update a property transaction and re-sync its linked ledger entry."""
+    _get_property_or_404(property_id, db)
+    txn = db.query(PropertyTransaction).filter(
+        PropertyTransaction.id == txn_id,
+        PropertyTransaction.property_deal_id == property_id,
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Capture old values before mutation
+    old_account_id = txn.account_id
+    old_amount = _decimal(txn.amount)
+    old_txn_date = txn.txn_date
+    old_txn_type = txn.txn_type
+
+    # Apply updates
+    for field, value in update_data.model_dump(exclude_unset=True).items():
+        setattr(txn, field, value)
+
+    # Re-sync ledger: delete old entry, create new one
+    is_inflow = old_txn_type in INFLOW_TXN_TYPES
+    if old_account_id:
+        old_entries = db.query(AccountTransaction).filter(
+            AccountTransaction.linked_type == "property",
+            AccountTransaction.linked_id == property_id,
+            AccountTransaction.txn_type == ("credit" if is_inflow else "debit"),
+            AccountTransaction.amount == old_amount,
+            AccountTransaction.txn_date == old_txn_date,
+        ).all()
+        for e in old_entries:
+            db.delete(e)
+
+    if txn.account_id:
+        auto_ledger(
+            db=db,
+            account_id=txn.account_id,
+            txn_type="credit" if is_inflow else "debit",
+            amount=_decimal(txn.amount),
+            txn_date=txn.txn_date,
+            linked_type="property",
+            linked_id=property_id,
+            description=f"Property: {txn.txn_type} — {txn.description or ''}".strip(),
+            payment_mode=txn.payment_mode,
+            created_by=current_user.id,
+        )
+
+    # Re-sync advance_paid + my_investment + status if it's an advance
+    db.flush()  # ensure setattr changes are visible to subsequent queries
+    if txn.txn_type == "advance_to_seller":
+        deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
+        total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
+            PropertyTransaction.property_deal_id == property_id,
+            PropertyTransaction.txn_type == "advance_to_seller",
+        ).scalar()
+        deal.advance_paid = total_advance
+        if deal.status == "negotiating" and _decimal(total_advance) > 0:
+            deal.status = "advance_given"
+        if (deal.property_type or "").lower() == "site":
+            deal.my_investment = total_advance
+
+    db.commit()
+    db.refresh(txn)
+    return txn
 
 
 @router.get("/{property_id}/transactions", response_model=List[PropertyTransactionOut])
