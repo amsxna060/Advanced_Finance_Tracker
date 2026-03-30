@@ -198,11 +198,8 @@ def create_property(
     db.add(property_deal)
     db.flush()
 
-    # Sites: auto-create advance transaction + set status to advance_given
-    if (
-        data.get("property_type") == "site"
-        and _decimal(data.get("advance_paid")) > 0
-    ):
+    # Auto-create advance transaction + set status to advance_given
+    if _decimal(data.get("advance_paid")) > 0:
         adv_amount = _decimal(data["advance_paid"])
         adv_date = data.get("advance_date") or property_deal.created_at.date()
         # Find "Cash in Hand" account (default to id=1)
@@ -236,6 +233,9 @@ def create_property(
             created_by=current_user.id,
         )
         property_deal.status = "advance_given"
+        # For site type, also track as my_investment
+        if data.get("property_type") == "site":
+            property_deal.my_investment = _decimal(property_deal.my_investment) + adv_amount
 
     db.commit()
     db.refresh(property_deal)
@@ -353,6 +353,12 @@ def create_property_transaction(
         deal.advance_paid = total_advance
         if not deal.advance_date:
             deal.advance_date = transaction.txn_date
+        # Update status to advance_given if still negotiating
+        if deal.status == "negotiating" and _decimal(total_advance) > 0:
+            deal.status = "advance_given"
+        # For site type, sync my_investment to total advance
+        if (deal.property_type or "").lower() == "site":
+            deal.my_investment = total_advance
 
     db.commit()
     db.refresh(transaction)
@@ -410,6 +416,9 @@ def delete_property_transaction(
             PropertyTransaction.txn_type == "advance_to_seller",
         ).scalar()
         deal.advance_paid = total_advance
+        # For site type, sync my_investment to total advance
+        if (deal.property_type or "").lower() == "site":
+            deal.my_investment = total_advance
 
     db.commit()
     return {"message": "Transaction deleted"}
