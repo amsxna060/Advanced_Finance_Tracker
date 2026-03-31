@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
 
-const PERIOD_OPTIONS = [
-  { key: "15_days", label: "15 Days" },
-  { key: "30_days", label: "30 Days" },
-  { key: "90_days", label: "90 Days" },
-  { key: "1_year", label: "1 Year" },
+const PERIOD_PRESETS = [
+  { key: "15", label: "15 Days", days: 15 },
+  { key: "30", label: "30 Days", days: 30 },
+  { key: "90", label: "90 Days", days: 90 },
+  { key: "365", label: "1 Year", days: 365 },
 ];
 
 const CONF_BADGE = {
@@ -22,27 +22,11 @@ const SOURCE_LABELS = {
   interest_receipt: "Interest",
   principal_return: "Principal",
   property: "Property",
-  beesi: "Beesi",
   obligation_receivable: "Receivable",
   emi_payment: "EMI",
   interest_payment: "Interest",
   principal_payment: "Principal",
-  beesi_installment: "Beesi",
   obligation_payable: "Payable",
-};
-
-const SOURCE_COLORS = {
-  emi_receipt: "bg-green-500",
-  interest_receipt: "bg-emerald-500",
-  principal_return: "bg-teal-500",
-  property: "bg-purple-500",
-  beesi: "bg-blue-500",
-  obligation_receivable: "bg-indigo-500",
-  emi_payment: "bg-red-500",
-  interest_payment: "bg-orange-500",
-  principal_payment: "bg-rose-500",
-  beesi_installment: "bg-amber-500",
-  obligation_payable: "bg-pink-500",
 };
 
 const SOURCE_TAG = {
@@ -50,26 +34,54 @@ const SOURCE_TAG = {
   interest_receipt: "text-emerald-700 bg-emerald-50 border-emerald-200",
   principal_return: "text-teal-700 bg-teal-50 border-teal-200",
   property: "text-purple-700 bg-purple-50 border-purple-200",
-  beesi: "text-blue-700 bg-blue-50 border-blue-200",
   obligation_receivable: "text-indigo-700 bg-indigo-50 border-indigo-200",
   emi_payment: "text-red-700 bg-red-50 border-red-200",
   interest_payment: "text-orange-700 bg-orange-50 border-orange-200",
   principal_payment: "text-rose-700 bg-rose-50 border-rose-200",
-  beesi_installment: "text-amber-700 bg-amber-50 border-amber-200",
   obligation_payable: "text-pink-700 bg-pink-50 border-pink-200",
 };
 
+function fmtDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
 export default function Forecast() {
   const navigate = useNavigate();
-  const [period, setPeriod] = useState("30_days");
-  const [direction, setDirection] = useState("inflow"); // inflow | outflow
-  const [confFilter, setConfFilter] = useState("all"); // all | high | medium | low
-  const [typeFilter, setTypeFilter] = useState("all"); // all | emi_receipt | interest_receipt | ...
+  const today = useMemo(() => fmtDate(new Date()), []);
+
+  const [fromDate, setFromDate] = useState(today);
+  const [toDate, setToDate] = useState(fmtDate(addDays(new Date(), 30)));
+  const [activePreset, setActivePreset] = useState("30");
+  const [direction, setDirection] = useState("inflow");
+  const [confFilter, setConfFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
 
   const { data: forecast, isLoading } = useQuery({
-    queryKey: ["analytics-forecast"],
-    queryFn: async () => (await api.get("/api/analytics/forecast")).data,
+    queryKey: ["analytics-forecast", fromDate, toDate],
+    queryFn: async () =>
+      (await api.get("/api/analytics/forecast", { params: { from_date: fromDate, to_date: toDate } })).data,
   });
+
+  const handlePreset = (preset) => {
+    setActivePreset(preset.key);
+    setToDate(fmtDate(addDays(new Date(fromDate), preset.days)));
+  };
+
+  const handleFromChange = (val) => {
+    setFromDate(val);
+    setActivePreset(null);
+  };
+
+  const handleToChange = (val) => {
+    setToDate(val);
+    setActivePreset(null);
+  };
 
   if (isLoading) {
     return (
@@ -79,12 +91,10 @@ export default function Forecast() {
     );
   }
 
-  if (!forecast?.periods) return null;
-  const pd = forecast.periods[period];
-  if (!pd) return null;
+  if (!forecast) return null;
 
-  const flow = pd[direction];
-  const otherFlow = pd[direction === "inflow" ? "outflow" : "inflow"];
+  const flow = forecast[direction];
+  if (!flow) return null;
 
   // Get unique source types in current direction for filter dropdown
   const allSourceTypes = [...new Set(flow.items.map((i) => i.source))];
@@ -119,74 +129,17 @@ export default function Forecast() {
   const categories =
     direction === "inflow"
       ? [
-          {
-            key: "emi_receipts",
-            label: "EMI Receipts",
-            amount: flow.emi_receipts,
-            color: "bg-green-500",
-          },
-          {
-            key: "interest_receipts",
-            label: "Interest",
-            amount: flow.interest_receipts,
-            color: "bg-emerald-500",
-          },
-          {
-            key: "principal_returns",
-            label: "Principal",
-            amount: flow.principal_returns,
-            color: "bg-teal-500",
-          },
-          {
-            key: "property",
-            label: "Property",
-            amount: flow.property,
-            color: "bg-purple-500",
-          },
-          {
-            key: "beesi",
-            label: "Beesi",
-            amount: flow.beesi,
-            color: "bg-blue-500",
-          },
-          {
-            key: "receivables",
-            label: "Receivables",
-            amount: flow.receivables,
-            color: "bg-indigo-500",
-          },
+          { key: "emi_receipts", label: "EMI Receipts", amount: flow.emi_receipts, color: "bg-green-500" },
+          { key: "interest_receipts", label: "Interest", amount: flow.interest_receipts, color: "bg-emerald-500" },
+          { key: "principal_returns", label: "Principal", amount: flow.principal_returns, color: "bg-teal-500" },
+          { key: "property", label: "Property", amount: flow.property, color: "bg-purple-500" },
+          { key: "receivables", label: "Receivables", amount: flow.receivables, color: "bg-indigo-500" },
         ].filter((c) => c.amount > 0)
       : [
-          {
-            key: "emi_payments",
-            label: "EMI Payments",
-            amount: flow.emi_payments,
-            color: "bg-red-500",
-          },
-          {
-            key: "interest_payments",
-            label: "Interest",
-            amount: flow.interest_payments,
-            color: "bg-orange-500",
-          },
-          {
-            key: "principal_payments",
-            label: "Principal",
-            amount: flow.principal_payments,
-            color: "bg-rose-500",
-          },
-          {
-            key: "beesi_installments",
-            label: "Beesi",
-            amount: flow.beesi_installments,
-            color: "bg-amber-500",
-          },
-          {
-            key: "payables",
-            label: "Payables",
-            amount: flow.payables,
-            color: "bg-pink-500",
-          },
+          { key: "emi_payments", label: "EMI Payments", amount: flow.emi_payments, color: "bg-red-500" },
+          { key: "interest_payments", label: "Interest", amount: flow.interest_payments, color: "bg-orange-500" },
+          { key: "principal_payments", label: "Principal", amount: flow.principal_payments, color: "bg-rose-500" },
+          { key: "payables", label: "Payables", amount: flow.payables, color: "bg-pink-500" },
         ].filter((c) => c.amount > 0);
 
   const isIn = direction === "inflow";
@@ -215,22 +168,22 @@ export default function Forecast() {
           </div>
         </div>
 
-        {/* Period + Direction selector */}
-        <div className="bg-white rounded-lg shadow p-4">
+        {/* Controls: presets + dates + direction */}
+        <div className="bg-white rounded-lg shadow p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-4">
-            {/* Period */}
+            {/* Period presets */}
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              {PERIOD_OPTIONS.map(({ key, label }) => (
+              {PERIOD_PRESETS.map((p) => (
                 <button
-                  key={key}
-                  onClick={() => setPeriod(key)}
+                  key={p.key}
+                  onClick={() => handlePreset(p)}
                   className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
-                    period === key
+                    activePreset === p.key
                       ? "bg-white text-indigo-700 shadow-sm"
                       : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
-                  {label}
+                  {p.label}
                 </button>
               ))}
             </div>
@@ -266,23 +219,38 @@ export default function Forecast() {
             </div>
           </div>
 
+          {/* Date pickers */}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              From
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => handleFromChange(e.target.value)}
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              To
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate}
+                onChange={(e) => handleToChange(e.target.value)}
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </label>
+          </div>
+
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <SummaryCard
               label={isIn ? "Total Inflow" : "Total Outflow"}
               value={flow.total}
               color={isIn ? "green" : "red"}
             />
-            <SummaryCard
-              label="High Confidence"
-              value={flow.high}
-              color="emerald"
-            />
-            <SummaryCard
-              label="Medium Confidence"
-              value={flow.medium}
-              color="yellow"
-            />
+            <SummaryCard label="High Confidence" value={flow.high} color="emerald" />
+            <SummaryCard label="Medium Confidence" value={flow.medium} color="yellow" />
             <SummaryCard label="Low Confidence" value={flow.low} color="gray" />
           </div>
         </div>

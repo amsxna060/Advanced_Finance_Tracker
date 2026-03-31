@@ -500,22 +500,19 @@ def relink_to_cash_home(
 #
 # interest_rate is stored as ANNUAL percentage.  Daily rate = rate / 100 / days_in_year.
 # Interest uses calendar-month periods with actual days count.
-# Beesi pot withdrawal: use 85% of pot_size (realistic minimum withdrawal).
 
 @router.get("/forecast")
 def analytics_forecast(
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD start date"),
+    to_date: Optional[str] = Query(None, description="YYYY-MM-DD end date"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     from dateutil.relativedelta import relativedelta
 
     today = date.today()
-    periods = {
-        "15_days": today + timedelta(days=15),
-        "30_days": today + timedelta(days=30),
-        "90_days": today + timedelta(days=90),
-        "1_year": today + timedelta(days=365),
-    }
+    start_date = date.fromisoformat(from_date) if from_date else today
+    horizon = date.fromisoformat(to_date) if to_date else start_date + timedelta(days=30)
 
     active_loans = db.query(Loan).filter(
         Loan.is_deleted == False, Loan.status == "active"
@@ -577,7 +574,7 @@ def analytics_forecast(
         return max(principal - paid, Decimal("0"))
 
     # ── INFLOWS: Loans Given ─────────────────────────────────────────────
-    def _loan_inflow_items(loan, horizon_date):
+    def _loan_inflow_items(loan, from_dt, horizon_date):
         items = []
         name = _contact(loan)
         conf = _loan_confidence(loan)
@@ -586,7 +583,7 @@ def analytics_forecast(
             schedule = get_emi_schedule_with_payments(loan, db)
             for entry in schedule:
                 dd = entry["due_date"]
-                if dd < today or dd > horizon_date:
+                if dd < from_dt or dd > horizon_date:
                     continue
                 if entry["status"] == "paid":
                     continue
@@ -610,7 +607,7 @@ def analytics_forecast(
             if not start:
                 return items
             # Use calendar-month periods with daily rate for forecasting
-            periods = _build_calendar_periods(today, horizon_date)
+            periods = _build_calendar_periods(from_dt, horizon_date)
             for p_start, p_end in periods:
                 days = (p_end - p_start).days
                 period_interest = float(_calc_period_interest(principal, rate, p_start, days).quantize(Decimal("0.01")))
@@ -625,7 +622,7 @@ def analytics_forecast(
                     "confidence": conf,
                 })
             # Principal return only if end date exists and falls in window
-            if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
+            if loan.expected_end_date and from_dt < loan.expected_end_date <= horizon_date:
                 rem = _remaining_principal(loan)
                 if rem > 0:
                     items.append({
@@ -642,7 +639,7 @@ def analytics_forecast(
             if remaining <= 0:
                 return items  # fully repaid
             end = loan.expected_end_date or loan.interest_free_till
-            if end and today < end <= horizon_date:
+            if end and from_dt < end <= horizon_date:
                 items.append({
                     "source": "principal_return", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
@@ -656,7 +653,7 @@ def analytics_forecast(
         return items
 
     # ── OUTFLOWS: Loans Taken (our obligations — always high confidence) ──
-    def _loan_outflow_items(loan, horizon_date):
+    def _loan_outflow_items(loan, from_dt, horizon_date):
         items = []
         name = _contact(loan)
 
@@ -664,7 +661,7 @@ def analytics_forecast(
             schedule = get_emi_schedule_with_payments(loan, db)
             for entry in schedule:
                 dd = entry["due_date"]
-                if dd < today or dd > horizon_date:
+                if dd < from_dt or dd > horizon_date:
                     continue
                 if entry["status"] == "paid":
                     continue
@@ -688,7 +685,7 @@ def analytics_forecast(
             if not start:
                 return items
             # Use calendar-month periods with daily rate for forecasting
-            periods = _build_calendar_periods(today, horizon_date)
+            periods = _build_calendar_periods(from_dt, horizon_date)
             for p_start, p_end in periods:
                 days = (p_end - p_start).days
                 period_interest = float(_calc_period_interest(principal, rate, p_start, days).quantize(Decimal("0.01")))
@@ -702,7 +699,7 @@ def analytics_forecast(
                     "label": f"Interest {p_start.strftime('%d %b')} – {(p_end - timedelta(days=1)).strftime('%d %b')} ({rate}% p.a.)",
                     "confidence": "high",
                 })
-            if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
+            if loan.expected_end_date and from_dt < loan.expected_end_date <= horizon_date:
                 rem = _remaining_principal(loan)
                 if rem > 0:
                     items.append({
@@ -719,7 +716,7 @@ def analytics_forecast(
             if remaining <= 0:
                 return items
             end = loan.expected_end_date or loan.interest_free_till
-            if end and today < end <= horizon_date:
+            if end and from_dt < end <= horizon_date:
                 items.append({
                     "source": "principal_payment", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
@@ -731,17 +728,14 @@ def analytics_forecast(
 
         return items
 
-    # ── Build per-period forecast ──────────────────────────────────────────
-    result = {}
+    # ── Build forecast for requested date range ────────────────────────────
+    inflow_items = []
+    outflow_items = []
 
-    for period_key, horizon in periods.items():
-        inflow_items = []
-        outflow_items = []
-
-        for loan in loans_given:
-            inflow_items.extend(_loan_inflow_items(loan, horizon))
-        for loan in loans_taken:
-            outflow_items.extend(_loan_outflow_items(loan, horizon))
+    for loan in loans_given:
+        inflow_items.extend(_loan_inflow_items(loan, start_date, horizon))
+    for loan in loans_taken:
+        outflow_items.extend(_loan_outflow_items(loan, start_date, horizon))
 
         # --- Property inflows: only show NET PROFIT as inflow, not buyer amount
         properties = db.query(PropertyDeal).filter(
@@ -766,43 +760,6 @@ def analytics_forecast(
                 "label": f"Advance ₹{float(advance_back):,.0f} + Profit ₹{float(net_profit):,.0f}",
                 "confidence": "low",
             })
-
-        # --- Beesi ---
-        active_beesis = db.query(Beesi).filter(
-            Beesi.is_deleted == False, Beesi.status == "active"
-        ).all()
-        for b in active_beesis:
-            paid_months = len(b.installments)
-            remaining_months = max(b.tenure_months - paid_months, 0)
-            inst = _D(b.base_installment)
-            check_date = b.start_date + relativedelta(months=paid_months)
-            for _ in range(remaining_months):
-                if check_date > horizon:
-                    break
-                if check_date >= today:
-                    outflow_items.append({
-                        "source": "beesi_installment", "contact": b.title,
-                        "contact_id": None, "loan_id": None,
-                        "amount": float(inst),
-                        "due_date": check_date.isoformat(),
-                        "label": f"Beesi: {b.title}",
-                        "confidence": "low",
-                    })
-                check_date += relativedelta(months=1)
-
-            # Beesi pot withdrawal: use 85% of pot_size (realistic minimum)
-            if not b.withdrawals:
-                pot = _D(b.pot_size)
-                withdrawal_estimate = pot * Decimal("0.85")
-                if withdrawal_estimate > 0:
-                    inflow_items.append({
-                        "source": "beesi", "contact": b.title,
-                        "contact_id": None, "loan_id": None,
-                        "amount": float(withdrawal_estimate.quantize(Decimal("0.01"))),
-                        "due_date": None,
-                        "label": f"~85% of pot (₹{float(pot):,.0f})",
-                        "confidence": "low",
-                    })
 
         # --- Money Flow Obligations ---
         pending_obligations = db.query(MoneyObligation).filter(
@@ -834,53 +791,51 @@ def analytics_forecast(
                 item["source"] = "obligation_payable"
                 outflow_items.append(item)
 
-        # --- Aggregate ---
-        def _sum_by(items, source_prefix):
-            return sum(it["amount"] for it in items if it["source"].startswith(source_prefix))
+    # --- Aggregate ---
+    def _sum_by(items, source_prefix):
+        return sum(it["amount"] for it in items if it["source"].startswith(source_prefix))
 
-        def _sum_conf(items, conf):
-            return sum(it["amount"] for it in items if it.get("confidence") == conf)
+    def _sum_conf(items, conf):
+        return sum(it["amount"] for it in items if it.get("confidence") == conf)
 
-        total_in = sum(it["amount"] for it in inflow_items)
-        total_out = sum(it["amount"] for it in outflow_items)
+    total_in = sum(it["amount"] for it in inflow_items)
+    total_out = sum(it["amount"] for it in outflow_items)
 
-        result[period_key] = {
-            "horizon_date": horizon.isoformat(),
-            "inflow": {
-                "total": round(total_in, 2),
-                "high": round(_sum_conf(inflow_items, "high"), 2),
-                "medium": round(_sum_conf(inflow_items, "medium"), 2),
-                "low": round(_sum_conf(inflow_items, "low"), 2),
-                "emi_receipts": round(_sum_by(inflow_items, "emi_"), 2),
-                "interest_receipts": round(_sum_by(inflow_items, "interest_"), 2),
-                "principal_returns": round(_sum_by(inflow_items, "principal_"), 2),
-                "property": round(_sum_by(inflow_items, "property"), 2),
-                "beesi": round(_sum_by(inflow_items, "beesi"), 2),
-                "receivables": round(_sum_by(inflow_items, "obligation_"), 2),
-                "items": sorted(inflow_items, key=lambda x: (
-                    {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
-                    x["due_date"] or "9999-12-31",
-                )),
-            },
-            "outflow": {
-                "total": round(total_out, 2),
-                "high": round(_sum_conf(outflow_items, "high"), 2),
-                "medium": round(_sum_conf(outflow_items, "medium"), 2),
-                "low": round(_sum_conf(outflow_items, "low"), 2),
-                "emi_payments": round(_sum_by(outflow_items, "emi_"), 2),
-                "interest_payments": round(_sum_by(outflow_items, "interest_"), 2),
-                "principal_payments": round(_sum_by(outflow_items, "principal_"), 2),
-                "beesi_installments": round(_sum_by(outflow_items, "beesi_"), 2),
-                "payables": round(_sum_by(outflow_items, "obligation_"), 2),
-                "items": sorted(outflow_items, key=lambda x: (
-                    {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
-                    x["due_date"] or "9999-12-31",
-                )),
-            },
-            "net": round(total_in - total_out, 2),
-        }
-
-    return {"as_of_date": today.isoformat(), "periods": result}
+    return {
+        "as_of_date": today.isoformat(),
+        "from_date": start_date.isoformat(),
+        "to_date": horizon.isoformat(),
+        "inflow": {
+            "total": round(total_in, 2),
+            "high": round(_sum_conf(inflow_items, "high"), 2),
+            "medium": round(_sum_conf(inflow_items, "medium"), 2),
+            "low": round(_sum_conf(inflow_items, "low"), 2),
+            "emi_receipts": round(_sum_by(inflow_items, "emi_"), 2),
+            "interest_receipts": round(_sum_by(inflow_items, "interest_"), 2),
+            "principal_returns": round(_sum_by(inflow_items, "principal_"), 2),
+            "property": round(_sum_by(inflow_items, "property"), 2),
+            "receivables": round(_sum_by(inflow_items, "obligation_"), 2),
+            "items": sorted(inflow_items, key=lambda x: (
+                {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
+                x["due_date"] or "9999-12-31",
+            )),
+        },
+        "outflow": {
+            "total": round(total_out, 2),
+            "high": round(_sum_conf(outflow_items, "high"), 2),
+            "medium": round(_sum_conf(outflow_items, "medium"), 2),
+            "low": round(_sum_conf(outflow_items, "low"), 2),
+            "emi_payments": round(_sum_by(outflow_items, "emi_"), 2),
+            "interest_payments": round(_sum_by(outflow_items, "interest_"), 2),
+            "principal_payments": round(_sum_by(outflow_items, "principal_"), 2),
+            "payables": round(_sum_by(outflow_items, "obligation_"), 2),
+            "items": sorted(outflow_items, key=lambda x: (
+                {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
+                x["due_date"] or "9999-12-31",
+            )),
+        },
+        "net": round(total_in - total_out, 2),
+    }
 
 
 # ── HISTORICAL ACTIVITY — What actually happened in the past ─────────────────
