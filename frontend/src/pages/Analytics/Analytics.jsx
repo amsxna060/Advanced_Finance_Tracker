@@ -149,6 +149,12 @@ export default function Analytics() {
               </p>
             </div>
           </div>
+          <button
+            onClick={() => navigate("/assets")}
+            className="mt-4 text-sm text-indigo-200 hover:text-white transition-colors underline underline-offset-2"
+          >
+            View full balance sheet →
+          </button>
         </div>
 
         {/* ── FORECAST SUMMARY (link to full page) ──────── */}

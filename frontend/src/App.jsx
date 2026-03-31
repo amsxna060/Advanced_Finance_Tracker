@@ -27,6 +27,7 @@ import ExpenseList from "./pages/Expenses/ExpenseList";
 import Reports from "./pages/Reports/Reports";
 import Analytics from "./pages/Analytics/Analytics";
 import Forecast from "./pages/Analytics/Forecast";
+import Assets from "./pages/Analytics/Assets";
 import BeesiList from "./pages/Beesi/BeesiList";
 import BeesiForm from "./pages/Beesi/BeesiForm";
 import BeesiDetail from "./pages/Beesi/BeesiDetail";
@@ -225,6 +226,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Forecast />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/assets"
+              element={
+                <ProtectedRoute>
+                  <Assets />
                 </ProtectedRoute>
               }
             />

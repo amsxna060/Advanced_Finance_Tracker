@@ -488,6 +488,369 @@ def relink_to_cash_home(
     }
 
 
+# ── ASSETS & LIABILITIES (Balance Sheet) ────────────────────────────────────
+#
+# Provides a detailed per-item breakdown of everything the user owns (assets)
+# and everything the user owes (liabilities), with clickable drill-down links.
+
+@router.get("/assets")
+def analytics_assets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Detailed balance-sheet view:
+      ASSETS  = Cash + Loans Given + Property Advances + Site Investments
+                + Partnerships + Receivables + Collateral Held
+      LIABILITIES = Loans Taken + Payables + Partner Payables
+    Each category includes per-item rows for UI drill-down.
+    """
+    today = date.today()
+
+    # ── CASH & BANK ACCOUNTS ────────────────────────────────────────────────
+    accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+    account_items = []
+    total_cash = Decimal("0")
+    for acct in accounts:
+        opening = _D(acct.opening_balance)
+        credits = _D(db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
+            AccountTransaction.account_id == acct.id,
+            AccountTransaction.txn_type == "credit",
+        ).scalar())
+        debits = _D(db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
+            AccountTransaction.account_id == acct.id,
+            AccountTransaction.txn_type == "debit",
+        ).scalar())
+        balance = opening + credits - debits
+        total_cash += balance
+        account_items.append({
+            "id": acct.id, "name": acct.name,
+            "type": acct.account_type or "cash",
+            "bank_name": acct.bank_name,
+            "balance": float(balance),
+        })
+
+    # ── LOANS GIVEN (money owed TO me) ─────────────────────────────────────
+    active_loans = db.query(Loan).filter(Loan.is_deleted == False, Loan.status == "active").all()
+    loans_given = [l for l in active_loans if l.loan_direction == "given"]
+    loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
+
+    given_items = []
+    total_given = Decimal("0")
+    total_given_principal = Decimal("0")
+    total_given_interest = Decimal("0")
+    for l in loans_given:
+        contact = db.query(Contact).filter(Contact.id == l.contact_id).first()
+        try:
+            out = calculate_outstanding(l.id, today, db)
+            p_out = _D(out.get("principal_outstanding", 0))
+            i_out = _D(out.get("interest_outstanding", 0))
+            t_out = _D(out.get("total_outstanding", 0))
+        except Exception:
+            p_out = _D(l.principal_amount)
+            i_out = Decimal("0")
+            t_out = p_out
+        total_given += t_out
+        total_given_principal += p_out
+        total_given_interest += i_out
+        given_items.append({
+            "id": l.id, "contact": contact.name if contact else "Unknown",
+            "contact_id": l.contact_id,
+            "loan_type": l.loan_type, "rate": float(_D(l.interest_rate)),
+            "principal_outstanding": float(p_out),
+            "interest_outstanding": float(i_out),
+            "total_outstanding": float(t_out),
+            "disbursed_date": l.disbursed_date.isoformat() if l.disbursed_date else None,
+            "expected_end_date": l.expected_end_date.isoformat() if l.expected_end_date else None,
+            "institution_name": l.institution_name,
+        })
+    given_items.sort(key=lambda x: x["total_outstanding"], reverse=True)
+
+    # ── LOANS TAKEN (money I OWE) ──────────────────────────────────────────
+    taken_items = []
+    total_taken = Decimal("0")
+    total_taken_principal = Decimal("0")
+    total_taken_interest = Decimal("0")
+    for l in loans_taken:
+        contact = db.query(Contact).filter(Contact.id == l.contact_id).first()
+        try:
+            out = calculate_outstanding(l.id, today, db)
+            p_out = _D(out.get("principal_outstanding", 0))
+            i_out = _D(out.get("interest_outstanding", 0))
+            t_out = _D(out.get("total_outstanding", 0))
+        except Exception:
+            p_out = _D(l.principal_amount)
+            i_out = Decimal("0")
+            t_out = p_out
+        total_taken += t_out
+        total_taken_principal += p_out
+        total_taken_interest += i_out
+        taken_items.append({
+            "id": l.id, "contact": contact.name if contact else "Unknown",
+            "contact_id": l.contact_id,
+            "loan_type": l.loan_type, "rate": float(_D(l.interest_rate)),
+            "principal_outstanding": float(p_out),
+            "interest_outstanding": float(i_out),
+            "total_outstanding": float(t_out),
+            "disbursed_date": l.disbursed_date.isoformat() if l.disbursed_date else None,
+            "expected_end_date": l.expected_end_date.isoformat() if l.expected_end_date else None,
+            "institution_name": l.institution_name,
+        })
+    taken_items.sort(key=lambda x: x["total_outstanding"], reverse=True)
+
+    # ── PROPERTY INVESTMENTS ────────────────────────────────────────────────
+    partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
+    properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
+    linked_property_ids = {
+        p.linked_property_deal_id for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+    _prop_to_partnership = {
+        p.linked_property_deal_id: p for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+
+    property_items = []
+    total_property = Decimal("0")
+    for prop in properties:
+        if prop.status == "cancelled":
+            continue
+        my_invested = Decimal("0")
+        current_value = Decimal("0")
+
+        if prop.property_type == "site":
+            my_invested = max(_D(prop.my_investment), _D(prop.advance_paid))
+            # For sites, current value = invested + proportional profit (if settled)
+            current_value = my_invested
+            if prop.status == "settled" and prop.net_profit:
+                pct = _D(prop.my_share_percentage or 100)
+                current_value += _D(prop.net_profit) * pct / Decimal("100")
+        elif prop.id in linked_property_ids:
+            part = _prop_to_partnership.get(prop.id)
+            if part:
+                sm = db.query(PartnershipMember).filter(
+                    PartnershipMember.partnership_id == part.id,
+                    PartnershipMember.is_self == True,
+                ).first()
+                if sm:
+                    my_invested = _D(sm.advance_contributed)
+                    current_value = my_invested
+        else:
+            my_invested = _D(prop.advance_paid)
+            current_value = my_invested
+            if prop.deal_type == "purchase_and_hold":
+                if prop.purchase_price:
+                    current_value = _D(prop.purchase_price)
+                if prop.sale_price and prop.status == "settled":
+                    current_value = _D(prop.sale_price)
+
+        if my_invested <= 0 and current_value <= 0:
+            continue
+
+        total_property += current_value
+        property_items.append({
+            "id": prop.id, "title": prop.title,
+            "property_type": prop.property_type,
+            "deal_type": prop.deal_type,
+            "location": prop.location,
+            "status": prop.status,
+            "invested": float(my_invested),
+            "current_value": float(current_value),
+        })
+    property_items.sort(key=lambda x: x["current_value"], reverse=True)
+
+    # ── PARTNERSHIPS (non-property) ─────────────────────────────────────────
+    partnership_items = []
+    total_partnership = Decimal("0")
+    for p in partnerships:
+        if p.status == "cancelled" or p.linked_property_deal_id:
+            continue
+        self_member = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == p.id,
+            PartnershipMember.is_self == True,
+        ).first()
+        invested = _D(self_member.advance_contributed) if self_member else _D(p.our_investment)
+        received = Decimal("0")
+        if self_member:
+            received = _D(self_member.total_received)
+        elif p.our_share_percentage:
+            received = _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
+        else:
+            received = _D(p.total_received)
+        net_value = invested - received  # unreturned capital = asset
+        if net_value <= 0 and invested <= 0:
+            continue
+        total_partnership += max(net_value, Decimal("0"))
+        partnership_items.append({
+            "id": p.id, "title": p.title,
+            "status": p.status,
+            "invested": float(invested), "received": float(received),
+            "net_value": float(max(net_value, Decimal("0"))),
+        })
+    partnership_items.sort(key=lambda x: x["net_value"], reverse=True)
+
+    # ── RECEIVABLES (obligations owed TO me) ────────────────────────────────
+    receivables = db.query(MoneyObligation).filter(
+        MoneyObligation.is_deleted == False,
+        MoneyObligation.obligation_type == "receivable",
+        MoneyObligation.status != "settled",
+    ).all()
+    receivable_items = []
+    total_receivable = Decimal("0")
+    for o in receivables:
+        pending = _D(o.amount) - _D(o.amount_settled)
+        if pending <= 0:
+            continue
+        contact = db.query(Contact).filter(Contact.id == o.contact_id).first() if o.contact_id else None
+        total_receivable += pending
+        receivable_items.append({
+            "id": o.id, "contact": contact.name if contact else "—",
+            "reason": o.reason, "pending": float(pending),
+            "due_date": o.due_date.isoformat() if o.due_date else None,
+        })
+    receivable_items.sort(key=lambda x: x["pending"], reverse=True)
+
+    # ── PAYABLES (obligations I owe) ────────────────────────────────────────
+    payables = db.query(MoneyObligation).filter(
+        MoneyObligation.is_deleted == False,
+        MoneyObligation.obligation_type == "payable",
+        MoneyObligation.status != "settled",
+    ).all()
+    payable_items = []
+    total_payable = Decimal("0")
+    for o in payables:
+        pending = _D(o.amount) - _D(o.amount_settled)
+        if pending <= 0:
+            continue
+        contact = db.query(Contact).filter(Contact.id == o.contact_id).first() if o.contact_id else None
+        total_payable += pending
+        payable_items.append({
+            "id": o.id, "contact": contact.name if contact else "—",
+            "reason": o.reason, "pending": float(pending),
+            "due_date": o.due_date.isoformat() if o.due_date else None,
+        })
+    payable_items.sort(key=lambda x: x["pending"], reverse=True)
+
+    # ── PARTNER LIABILITIES ─────────────────────────────────────────────────
+    partner_liability_items = []
+    total_partner_liability = Decimal("0")
+    for p in partnerships:
+        if p.status == "cancelled":
+            continue
+        if _D(p.total_received) <= 0:
+            continue
+        members = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == p.id,
+            PartnershipMember.is_self == False,
+        ).all()
+        for m in members:
+            owed = _D(m.advance_contributed) + (
+                _D(p.total_received) * _D(m.share_percentage) / Decimal("100")
+                if m.share_percentage else Decimal("0")
+            )
+            paid_out = _D(m.total_received)
+            if owed > paid_out:
+                diff = owed - paid_out
+                total_partner_liability += diff
+                mc = db.query(Contact).filter(Contact.id == m.contact_id).first() if m.contact_id else None
+                partner_liability_items.append({
+                    "partnership_id": p.id, "partnership": p.title,
+                    "partner": mc.name if mc else "Partner",
+                    "owed": float(owed), "paid": float(paid_out),
+                    "pending": float(diff),
+                })
+    partner_liability_items.sort(key=lambda x: x["pending"], reverse=True)
+
+    # ── COLLATERAL HELD (assets securing loans I gave) ───────────────────────
+    from app.models.collateral import Collateral
+    collaterals = db.query(Collateral).join(Loan).filter(
+        Loan.loan_direction == "given",
+        Loan.status == "active",
+        Loan.is_deleted == False,
+    ).all()
+    collateral_items = []
+    total_collateral = Decimal("0")
+    for c in collaterals:
+        val = _D(c.estimated_value)
+        total_collateral += val
+        loan = c.loan
+        contact = db.query(Contact).filter(Contact.id == loan.contact_id).first() if loan else None
+        collateral_items.append({
+            "id": c.id, "loan_id": c.loan_id,
+            "contact": contact.name if contact else "—",
+            "type": c.collateral_type,
+            "description": c.description,
+            "estimated_value": float(val),
+            "gold_weight_grams": float(c.gold_weight_grams) if c.gold_weight_grams else None,
+            "gold_carat": c.gold_carat,
+        })
+    collateral_items.sort(key=lambda x: x["estimated_value"], reverse=True)
+
+    # ── TOTALS ──────────────────────────────────────────────────────────────
+    total_assets = total_cash + total_given + total_property + total_partnership + total_receivable
+    total_liabilities = total_taken + total_payable + total_partner_liability
+    net_worth = total_assets - total_liabilities
+
+    return {
+        "as_of_date": today.isoformat(),
+        "net_worth": float(net_worth),
+        "total_assets": float(total_assets),
+        "total_liabilities": float(total_liabilities),
+        "assets": {
+            "cash": {
+                "total": float(total_cash),
+                "items": account_items,
+            },
+            "loans_given": {
+                "total": float(total_given),
+                "principal": float(total_given_principal),
+                "interest": float(total_given_interest),
+                "count": len(given_items),
+                "items": given_items,
+            },
+            "properties": {
+                "total": float(total_property),
+                "count": len(property_items),
+                "items": property_items,
+            },
+            "partnerships": {
+                "total": float(total_partnership),
+                "count": len(partnership_items),
+                "items": partnership_items,
+            },
+            "receivables": {
+                "total": float(total_receivable),
+                "count": len(receivable_items),
+                "items": receivable_items,
+            },
+            "collateral_held": {
+                "total": float(total_collateral),
+                "count": len(collateral_items),
+                "items": collateral_items,
+            },
+        },
+        "liabilities": {
+            "loans_taken": {
+                "total": float(total_taken),
+                "principal": float(total_taken_principal),
+                "interest": float(total_taken_interest),
+                "count": len(taken_items),
+                "items": taken_items,
+            },
+            "payables": {
+                "total": float(total_payable),
+                "count": len(payable_items),
+                "items": payable_items,
+            },
+            "partner_payables": {
+                "total": float(total_partner_liability),
+                "count": len(partner_liability_items),
+                "items": partner_liability_items,
+            },
+        },
+    }
+
+
 # ── FORECAST / CASH FLOW PROJECTION ─────────────────────────────────────────
 #
 # CONFIDENCE SCORING (based on actual payment behavior, not just loan type):
