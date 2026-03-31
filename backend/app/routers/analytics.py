@@ -23,7 +23,7 @@ from app.models.expense import Expense
 from app.models.contact import Contact
 from app.models.obligation import MoneyObligation
 from app.models.user import User
-from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments
+from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments, _build_calendar_periods, _calc_period_interest
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -498,8 +498,8 @@ def relink_to_cash_home(
 # For EMI loans (taken by us, contractual obligation) — outflows stay HIGH.
 # For beesi installments — outflows stay MEDIUM (committed).
 #
-# interest_rate is stored as ANNUAL percentage.  Monthly interest = principal * rate / 100 / 12.
-# Interest is on ORIGINAL principal (loan.principal_amount), not on compounded outstanding.
+# interest_rate is stored as ANNUAL percentage.  Daily rate = rate / 100 / days_in_year.
+# Interest uses calendar-month periods with actual days count.
 # Beesi pot withdrawal: use 85% of pot_size (realistic minimum withdrawal).
 
 @router.get("/forecast")
@@ -605,25 +605,25 @@ def analytics_forecast(
             rate = _D(loan.interest_rate)
             if rate <= 0:
                 return items
-            # interest_rate is ANNUAL — divide by 12 for monthly projection
             principal = _D(loan.principal_amount)
-            monthly_interest = float((principal * rate / Decimal("100") / Decimal("12")).quantize(Decimal("0.01")))
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
-            cur = date(today.year, today.month, min(start.day, 28))
-            if cur <= today:
-                cur += relativedelta(months=1)
-            while cur <= horizon_date:
+            # Use calendar-month periods with daily rate for forecasting
+            periods = _build_calendar_periods(today, horizon_date)
+            for p_start, p_end in periods:
+                days = (p_end - p_start).days
+                period_interest = float(_calc_period_interest(principal, rate, p_start, days).quantize(Decimal("0.01")))
+                if period_interest <= 0:
+                    continue
                 items.append({
                     "source": "interest_receipt", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": monthly_interest,
-                    "due_date": cur.isoformat(),
-                    "label": f"Monthly interest ({rate}% p.a.)",
+                    "amount": period_interest,
+                    "due_date": p_start.replace(day=1).isoformat() if p_start.day != 1 else p_start.isoformat(),
+                    "label": f"Interest {p_start.strftime('%d %b')} – {(p_end - timedelta(days=1)).strftime('%d %b')} ({rate}% p.a.)",
                     "confidence": conf,
                 })
-                cur += relativedelta(months=1)
             # Principal return only if end date exists and falls in window
             if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
                 rem = _remaining_principal(loan)
@@ -683,25 +683,25 @@ def analytics_forecast(
             rate = _D(loan.interest_rate)
             if rate <= 0:
                 return items
-            # interest_rate is ANNUAL — divide by 12 for monthly projection
             principal = _D(loan.principal_amount)
-            monthly_interest = float((principal * rate / Decimal("100") / Decimal("12")).quantize(Decimal("0.01")))
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
-            cur = date(today.year, today.month, min(start.day, 28))
-            if cur <= today:
-                cur += relativedelta(months=1)
-            while cur <= horizon_date:
+            # Use calendar-month periods with daily rate for forecasting
+            periods = _build_calendar_periods(today, horizon_date)
+            for p_start, p_end in periods:
+                days = (p_end - p_start).days
+                period_interest = float(_calc_period_interest(principal, rate, p_start, days).quantize(Decimal("0.01")))
+                if period_interest <= 0:
+                    continue
                 items.append({
                     "source": "interest_payment", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": monthly_interest,
-                    "due_date": cur.isoformat(),
-                    "label": f"Interest due ({rate}% p.a.)",
+                    "amount": period_interest,
+                    "due_date": p_start.replace(day=1).isoformat() if p_start.day != 1 else p_start.isoformat(),
+                    "label": f"Interest {p_start.strftime('%d %b')} – {(p_end - timedelta(days=1)).strftime('%d %b')} ({rate}% p.a.)",
                     "confidence": "high",
                 })
-                cur += relativedelta(months=1)
             if loan.expected_end_date and today < loan.expected_end_date <= horizon_date:
                 rem = _remaining_principal(loan)
                 if rem > 0:

@@ -18,7 +18,7 @@ from app.models.loan import Loan, LoanPayment
 from app.models.partnership import Partnership, PartnershipTransaction
 from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.user import User
-from app.services.interest import calculate_outstanding, check_capitalization_due
+from app.services.interest import calculate_outstanding, check_capitalization_due, _days_in_year, _calc_period_interest
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -59,10 +59,16 @@ def _loan_monthly_expected(loan: Loan) -> Decimal:
     if loan.loan_type == "emi" and loan.emi_amount:
         return _decimal(loan.emi_amount)
     if loan.loan_type == "interest_only":
-        # interest_rate is ANNUAL — divide by 12 for monthly
-        return (principal * rate) / Decimal("100") / Decimal("12")
+        # Calendar-month daily rate: principal * rate/100/days_in_year * days_in_month
+        import calendar
+        today = date.today()
+        days_in_month = calendar.monthrange(today.year, today.month)[1]
+        return _calc_period_interest(principal, rate, today.replace(day=1), days_in_month)
     if loan.loan_type == "short_term" and loan.post_due_interest_rate:
-        return (principal * _decimal(loan.post_due_interest_rate)) / Decimal("100") / Decimal("12")
+        import calendar
+        today = date.today()
+        days_in_month = calendar.monthrange(today.year, today.month)[1]
+        return _calc_period_interest(principal, _decimal(loan.post_due_interest_rate), today.replace(day=1), days_in_month)
     return Decimal("0")
 
 
@@ -388,8 +394,10 @@ def get_this_month_stats(
             if loan.loan_type == "emi" and loan.emi_amount:
                 emis_expected += _decimal(loan.emi_amount)
             elif loan.loan_type == "interest_only" and loan.interest_rate:
-                # interest_rate is ANNUAL — divide by 12 for monthly
-                interest_expected += (_decimal(loan.principal_amount) * _decimal(loan.interest_rate)) / Decimal("100") / Decimal("12")
+                # Calendar-month daily rate for current month
+                import calendar as _cal
+                _dim = _cal.monthrange(today.year, today.month)[1]
+                interest_expected += _calc_period_interest(_decimal(loan.principal_amount), _decimal(loan.interest_rate), today.replace(day=1), _dim)
             outstanding = calculate_outstanding(loan.id, today, db)
             overdue_interest += _decimal(outstanding.get("interest_outstanding"))
         except Exception:
