@@ -208,7 +208,7 @@ function ObligationList() {
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Summary Cards */}
         {summary && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-green-50 border border-green-200 rounded-xl p-4">
               <p className="text-xs text-green-600 font-medium">To Receive</p>
               <p className="text-xl font-bold text-green-700">
@@ -238,7 +238,7 @@ function ObligationList() {
 
         {/* Filters */}
         <div className="bg-white rounded-xl shadow-sm p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <select
               value={filters.obligation_type}
               onChange={(e) =>
@@ -362,7 +362,7 @@ function ObligationList() {
 
                   {isExpanded && (
                     <div className="border-t px-4 py-3 bg-gray-50 space-y-3">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-sm">
                         {ob.due_date && (
                           <div>
                             <span className="text-gray-400">Due:</span>{" "}

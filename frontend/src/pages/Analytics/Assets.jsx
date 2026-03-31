@@ -246,8 +246,8 @@ export default function Assets() {
                 onToggle={() => toggle("loans_given")}
               />
               {expanded.loans_given && (
-                <div className="border-t">
-                  <div className="flex gap-4 px-4 py-2 bg-gray-50 text-[10px] text-gray-500 font-medium uppercase">
+                <div className="border-t overflow-x-auto">
+                  <div className="flex gap-4 px-4 py-2 bg-gray-50 text-[10px] text-gray-500 font-medium uppercase min-w-[400px]">
                     <span className="flex-1">Borrower</span>
                     <span className="w-20 text-right">Principal</span>
                     <span className="w-20 text-right">Interest</span>
@@ -492,8 +492,8 @@ export default function Assets() {
                 onToggle={() => toggle("loans_taken")}
               />
               {expanded.loans_taken && (
-                <div className="border-t">
-                  <div className="flex gap-4 px-4 py-2 bg-gray-50 text-[10px] text-gray-500 font-medium uppercase">
+                <div className="border-t overflow-x-auto">
+                  <div className="flex gap-4 px-4 py-2 bg-gray-50 text-[10px] text-gray-500 font-medium uppercase min-w-[400px]">
                     <span className="flex-1">Lender</span>
                     <span className="w-20 text-right">Principal</span>
                     <span className="w-20 text-right">Interest</span>

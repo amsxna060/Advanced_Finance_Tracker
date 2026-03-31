@@ -163,7 +163,8 @@ function LoanStatement() {
         </div>
 
         {/* Statement Table */}
-        <table className="w-full text-sm border-collapse">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse min-w-[600px]">
           <thead>
             <tr className="bg-gray-100 border-b border-gray-300">
               <th className="text-left px-3 py-2 font-semibold text-gray-700">
@@ -263,8 +264,7 @@ function LoanStatement() {
             )}
           </tbody>
         </table>
-
-        {/* Footer */}
+        </div>
         <div className="mt-8 pt-4 border-t border-gray-200 text-center text-xs text-gray-400 print:mt-12">
           This is a computer-generated statement. For any queries, please
           contact us.

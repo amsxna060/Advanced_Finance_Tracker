@@ -131,7 +131,7 @@ function PropertyList() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-6 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 text-sm">
                   <div>
                     <div className="text-gray-500">Deal Type</div>
                     <div className="font-medium text-gray-900 capitalize">

@@ -122,7 +122,7 @@ export default function BeesiList() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3 text-sm mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm mb-3">
                     <div>
                       <div className="text-gray-500">Pot Size</div>
                       <div className="font-semibold">
