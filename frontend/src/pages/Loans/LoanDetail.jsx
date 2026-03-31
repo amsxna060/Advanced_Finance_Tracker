@@ -17,10 +17,11 @@ function LoanDetail() {
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   // For EMI: single total amount field
-  // For interest_only / short_term: separate interest + principal fields
-  const [paymentAmount, setPaymentAmount] = useState(""); // EMI total
-  const [interestPaymentAmount, setInterestPaymentAmount] = useState(""); // non-EMI interest portion
-  const [principalRepaymentAmount, setPrincipalRepaymentAmount] = useState(""); // non-EMI principal portion
+  // For interest_only / short_term: auto-split (single field) or manual (two fields)
+  const [paymentAmount, setPaymentAmount] = useState(""); // EMI total or auto-split total
+  const [interestPaymentAmount, setInterestPaymentAmount] = useState(""); // non-EMI manual interest portion
+  const [principalRepaymentAmount, setPrincipalRepaymentAmount] = useState(""); // non-EMI manual principal portion
+  const [autoSplit, setAutoSplit] = useState(true); // auto-split: interest first, rest to principal
   const [paymentDate, setPaymentDate] = useState(
     new Date().toISOString().split("T")[0],
   );
@@ -88,7 +89,7 @@ function LoanDetail() {
   });
 
   // Fetch payment preview
-  const fetchPreview = async (totalAmt, prAmt) => {
+  const fetchPreview = async (totalAmt, prAmt, isAutoSplit = false) => {
     const total = parseFloat(totalAmt);
     if (!totalAmt || isNaN(total) || total <= 0) {
       setPaymentPreview(null);
@@ -98,6 +99,7 @@ function LoanDetail() {
       const params = { amount: total, payment_date: paymentDate };
       const pr = parseFloat(prAmt);
       if (!isNaN(pr) && pr > 0) params.principal_repayment = pr;
+      if (isAutoSplit) params.auto_split = true;
       const response = await api.get(`/api/loans/${id}/payment-preview`, {
         params,
       });
@@ -204,12 +206,13 @@ function LoanDetail() {
 
   const handlePaymentAmountChange = (value) => {
     setPaymentAmount(value);
-    fetchPreview(value, null);
+    fetchPreview(value, null, autoSplit);
   };
 
   const handleRecordPayment = () => {
     const isEmi = loan?.loan_type === "emi";
-    const total = isEmi ? parseFloat(paymentAmount) : parseFloat(nonEmiTotal());
+    const useAutoSplit = !isEmi && autoSplit;
+    const total = (isEmi || useAutoSplit) ? parseFloat(paymentAmount) : parseFloat(nonEmiTotal());
     if (!total || total <= 0) return;
     const payload = {
       amount_paid: total,
@@ -217,8 +220,9 @@ function LoanDetail() {
       payment_mode: paymentMode,
       notes: paymentNotes,
       account_id: paymentAccountId ? parseInt(paymentAccountId) : null,
+      auto_split: useAutoSplit,
     };
-    if (!isEmi && parseFloat(principalRepaymentAmount) > 0) {
+    if (!isEmi && !useAutoSplit && parseFloat(principalRepaymentAmount) > 0) {
       payload.principal_repayment = parseFloat(principalRepaymentAmount);
     }
     recordPaymentMutation.mutate(payload);
@@ -232,6 +236,7 @@ function LoanDetail() {
     setPaymentNotes("");
     setPaymentPreview(null);
     setPaymentAccountId("");
+    setAutoSplit(true);
   };
 
   const handleDeletePayment = (paymentId) => {
@@ -943,6 +948,13 @@ function LoanDetail() {
                 </button>
 
                 <button
+                  onClick={() => navigate(`/loans/${id}/statement`)}
+                  className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+                >
+                  📄 Client Statement
+                </button>
+
+                <button
                   onClick={() => navigate(`/contacts/${loan.contact_id}`)}
                   className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
                 >
@@ -1029,9 +1041,58 @@ function LoanDetail() {
                   />
                 </div>
               ) : (
-                /* ── Non-EMI: separate interest + principal fields ── */
+                /* ── Non-EMI: auto-split toggle + fields ── */
                 <div className="space-y-3">
-                  <div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoSplit}
+                      onChange={(e) => {
+                        setAutoSplit(e.target.checked);
+                        setPaymentAmount("");
+                        setInterestPaymentAmount("");
+                        setPrincipalRepaymentAmount("");
+                        setPaymentPreview(null);
+                      }}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Auto-split (interest first, rest to principal)
+                    </span>
+                  </label>
+
+                  {autoSplit ? (
+                    /* ── Auto-split: single amount field ── */
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Payment Amount *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                          ₹
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={paymentAmount}
+                          onChange={(e) => handlePaymentAmountChange(e.target.value)}
+                          className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      {loanData?.outstanding?.interest_outstanding > 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Outstanding interest:{" "}
+                          {formatCurrency(loanData.outstanding.interest_outstanding)}
+                          {" · "}Will be paid first
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    /* ── Manual mode: separate interest + principal fields ── */
+                    <>
+                      <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Interest Payment
                     </label>
@@ -1122,6 +1183,8 @@ function LoanDetail() {
                       </span>
                     </div>
                   )}
+                    </>
+                  )}
                 </div>
               )}
               <div>
@@ -1135,6 +1198,8 @@ function LoanDetail() {
                     setPaymentDate(e.target.value);
                     if (loan.loan_type === "emi") {
                       if (paymentAmount) fetchPreview(paymentAmount, null);
+                    } else if (autoSplit) {
+                      if (paymentAmount) fetchPreview(paymentAmount, null, true);
                     } else {
                       const total =
                         (parseFloat(interestPaymentAmount) || 0) +
@@ -1261,9 +1326,11 @@ function LoanDetail() {
                 disabled={
                   (loan.loan_type === "emi"
                     ? !paymentAmount || parseFloat(paymentAmount) <= 0
-                    : (parseFloat(interestPaymentAmount) || 0) +
-                        (parseFloat(principalRepaymentAmount) || 0) <=
-                      0) || recordPaymentMutation.isPending
+                    : autoSplit
+                      ? !paymentAmount || parseFloat(paymentAmount) <= 0
+                      : (parseFloat(interestPaymentAmount) || 0) +
+                          (parseFloat(principalRepaymentAmount) || 0) <=
+                        0) || recordPaymentMutation.isPending
                 }
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
               >

@@ -98,6 +98,7 @@ class LoanPaymentCreate(BaseModel):
     payment_date: date
     amount_paid: Decimal
     principal_repayment: Optional[Decimal] = None  # explicit principal reduction for interest_only loans
+    auto_split: bool = False  # when True, interest first then remainder to principal
     payment_mode: Optional[str] = None
     collected_by: Optional[str] = None
     reference_number: Optional[str] = None

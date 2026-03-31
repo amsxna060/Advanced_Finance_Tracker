@@ -3,8 +3,40 @@ from decimal import Decimal
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from app.models.loan import Loan, LoanPayment, LoanCapitalizationEvent
+
+
+def _days_in_year(year: int) -> int:
+    """Return 366 for leap year, 365 otherwise."""
+    return 366 if calendar.isleap(year) else 365
+
+
+def _build_calendar_periods(start_date: date, end_date: date) -> List[Tuple[date, date]]:
+    """
+    Build calendar-month-aligned periods from start_date to end_date (inclusive).
+    Returns list of (period_start, period_end_exclusive) tuples.
+    First period: start_date -> 1st of next month
+    Middle periods: 1st -> 1st of next month
+    Last period: 1st -> end_date + 1 day (may be partial)
+    """
+    periods = []
+    cur = start_date
+    while cur <= end_date:
+        next_1st = cur.replace(day=1) + relativedelta(months=1)
+        p_end = min(next_1st, end_date + timedelta(days=1))
+        days = (p_end - cur).days
+        if days > 0:
+            periods.append((cur, p_end))
+        cur = p_end
+    return periods
+
+
+def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start: date, days: int) -> Decimal:
+    """Calculate interest for a period using daily rate based on period start year."""
+    year_days = _days_in_year(period_start.year)
+    daily_rate = annual_rate / Decimal("100") / Decimal(str(year_days))
+    return principal * daily_rate * Decimal(str(days))
 
 
 def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[str, Decimal]:
@@ -112,7 +144,6 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
             "as_of_date": as_of_date,
         }
 
-    monthly_interest_full = calc_principal * (calc_rate / Decimal("100") / Decimal("12"))
     interest_accrued = Decimal("0")
 
     # Auto-capitalization: every cap_every months, unpaid interest rolls into principal
@@ -135,10 +166,11 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     )
     pr_idx = 0
 
-    cur = interest_start_calc
-    while cur <= as_of_date:
+    # Build calendar-month-aligned periods and iterate
+    periods = _build_calendar_periods(interest_start_calc, as_of_date)
+    for p_start, p_end in periods:
         # Apply any principal repayments whose date falls at or before the start of this period
-        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= cur:
+        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
             calc_principal = max(calc_principal - principal_repayment_events[pr_idx][1], Decimal("0"))
             pr_idx += 1
 
@@ -146,21 +178,10 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
         if calc_principal <= Decimal("0"):
             break
 
-        period_end = cur + relativedelta(months=1)
         month_count += 1
-        monthly_interest_full = calc_principal * (calc_rate / Decimal("100") / Decimal("12"))
+        days = (p_end - p_start).days
+        mi = _calc_period_interest(calc_principal, calc_rate, p_start, days)
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
-
-        if period_end <= as_of_date:
-            mi = monthly_interest_full
-        else:
-            days_elapsed = (as_of_date - cur).days
-            days_in_period = (period_end - cur).days
-            if days_elapsed > 0 and days_in_period > 0:
-                mi = monthly_interest_full * Decimal(str(days_elapsed)) / Decimal(str(days_in_period))
-            else:
-                cur = period_end
-                continue
 
         interest_accrued += mi
 
@@ -173,16 +194,12 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
         else:
             unpaid_carried += mi
 
-        # Capitalize at end of cycle (only for full completed periods)
-        if is_cap_month and unpaid_carried > Decimal("0") and period_end <= as_of_date:
+        # Capitalize at end of cycle (only for fully past periods)
+        if is_cap_month and unpaid_carried > Decimal("0") and p_end <= as_of_date:
             calc_principal += unpaid_carried
-            # The capitalized interest is now principal, reset accrued tracking
             interest_accrued -= unpaid_carried
-            interest_paid_total -= Decimal("0")  # no change needed
             unpaid_carried = Decimal("0")
             month_count = 0
-
-        cur = period_end
 
     interest_outstanding = max(interest_accrued - interest_paid_total, Decimal("0")).quantize(Decimal("0.01"))
 
@@ -431,8 +448,6 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             for p in payments
         )
 
-        # Generate monthly schedule using loan-disbursement-day based periods
-        cur = start_month
         interest_paid_remaining = total_interest_paid
 
         # Track principal reductions so interest accrues on reduced balance
@@ -443,9 +458,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         )
         st_pr_idx = 0
 
-        while cur <= today:
+        # Build calendar-month-aligned periods
+        periods = _build_calendar_periods(start_month, today)
+        for p_start, p_end in periods:
             # Apply principal reductions at period boundaries
-            while st_pr_idx < len(short_term_pr_events) and short_term_pr_events[st_pr_idx][0] <= cur:
+            while st_pr_idx < len(short_term_pr_events) and short_term_pr_events[st_pr_idx][0] <= p_start:
                 principal = max(principal - short_term_pr_events[st_pr_idx][1], Decimal("0"))
                 st_pr_idx += 1
 
@@ -453,22 +470,8 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             if principal <= Decimal("0"):
                 break
 
-            period_end = cur + relativedelta(months=1)
-            if period_end <= today:
-                # Full period
-                monthly_interest = principal * (rate / Decimal("100") / Decimal("12"))
-            else:
-                # Partial current period — accrue up to today
-                days_elapsed = (today - cur).days
-                days_in_period = (period_end - cur).days
-                if days_elapsed > 0 and days_in_period > 0:
-                    monthly_interest = (
-                        principal * (rate / Decimal("100") / Decimal("12"))
-                        * Decimal(str(days_elapsed)) / Decimal(str(days_in_period))
-                    )
-                else:
-                    cur = period_end
-                    continue  # skip 0-day period
+            days = (p_end - p_start).days
+            monthly_interest = _calc_period_interest(principal, rate, p_start, days)
 
             if interest_paid_remaining >= monthly_interest:
                 paid = monthly_interest
@@ -483,12 +486,13 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 status = "unpaid"
 
             outstanding = monthly_interest - paid
-            is_current = period_end > today
-            period_end_label = today.strftime("%d %b %Y") if is_current else period_end.strftime("%d %b %Y")
-            month_label = f"{cur.strftime('%d %b')} – {period_end_label}"
+            is_current = p_end > today
+            period_last_day = (p_end - timedelta(days=1))
+            period_end_label = period_last_day.strftime("%d %b %Y")
+            month_label = f"{p_start.strftime('%d %b')} – {period_end_label}"
 
             entries.append({
-                "month": cur.strftime("%Y-%m-%d"),
+                "month": p_start.strftime("%Y-%m-%d"),
                 "month_label": month_label,
                 "interest_due": float(monthly_interest),
                 "interest_paid": float(paid),
@@ -496,7 +500,6 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 "status": status,
                 "is_current_month": is_current,
             })
-            cur = period_end
 
         return entries
 
@@ -519,7 +522,6 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         for p in payments
     )
 
-    cur = interest_start
     interest_paid_remaining = total_interest_paid
     entries = []
     month_count = 0
@@ -533,9 +535,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     )
     pr_idx = 0
 
-    while cur <= today:
+    # Build calendar-month-aligned periods
+    periods = _build_calendar_periods(interest_start, today)
+    for p_start, p_end in periods:
         # Apply principal reductions that took effect by or before this period start
-        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= cur:
+        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
             principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
             pr_idx += 1
 
@@ -543,25 +547,10 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         if principal <= Decimal("0"):
             break
 
-        period_end = cur + relativedelta(months=1)
         month_count += 1
+        days = (p_end - p_start).days
+        monthly_interest = _calc_period_interest(principal, rate, p_start, days)
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
-
-        if period_end <= today:
-            # Full period
-            monthly_interest = principal * (rate / Decimal("100") / Decimal("12"))
-        else:
-            # Partial current period — accrue up to today
-            days_elapsed = (today - cur).days
-            days_in_period = (period_end - cur).days
-            if days_elapsed > 0 and days_in_period > 0:
-                monthly_interest = (
-                    principal * (rate / Decimal("100") / Decimal("12"))
-                    * Decimal(str(days_elapsed)) / Decimal(str(days_in_period))
-                )
-            else:
-                cur = period_end
-                continue  # skip 0-day period (just started today)
 
         if interest_paid_remaining >= monthly_interest:
             paid = monthly_interest
@@ -579,12 +568,13 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             unpaid_interest_carried += monthly_interest
 
         outstanding = monthly_interest - paid
-        is_current = period_end > today
-        period_end_label = today.strftime("%d %b %Y") if is_current else period_end.strftime("%d %b %Y")
-        month_label = f"{cur.strftime('%d %b')} – {period_end_label}"
+        is_current = p_end > today
+        period_last_day = (p_end - timedelta(days=1))
+        period_end_label = period_last_day.strftime("%d %b %Y")
+        month_label = f"{p_start.strftime('%d %b')} – {period_end_label}"
 
         entry = {
-            "month": cur.strftime("%Y-%m-%d"),
+            "month": p_start.strftime("%Y-%m-%d"),
             "month_label": month_label,
             "interest_due": float(monthly_interest),
             "interest_paid": float(paid),
@@ -605,6 +595,5 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             month_count = 0  # reset cycle counter
 
         entries.append(entry)
-        cur = period_end
 
     return entries

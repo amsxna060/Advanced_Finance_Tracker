@@ -16,6 +16,7 @@ import ContactForm from "./pages/Contacts/ContactForm";
 import LoanList from "./pages/Loans/LoanList";
 import LoanDetail from "./pages/Loans/LoanDetail";
 import LoanForm from "./pages/Loans/LoanForm";
+import LoanStatement from "./pages/Loans/LoanStatement";
 import PropertyList from "./pages/Properties/PropertyList";
 import PropertyDetail from "./pages/Properties/PropertyDetail";
 import PropertyForm from "./pages/Properties/PropertyForm";
@@ -112,6 +113,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <LoanForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/loans/:id/statement"
+              element={
+                <ProtectedRoute>
+                  <LoanStatement />
                 </ProtectedRoute>
               }
             />

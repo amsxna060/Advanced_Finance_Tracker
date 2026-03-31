@@ -13,6 +13,7 @@ def allocate_payment(
     payment_date: date,
     db: Session,
     principal_repayment: Decimal = None,
+    auto_split: bool = False,
 ) -> Dict[str, Decimal]:
     """
     Allocate a payment amount to overdue interest, current interest, and principal.
@@ -125,7 +126,12 @@ def allocate_payment(
             remaining -= interest_payment
 
         if loan.loan_type == "interest_only":
-            # If principal was not explicitly requested, excess acts as advance credit.
+            # Auto-split: excess after interest goes to principal reduction
+            if auto_split and remaining > Decimal("0") and principal_outstanding > Decimal("0"):
+                principal_payment = min(remaining, principal_outstanding)
+                allocated_principal += principal_payment
+                remaining -= principal_payment
+            # Manual mode: excess acts as advance credit
             if remaining > Decimal("0"):
                 allocated_current += remaining
                 remaining = Decimal("0")

@@ -284,6 +284,7 @@ def record_payment(
         payment_data.payment_date,
         db,
         principal_repayment=Decimal(str(payment_data.principal_repayment)) if payment_data.principal_repayment else None,
+        auto_split=payment_data.auto_split,
     )
     
     # Create payment record
@@ -430,6 +431,7 @@ def preview_payment(
     amount: Decimal = Query(..., gt=0),
     payment_date: Optional[date] = None,
     principal_repayment: Optional[Decimal] = Query(None, gt=0),
+    auto_split: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -439,7 +441,7 @@ def preview_payment(
         raise HTTPException(status_code=404, detail="Loan not found")
     
     preview_date = payment_date or date.today()
-    allocation = allocate_payment(loan_id, amount, preview_date, db, principal_repayment=principal_repayment)
+    allocation = allocate_payment(loan_id, amount, preview_date, db, principal_repayment=principal_repayment, auto_split=auto_split)
     
     return PaymentPreviewResponse(
         amount=amount,
@@ -541,3 +543,114 @@ def get_monthly_interest_schedule(
 
     schedule = generate_monthly_interest_schedule(loan, db)
     return {"schedule": schedule, "loan_type": loan.loan_type}
+
+
+@router.get("/{loan_id}/statement")
+def get_client_statement(
+    loan_id: int,
+    from_month: Optional[str] = Query(None, description="Start month YYYY-MM"),
+    to_month: Optional[str] = Query(None, description="End month YYYY-MM"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate a borrower-facing loan statement showing chronological events:
+    disbursement, interest accruals by month, payments, and capitalizations.
+    Filterable by month range.
+    """
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    contact = loan.contact
+
+    # Get all payments
+    payments = db.query(LoanPayment).filter(
+        LoanPayment.loan_id == loan_id
+    ).order_by(LoanPayment.payment_date.asc()).all()
+
+    # Get capitalization events
+    cap_events = db.query(LoanCapitalizationEvent).filter(
+        LoanCapitalizationEvent.loan_id == loan_id
+    ).order_by(LoanCapitalizationEvent.event_date.asc()).all()
+
+    # Get monthly schedule
+    schedule = generate_monthly_interest_schedule(loan, db)
+
+    # Get current outstanding
+    outstanding = calculate_outstanding(loan_id, date.today(), db)
+
+    # Build chronological statement entries
+    entries = []
+
+    # Disbursement entry
+    entries.append({
+        "date": str(loan.disbursed_date),
+        "type": "disbursement",
+        "description": "Loan Disbursed",
+        "amount": float(loan.principal_amount),
+        "balance_effect": "principal",
+    })
+
+    # Interest accrual entries from schedule
+    for s in schedule:
+        if s.get("month") == "interest_free":
+            continue
+        entries.append({
+            "date": s["month"],
+            "type": "interest",
+            "description": f"Interest for {s['month_label']}",
+            "amount": s["interest_due"],
+            "paid": s["interest_paid"],
+            "outstanding": s["interest_outstanding"],
+            "status": s["status"],
+            "capitalized": s.get("capitalized", False),
+            "capitalized_amount": s.get("capitalized_amount", 0),
+            "new_principal_after": s.get("new_principal_after", None),
+        })
+
+    # Payment entries
+    for p in payments:
+        entries.append({
+            "date": str(p.payment_date),
+            "type": "payment",
+            "description": "Payment Received",
+            "amount": float(p.amount_paid),
+            "interest_portion": float(
+                Decimal(str(p.allocated_to_current_interest or 0)) +
+                Decimal(str(p.allocated_to_overdue_interest or 0))
+            ),
+            "principal_portion": float(p.allocated_to_principal or 0),
+            "payment_mode": p.payment_mode,
+        })
+
+    # Apply month filter if provided
+    if from_month or to_month:
+        filtered = []
+        for e in entries:
+            entry_month = e["date"][:7]  # YYYY-MM
+            if from_month and entry_month < from_month:
+                continue
+            if to_month and entry_month > to_month:
+                continue
+            filtered.append(e)
+        entries = filtered
+
+    # Sort by date
+    entries.sort(key=lambda x: x["date"])
+
+    return {
+        "loan_id": loan.id,
+        "contact_name": contact.name if contact else "Unknown",
+        "principal_amount": float(loan.principal_amount),
+        "interest_rate": float(loan.interest_rate or 0),
+        "loan_type": loan.loan_type,
+        "disbursed_date": str(loan.disbursed_date),
+        "status": loan.status,
+        "outstanding": {
+            "principal": float(outstanding["principal_outstanding"]),
+            "interest": float(outstanding["interest_outstanding"]),
+            "total": float(outstanding["total_outstanding"]),
+        },
+        "entries": entries,
+    }
