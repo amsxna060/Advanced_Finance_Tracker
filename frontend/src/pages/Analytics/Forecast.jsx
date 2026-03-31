@@ -7,6 +7,7 @@ import { formatCurrency } from "../../lib/utils";
 const PERIOD_PRESETS = [
   { key: "15", label: "15 Days", days: 15 },
   { key: "30", label: "30 Days", days: 30 },
+  { key: "60", label: "60 Days", days: 60 },
   { key: "90", label: "90 Days", days: 90 },
   { key: "365", label: "1 Year", days: 365 },
 ];
@@ -42,7 +43,10 @@ const SOURCE_TAG = {
 };
 
 function fmtDate(d) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function addDays(d, n) {

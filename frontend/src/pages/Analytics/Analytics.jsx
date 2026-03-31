@@ -903,9 +903,7 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
       </div>
     );
   }
-  if (!forecast?.periods) return null;
-  const pd = forecast.periods["30_days"];
-  if (!pd) return null;
+  if (!forecast?.inflow) return null;
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
@@ -930,7 +928,7 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
             Reliable Inflow
           </p>
           <p className="text-xl font-bold text-green-800 mt-1">
-            {formatCurrency(pd.inflow.high)}
+            {formatCurrency(forecast.inflow.high)}
           </p>
           <p className="text-[10px] text-green-500 mt-0.5">
             Paid within 30 days
@@ -941,66 +939,66 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
             Committed Outflow
           </p>
           <p className="text-xl font-bold text-red-800 mt-1">
-            {formatCurrency(pd.outflow.high + pd.outflow.medium)}
+            {formatCurrency(forecast.outflow.high + forecast.outflow.medium)}
           </p>
-          <p className="text-[10px] text-red-500 mt-0.5">EMIs + Beesi</p>
+          <p className="text-[10px] text-red-500 mt-0.5">EMIs + Interest</p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
           <p className="text-[11px] text-amber-600 font-medium">
             Possible Inflow
           </p>
           <p className="text-xl font-bold text-amber-800 mt-1">
-            {formatCurrency(pd.inflow.medium + pd.inflow.low)}
+            {formatCurrency(forecast.inflow.medium + forecast.inflow.low)}
           </p>
           <p className="text-[10px] text-amber-500 mt-0.5">
             Irregular / overdue payers
           </p>
         </div>
         <div
-          className={`border rounded-lg p-3 ${pd.net >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-orange-50 border-orange-200"}`}
+          className={`border rounded-lg p-3 ${forecast.net >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-orange-50 border-orange-200"}`}
         >
           <p
-            className={`text-[11px] font-medium ${pd.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}
+            className={`text-[11px] font-medium ${forecast.net >= 0 ? "text-emerald-600" : "text-orange-600"}`}
           >
             Net Position
           </p>
           <p
-            className={`text-xl font-bold mt-1 ${pd.net >= 0 ? "text-emerald-800" : "text-orange-800"}`}
+            className={`text-xl font-bold mt-1 ${forecast.net >= 0 ? "text-emerald-800" : "text-orange-800"}`}
           >
-            {pd.net >= 0 ? "+" : ""}
-            {formatCurrency(pd.net)}
+            {forecast.net >= 0 ? "+" : ""}
+            {formatCurrency(forecast.net)}
           </p>
           <p
-            className={`text-[10px] mt-0.5 ${pd.net >= 0 ? "text-emerald-500" : "text-orange-500"}`}
+            className={`text-[10px] mt-0.5 ${forecast.net >= 0 ? "text-emerald-500" : "text-orange-500"}`}
           >
             All confidence levels
           </p>
         </div>
       </div>
 
-      {(pd.inflow.emi_receipts > 0 || pd.inflow.interest_receipts > 0) && (
+      {(forecast.inflow.emi_receipts > 0 || forecast.inflow.interest_receipts > 0) && (
         <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600">
-          {pd.inflow.emi_receipts > 0 && (
+          {forecast.inflow.emi_receipts > 0 && (
             <span>
               EMI Receipts:{" "}
               <strong className="text-green-700">
-                {formatCurrency(pd.inflow.emi_receipts)}
+                {formatCurrency(forecast.inflow.emi_receipts)}
               </strong>
             </span>
           )}
-          {pd.inflow.interest_receipts > 0 && (
+          {forecast.inflow.interest_receipts > 0 && (
             <span>
               Interest:{" "}
               <strong className="text-green-700">
-                {formatCurrency(pd.inflow.interest_receipts)}
+                {formatCurrency(forecast.inflow.interest_receipts)}
               </strong>
             </span>
           )}
-          {pd.inflow.principal_returns > 0 && (
+          {forecast.inflow.principal_returns > 0 && (
             <span>
               Principal:{" "}
               <strong className="text-teal-700">
-                {formatCurrency(pd.inflow.principal_returns)}
+                {formatCurrency(forecast.inflow.principal_returns)}
               </strong>
             </span>
           )}
