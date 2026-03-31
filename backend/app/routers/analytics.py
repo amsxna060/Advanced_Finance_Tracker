@@ -580,6 +580,7 @@ def analytics_forecast(
         conf = _loan_confidence(loan)
 
         if loan.loan_type == "emi":
+            # Show all unpaid EMIs within the selected window
             schedule = get_emi_schedule_with_payments(loan, db)
             for entry in schedule:
                 dd = entry["due_date"]
@@ -606,49 +607,85 @@ def analytics_forecast(
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
-            # Use calendar-month periods with daily rate for forecasting
-            periods = _build_calendar_periods(from_dt, horizon_date)
-            for p_start, p_end in periods:
-                days = (p_end - p_start).days
-                period_interest = float(_calc_period_interest(principal, rate, p_start, days).quantize(Decimal("0.01")))
-                if period_interest <= 0:
-                    continue
+
+            # 1. Overdue interest: accrued but unpaid as of today (always show)
+            outstanding = calculate_outstanding(loan.id, today, db)
+            overdue_interest = outstanding["interest_outstanding"]
+            if overdue_interest > Decimal("0"):
                 items.append({
                     "source": "interest_receipt", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": period_interest,
-                    "due_date": p_start.replace(day=1).isoformat() if p_start.day != 1 else p_start.isoformat(),
-                    "label": f"Interest {p_start.strftime('%d %b')} – {(p_end - timedelta(days=1)).strftime('%d %b')} ({rate}% p.a.)",
+                    "amount": float(overdue_interest.quantize(Decimal("0.01"))),
+                    "due_date": None,
+                    "label": f"Overdue interest accrued ({rate}% p.a.)",
                     "confidence": conf,
+                    "is_overdue": True,
                 })
-            # Principal return only if end date exists and falls in window
-            if loan.expected_end_date and from_dt < loan.expected_end_date <= horizon_date:
-                rem = _remaining_principal(loan)
-                if rem > 0:
-                    items.append({
-                        "source": "principal_return", "contact": name,
-                        "contact_id": loan.contact_id, "loan_id": loan.id,
-                        "amount": float(rem),
-                        "due_date": loan.expected_end_date.isoformat(),
-                        "label": "Principal return (expected end date)",
-                        "confidence": "low" if conf == "low" else "medium",
-                    })
+
+            # 2. Upcoming interest: only for regular payers (high conf), one merged row
+            if conf == "high":
+                future_start = max(from_dt, today)
+                if future_start < horizon_date:
+                    days = (horizon_date - future_start).days
+                    future_interest = float(_calc_period_interest(
+                        principal, rate, future_start, days
+                    ).quantize(Decimal("0.01")))
+                    if future_interest > 0:
+                        items.append({
+                            "source": "interest_receipt", "contact": name,
+                            "contact_id": loan.contact_id, "loan_id": loan.id,
+                            "amount": future_interest,
+                            "due_date": horizon_date.isoformat(),
+                            "label": f"Interest {future_start.strftime('%d %b')} \u2013 {horizon_date.strftime('%d %b %Y')} ({rate}% p.a.)",
+                            "confidence": conf,
+                        })
+
+            # 3. Principal return: show if overdue or falls in window
+            if loan.expected_end_date:
+                end_date = loan.expected_end_date
+                is_end_past = end_date < today
+                if is_end_past or end_date <= horizon_date:
+                    rem = _remaining_principal(loan)
+                    if rem > 0:
+                        items.append({
+                            "source": "principal_return", "contact": name,
+                            "contact_id": loan.contact_id, "loan_id": loan.id,
+                            "amount": float(rem),
+                            "due_date": end_date.isoformat(),
+                            "label": (f"Overdue principal return (due {end_date.strftime('%d %b %Y')})"
+                                      if is_end_past else "Principal return (expected end date)"),
+                            "confidence": "low" if conf == "low" else "medium",
+                            **({"is_overdue": True} if is_end_past else {}),
+                        })
 
         elif loan.loan_type == "short_term":
             remaining = _remaining_principal(loan)
             if remaining <= 0:
                 return items  # fully repaid
             end = loan.expected_end_date or loan.interest_free_till
-            if end and from_dt < end <= horizon_date:
+            if end:
+                is_end_past = end < today
+                if is_end_past or end <= horizon_date:
+                    items.append({
+                        "source": "principal_return", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": float(remaining),
+                        "due_date": end.isoformat(),
+                        "label": (f"Overdue: Short-term return (due {end.strftime('%d %b %Y')})"
+                                  if is_end_past else "Short-term loan return"),
+                        "confidence": conf,
+                        **({"is_overdue": True} if is_end_past else {}),
+                    })
+            else:
+                # No due date — include with low confidence
                 items.append({
                     "source": "principal_return", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
                     "amount": float(remaining),
-                    "due_date": end.isoformat(),
-                    "label": "Short-term loan return",
-                    "confidence": conf,
+                    "due_date": None,
+                    "label": "Short-term loan return (no due date set)",
+                    "confidence": "low",
                 })
-            # If no end date — skip entirely for time-bound forecast
 
         return items
 
@@ -658,23 +695,38 @@ def analytics_forecast(
         name = _contact(loan)
 
         if loan.loan_type == "emi":
+            # Show overdue EMIs always, plus only the very next upcoming one (avoids 10-year flood)
             schedule = get_emi_schedule_with_payments(loan, db)
+            next_upcoming_added = False
             for entry in schedule:
                 dd = entry["due_date"]
-                if dd < from_dt or dd > horizon_date:
-                    continue
                 if entry["status"] == "paid":
                     continue
                 remaining = float(entry["outstanding"])
-                if remaining > 0:
+                if remaining <= 0:
+                    continue
+                if dd < today:
+                    # Overdue — always show regardless of date window
                     items.append({
                         "source": "emi_payment", "contact": name,
                         "contact_id": loan.contact_id, "loan_id": loan.id,
                         "amount": remaining,
                         "due_date": dd.isoformat(),
-                        "label": f"EMI #{entry['emi_number']}",
+                        "label": f"EMI #{entry['emi_number']} (overdue)",
+                        "confidence": "high",
+                        "is_overdue": True,
+                    })
+                elif not next_upcoming_added and dd <= horizon_date:
+                    # Only the single next upcoming EMI within the window
+                    items.append({
+                        "source": "emi_payment", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": remaining,
+                        "due_date": dd.isoformat(),
+                        "label": f"EMI #{entry['emi_number']} (next due)",
                         "confidence": "high",
                     })
+                    next_upcoming_added = True
 
         elif loan.loan_type == "interest_only":
             rate = _D(loan.interest_rate)
@@ -684,47 +736,81 @@ def analytics_forecast(
             start = loan.interest_start_date or loan.disbursed_date
             if not start:
                 return items
-            # Use calendar-month periods with daily rate for forecasting
-            periods = _build_calendar_periods(from_dt, horizon_date)
-            for p_start, p_end in periods:
-                days = (p_end - p_start).days
-                period_interest = float(_calc_period_interest(principal, rate, p_start, days).quantize(Decimal("0.01")))
-                if period_interest <= 0:
-                    continue
+
+            # 1. Overdue interest outstanding as of today (always show)
+            outstanding = calculate_outstanding(loan.id, today, db)
+            overdue_interest = outstanding["interest_outstanding"]
+            if overdue_interest > Decimal("0"):
                 items.append({
                     "source": "interest_payment", "contact": name,
                     "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": period_interest,
-                    "due_date": p_start.replace(day=1).isoformat() if p_start.day != 1 else p_start.isoformat(),
-                    "label": f"Interest {p_start.strftime('%d %b')} – {(p_end - timedelta(days=1)).strftime('%d %b')} ({rate}% p.a.)",
+                    "amount": float(overdue_interest.quantize(Decimal("0.01"))),
+                    "due_date": None,
+                    "label": f"Overdue interest accrued ({rate}% p.a.)",
                     "confidence": "high",
+                    "is_overdue": True,
                 })
-            if loan.expected_end_date and from_dt < loan.expected_end_date <= horizon_date:
+
+            # 2. Upcoming interest: one merged row for window (always show — our obligation)
+            future_start = max(from_dt, today)
+            if future_start < horizon_date:
+                days = (horizon_date - future_start).days
+                future_interest = float(_calc_period_interest(
+                    principal, rate, future_start, days
+                ).quantize(Decimal("0.01")))
+                if future_interest > 0:
+                    items.append({
+                        "source": "interest_payment", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": future_interest,
+                        "due_date": horizon_date.isoformat(),
+                        "label": f"Interest {future_start.strftime('%d %b')} \u2013 {horizon_date.strftime('%d %b %Y')} ({rate}% p.a.)",
+                        "confidence": "high",
+                    })
+
+            # 3. Principal: show if overdue or due in window
+            if loan.expected_end_date:
+                end_date = loan.expected_end_date
                 rem = _remaining_principal(loan)
                 if rem > 0:
-                    items.append({
-                        "source": "principal_payment", "contact": name,
-                        "contact_id": loan.contact_id, "loan_id": loan.id,
-                        "amount": float(rem),
-                        "due_date": loan.expected_end_date.isoformat(),
-                        "label": "Principal due (expected end date)",
-                        "confidence": "medium",
-                    })
+                    if end_date < today:
+                        items.append({
+                            "source": "principal_payment", "contact": name,
+                            "contact_id": loan.contact_id, "loan_id": loan.id,
+                            "amount": float(rem),
+                            "due_date": end_date.isoformat(),
+                            "label": f"Overdue principal (was due {end_date.strftime('%d %b %Y')})",
+                            "confidence": "high",
+                            "is_overdue": True,
+                        })
+                    elif end_date <= horizon_date:
+                        items.append({
+                            "source": "principal_payment", "contact": name,
+                            "contact_id": loan.contact_id, "loan_id": loan.id,
+                            "amount": float(rem),
+                            "due_date": end_date.isoformat(),
+                            "label": "Principal due (expected end date)",
+                            "confidence": "medium",
+                        })
 
         elif loan.loan_type == "short_term":
             remaining = _remaining_principal(loan)
             if remaining <= 0:
                 return items
             end = loan.expected_end_date or loan.interest_free_till
-            if end and from_dt < end <= horizon_date:
-                items.append({
-                    "source": "principal_payment", "contact": name,
-                    "contact_id": loan.contact_id, "loan_id": loan.id,
-                    "amount": float(remaining),
-                    "due_date": end.isoformat(),
-                    "label": "Short-term loan return due",
-                    "confidence": "medium",
-                })
+            if end:
+                is_end_past = end < today
+                if is_end_past or end <= horizon_date:
+                    items.append({
+                        "source": "principal_payment", "contact": name,
+                        "contact_id": loan.contact_id, "loan_id": loan.id,
+                        "amount": float(remaining),
+                        "due_date": end.isoformat(),
+                        "label": (f"Overdue: Short-term return (was due {end.strftime('%d %b %Y')})"
+                                  if is_end_past else "Short-term loan return due"),
+                        "confidence": "high" if is_end_past else "medium",
+                        **({"is_overdue": True} if is_end_past else {}),
+                    })
 
         return items
 
@@ -816,6 +902,7 @@ def analytics_forecast(
             "property": round(_sum_by(inflow_items, "property"), 2),
             "receivables": round(_sum_by(inflow_items, "obligation_"), 2),
             "items": sorted(inflow_items, key=lambda x: (
+                0 if x.get("is_overdue") else 1,
                 {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
                 x["due_date"] or "9999-12-31",
             )),
@@ -830,6 +917,7 @@ def analytics_forecast(
             "principal_payments": round(_sum_by(outflow_items, "principal_"), 2),
             "payables": round(_sum_by(outflow_items, "obligation_"), 2),
             "items": sorted(outflow_items, key=lambda x: (
+                0 if x.get("is_overdue") else 1,
                 {"high": 0, "medium": 1, "low": 2}.get(x.get("confidence"), 3),
                 x["due_date"] or "9999-12-31",
             )),

@@ -381,6 +381,11 @@ export default function Forecast() {
                       >
                         {item.confidence}
                       </span>
+                      {item.is_overdue && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium text-red-700 bg-red-50 border-red-200">
+                          overdue
+                        </span>
+                      )}
                       <span className="text-xs text-gray-600 truncate">
                         {item.label}
                       </span>
