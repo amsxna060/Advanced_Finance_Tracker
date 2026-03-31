@@ -895,7 +895,7 @@ def analytics_activity(
             "payment_mode": pay.payment_mode,
         })
 
-    # ── Interest Collected (payments on interest_only / short_term loans given) ──
+    # ── Interest Collected + Principal Collected (payments on interest_only / short_term loans given) ──
     interest_payments = (
         db.query(LoanPayment, Loan)
         .join(Loan, Loan.id == LoanPayment.loan_id)
@@ -909,16 +909,20 @@ def analytics_activity(
         .all()
     )
     interest_collected = []
+    principal_collected = []
     for pay, loan in interest_payments:
         cname = loan.contact.name if loan.contact else f"Contact #{loan.contact_id}"
-        interest_collected.append({
+        int_amt = float(_D(pay.allocated_to_current_interest) + _D(pay.allocated_to_overdue_interest))
+        prin_amt = float(_D(pay.allocated_to_principal))
+        base = {
             "contact": cname, "contact_id": loan.contact_id, "loan_id": loan.id,
-            "amount": float(_D(pay.amount_paid)),
-            "interest_portion": float(_D(pay.allocated_to_current_interest) + _D(pay.allocated_to_overdue_interest)),
-            "principal_portion": float(_D(pay.allocated_to_principal)),
             "date": pay.payment_date.isoformat(),
             "loan_type": loan.loan_type,
-        })
+        }
+        if int_amt > 0:
+            interest_collected.append({**base, "amount": int_amt})
+        if prin_amt > 0:
+            principal_collected.append({**base, "amount": prin_amt})
 
     # ── Loans Given (new disbursements in period) ────────────────────────
     new_loans_given = (
@@ -1123,7 +1127,8 @@ def analytics_activity(
         "summary": {
             "emis_collected": round(sum(e["amount"] for e in emis_collected), 2),
             "interest_collected": round(sum(e["amount"] for e in interest_collected), 2),
-            "total_collected": round(sum(e["amount"] for e in emis_collected) + sum(e["amount"] for e in interest_collected), 2),
+            "principal_collected": round(sum(e["amount"] for e in principal_collected), 2),
+            "total_collected": round(sum(e["amount"] for e in emis_collected) + sum(e["amount"] for e in interest_collected) + sum(e["amount"] for e in principal_collected), 2),
             "loans_given": round(sum(e["amount"] for e in loans_given_list), 2),
             "loans_taken": round(sum(e["amount"] for e in loans_taken_list), 2),
             "payments_made": round(sum(e["amount"] for e in payments_made_list), 2),
@@ -1143,6 +1148,11 @@ def analytics_activity(
                 "total": round(sum(e["amount"] for e in interest_collected), 2),
                 "count": len(interest_collected),
                 "by_contact": _group_by_contact(interest_collected),
+            },
+            "principal_collected": {
+                "total": round(sum(e["amount"] for e in principal_collected), 2),
+                "count": len(principal_collected),
+                "by_contact": _group_by_contact(principal_collected),
             },
             "loans_given": {
                 "total": round(sum(e["amount"] for e in loans_given_list), 2),

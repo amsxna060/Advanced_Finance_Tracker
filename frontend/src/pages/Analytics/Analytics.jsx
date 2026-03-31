@@ -232,6 +232,12 @@ export default function Analytics() {
                   icon="💰"
                 />
                 <ActivityCard
+                  label="Principal Collected"
+                  value={activity.summary.principal_collected}
+                  color="teal"
+                  icon="🏦"
+                />
+                <ActivityCard
                   label="Money Lent Out"
                   value={activity.summary.loans_given}
                   color="blue"
@@ -296,6 +302,20 @@ export default function Analytics() {
                 navigate={navigate}
                 color="emerald"
               />
+
+              {/* Principal Collected */}
+              {activity.sections.principal_collected?.total > 0 && (
+                <ActivitySection
+                  title="Principal Collected"
+                  subtitle="Principal repayments received on loans given"
+                  section={activity.sections.principal_collected}
+                  sectionKey="principal"
+                  expanded={expandedSection === "principal"}
+                  toggle={() => toggle("principal")}
+                  navigate={navigate}
+                  color="teal"
+                />
+              )}
 
               {/* Loans Given */}
               <ActivitySection
@@ -763,6 +783,7 @@ function ActivitySection({
   const dotColors = {
     green: "bg-green-500",
     emerald: "bg-emerald-500",
+    teal: "bg-teal-500",
     blue: "bg-blue-500",
     orange: "bg-orange-500",
     red: "bg-red-500",
@@ -770,6 +791,7 @@ function ActivitySection({
   const textColors = {
     green: "text-green-700",
     emerald: "text-emerald-700",
+    teal: "text-teal-700",
     blue: "text-blue-700",
     orange: "text-orange-700",
     red: "text-red-700",
