@@ -212,7 +212,10 @@ function LoanDetail() {
   const handleRecordPayment = () => {
     const isEmi = loan?.loan_type === "emi";
     const useAutoSplit = !isEmi && autoSplit;
-    const total = (isEmi || useAutoSplit) ? parseFloat(paymentAmount) : parseFloat(nonEmiTotal());
+    const total =
+      isEmi || useAutoSplit
+        ? parseFloat(paymentAmount)
+        : parseFloat(nonEmiTotal());
     if (!total || total <= 0) return;
     const payload = {
       amount_paid: total,
@@ -1076,7 +1079,9 @@ function LoanDetail() {
                           step="0.01"
                           min="0"
                           value={paymentAmount}
-                          onChange={(e) => handlePaymentAmountChange(e.target.value)}
+                          onChange={(e) =>
+                            handlePaymentAmountChange(e.target.value)
+                          }
                           className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                           placeholder="0.00"
                         />
@@ -1084,7 +1089,9 @@ function LoanDetail() {
                       {loanData?.outstanding?.interest_outstanding > 0 && (
                         <p className="text-xs text-gray-500 mt-1">
                           Outstanding interest:{" "}
-                          {formatCurrency(loanData.outstanding.interest_outstanding)}
+                          {formatCurrency(
+                            loanData.outstanding.interest_outstanding,
+                          )}
                           {" · "}Will be paid first
                         </p>
                       )}
@@ -1093,96 +1100,96 @@ function LoanDetail() {
                     /* ── Manual mode: separate interest + principal fields ── */
                     <>
                       <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Interest Payment
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                        ₹
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={interestPaymentAmount}
-                        onChange={(e) => {
-                          setInterestPaymentAmount(e.target.value);
-                          const total =
-                            (parseFloat(e.target.value) || 0) +
-                            (parseFloat(principalRepaymentAmount) || 0);
-                          if (total > 0)
-                            fetchPreview(
-                              total.toFixed(2),
-                              parseFloat(principalRepaymentAmount) || null,
-                            );
-                          else setPaymentPreview(null);
-                        }}
-                        className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        placeholder="0.00"
-                      />
-                    </div>
-                    {loanData?.outstanding?.interest_outstanding > 0 && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Outstanding:{" "}
-                        {formatCurrency(
-                          loanData.outstanding.interest_outstanding,
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Interest Payment
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                            ₹
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={interestPaymentAmount}
+                            onChange={(e) => {
+                              setInterestPaymentAmount(e.target.value);
+                              const total =
+                                (parseFloat(e.target.value) || 0) +
+                                (parseFloat(principalRepaymentAmount) || 0);
+                              if (total > 0)
+                                fetchPreview(
+                                  total.toFixed(2),
+                                  parseFloat(principalRepaymentAmount) || null,
+                                );
+                              else setPaymentPreview(null);
+                            }}
+                            className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        {loanData?.outstanding?.interest_outstanding > 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Outstanding:{" "}
+                            {formatCurrency(
+                              loanData.outstanding.interest_outstanding,
+                            )}
+                          </p>
                         )}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Principal Repayment
-                      <span className="ml-1 text-gray-400 font-normal">
-                        (optional)
-                      </span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                        ₹
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={principalRepaymentAmount}
-                        onChange={(e) => {
-                          setPrincipalRepaymentAmount(e.target.value);
-                          const total =
-                            (parseFloat(interestPaymentAmount) || 0) +
-                            (parseFloat(e.target.value) || 0);
-                          if (total > 0)
-                            fetchPreview(
-                              total.toFixed(2),
-                              parseFloat(e.target.value) || null,
-                            );
-                          else setPaymentPreview(null);
-                        }}
-                        className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Interest will stop accruing on returned amount from this
-                      date.
-                    </p>
-                  </div>
-                  {/* Total summary row */}
-                  {(parseFloat(interestPaymentAmount) || 0) +
-                    (parseFloat(principalRepaymentAmount) || 0) >
-                    0 && (
-                    <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-2">
-                      <span className="text-sm font-semibold text-gray-700">
-                        Total Payment
-                      </span>
-                      <span className="text-base font-bold text-gray-900">
-                        {formatCurrency(
-                          (parseFloat(interestPaymentAmount) || 0) +
-                            (parseFloat(principalRepaymentAmount) || 0),
-                        )}
-                      </span>
-                    </div>
-                  )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Principal Repayment
+                          <span className="ml-1 text-gray-400 font-normal">
+                            (optional)
+                          </span>
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                            ₹
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={principalRepaymentAmount}
+                            onChange={(e) => {
+                              setPrincipalRepaymentAmount(e.target.value);
+                              const total =
+                                (parseFloat(interestPaymentAmount) || 0) +
+                                (parseFloat(e.target.value) || 0);
+                              if (total > 0)
+                                fetchPreview(
+                                  total.toFixed(2),
+                                  parseFloat(e.target.value) || null,
+                                );
+                              else setPaymentPreview(null);
+                            }}
+                            className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Interest will stop accruing on returned amount from
+                          this date.
+                        </p>
+                      </div>
+                      {/* Total summary row */}
+                      {(parseFloat(interestPaymentAmount) || 0) +
+                        (parseFloat(principalRepaymentAmount) || 0) >
+                        0 && (
+                        <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-2">
+                          <span className="text-sm font-semibold text-gray-700">
+                            Total Payment
+                          </span>
+                          <span className="text-base font-bold text-gray-900">
+                            {formatCurrency(
+                              (parseFloat(interestPaymentAmount) || 0) +
+                                (parseFloat(principalRepaymentAmount) || 0),
+                            )}
+                          </span>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -1199,7 +1206,8 @@ function LoanDetail() {
                     if (loan.loan_type === "emi") {
                       if (paymentAmount) fetchPreview(paymentAmount, null);
                     } else if (autoSplit) {
-                      if (paymentAmount) fetchPreview(paymentAmount, null, true);
+                      if (paymentAmount)
+                        fetchPreview(paymentAmount, null, true);
                     } else {
                       const total =
                         (parseFloat(interestPaymentAmount) || 0) +

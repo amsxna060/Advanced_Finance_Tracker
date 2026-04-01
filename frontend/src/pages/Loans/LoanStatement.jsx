@@ -74,7 +74,10 @@ function LoanStatement() {
             className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
           />
           <button
-            onClick={() => { setFromMonth(""); setToMonth(""); }}
+            onClick={() => {
+              setFromMonth("");
+              setToMonth("");
+            }}
             className="px-3 py-1.5 text-sm text-blue-600 hover:underline"
           >
             Clear
@@ -164,106 +167,108 @@ function LoanStatement() {
 
         {/* Statement Table */}
         <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse min-w-[600px]">
-          <thead>
-            <tr className="bg-gray-100 border-b border-gray-300">
-              <th className="text-left px-3 py-2 font-semibold text-gray-700">
-                Date
-              </th>
-              <th className="text-left px-3 py-2 font-semibold text-gray-700">
-                Description
-              </th>
-              <th className="text-right px-3 py-2 font-semibold text-gray-700">
-                Amount
-              </th>
-              <th className="text-right px-3 py-2 font-semibold text-gray-700">
-                Status
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.entries.map((entry, idx) => (
-              <tr
-                key={idx}
-                className={`border-b border-gray-100 ${
-                  entry.type === "payment"
-                    ? "bg-green-50"
-                    : entry.capitalized
-                      ? "bg-orange-50"
-                      : ""
-                }`}
-              >
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
-                  {entry.type === "interest"
-                    ? ""
-                    : formatDate(entry.date)}
-                </td>
-                <td className="px-3 py-2 text-gray-900">
-                  {entry.description}
-                  {entry.type === "payment" && (
-                    <span className="text-xs text-gray-500 ml-2">
-                      (Interest: {formatCurrency(entry.interest_portion)},
-                      Principal: {formatCurrency(entry.principal_portion)})
-                    </span>
-                  )}
-                  {entry.capitalized && (
-                    <span className="text-xs text-orange-600 ml-2 font-medium">
-                      ⚡ Capitalized {formatCurrency(entry.capitalized_amount)}
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
-                  {entry.type === "disbursement" && (
-                    <span className="text-gray-900">
-                      {formatCurrency(entry.amount)}
-                    </span>
-                  )}
-                  {entry.type === "interest" && (
-                    <span className="text-yellow-700">
-                      {formatCurrency(entry.amount)}
-                    </span>
-                  )}
-                  {entry.type === "payment" && (
-                    <span className="text-green-700">
-                      -{formatCurrency(entry.amount)}
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  {entry.type === "interest" && (
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                        entry.status === "paid"
-                          ? "bg-green-100 text-green-700"
+          <table className="w-full text-sm border-collapse min-w-[600px]">
+            <thead>
+              <tr className="bg-gray-100 border-b border-gray-300">
+                <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                  Date
+                </th>
+                <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                  Description
+                </th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                  Amount
+                </th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                  Status
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.entries.map((entry, idx) => (
+                <tr
+                  key={idx}
+                  className={`border-b border-gray-100 ${
+                    entry.type === "payment"
+                      ? "bg-green-50"
+                      : entry.capitalized
+                        ? "bg-orange-50"
+                        : ""
+                  }`}
+                >
+                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                    {entry.type === "interest" ? "" : formatDate(entry.date)}
+                  </td>
+                  <td className="px-3 py-2 text-gray-900">
+                    {entry.description}
+                    {entry.type === "payment" && (
+                      <span className="text-xs text-gray-500 ml-2">
+                        (Interest: {formatCurrency(entry.interest_portion)},
+                        Principal: {formatCurrency(entry.principal_portion)})
+                      </span>
+                    )}
+                    {entry.capitalized && (
+                      <span className="text-xs text-orange-600 ml-2 font-medium">
+                        ⚡ Capitalized{" "}
+                        {formatCurrency(entry.capitalized_amount)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium whitespace-nowrap">
+                    {entry.type === "disbursement" && (
+                      <span className="text-gray-900">
+                        {formatCurrency(entry.amount)}
+                      </span>
+                    )}
+                    {entry.type === "interest" && (
+                      <span className="text-yellow-700">
+                        {formatCurrency(entry.amount)}
+                      </span>
+                    )}
+                    {entry.type === "payment" && (
+                      <span className="text-green-700">
+                        -{formatCurrency(entry.amount)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {entry.type === "interest" && (
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                          entry.status === "paid"
+                            ? "bg-green-100 text-green-700"
+                            : entry.status === "partial"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {entry.status === "paid"
+                          ? "Paid"
                           : entry.status === "partial"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {entry.status === "paid"
-                        ? "Paid"
-                        : entry.status === "partial"
-                          ? `Partial (${formatCurrency(entry.outstanding)} due)`
-                          : `Unpaid (${formatCurrency(entry.outstanding)})`}
-                    </span>
-                  )}
-                  {entry.type === "payment" && (
-                    <span className="text-xs text-gray-500 capitalize">
-                      {entry.payment_mode || ""}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {data.entries.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-gray-400">
-                  No entries for the selected period.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                            ? `Partial (${formatCurrency(entry.outstanding)} due)`
+                            : `Unpaid (${formatCurrency(entry.outstanding)})`}
+                      </span>
+                    )}
+                    {entry.type === "payment" && (
+                      <span className="text-xs text-gray-500 capitalize">
+                        {entry.payment_mode || ""}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {data.entries.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-3 py-8 text-center text-gray-400"
+                  >
+                    No entries for the selected period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
         <div className="mt-8 pt-4 border-t border-gray-200 text-center text-xs text-gray-400 print:mt-12">
           This is a computer-generated statement. For any queries, please

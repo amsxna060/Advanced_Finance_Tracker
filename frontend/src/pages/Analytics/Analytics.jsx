@@ -383,7 +383,9 @@ export default function Analytics() {
                       <span className="text-sm font-bold text-purple-700">
                         {formatCurrency(activity.sections.property.total)}
                       </span>
-                      <span className={`text-gray-400 text-xs transition-transform ${expandedSection === "property" ? "rotate-90" : ""}`}>
+                      <span
+                        className={`text-gray-400 text-xs transition-transform ${expandedSection === "property" ? "rotate-90" : ""}`}
+                      >
                         ▶
                       </span>
                     </div>
@@ -1004,7 +1006,8 @@ function ForecastSummary({ forecast, forecastLoading, navigate }) {
         </div>
       </div>
 
-      {(forecast.inflow.emi_receipts > 0 || forecast.inflow.interest_receipts > 0) && (
+      {(forecast.inflow.emi_receipts > 0 ||
+        forecast.inflow.interest_receipts > 0) && (
         <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600">
           {forecast.inflow.emi_receipts > 0 && (
             <span>

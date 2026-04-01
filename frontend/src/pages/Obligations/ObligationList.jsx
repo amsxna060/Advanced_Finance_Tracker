@@ -552,7 +552,11 @@ function ObligationList() {
                     <select
                       value={form.linked_type}
                       onChange={(e) =>
-                        setForm({ ...form, linked_type: e.target.value, linked_id: "" })
+                        setForm({
+                          ...form,
+                          linked_type: e.target.value,
+                          linked_id: "",
+                        })
                       }
                       className="w-full border rounded-lg px-3 py-2 text-sm"
                     >
@@ -571,9 +575,7 @@ function ObligationList() {
                       <LinkedRecordSelect
                         linkedType={form.linked_type}
                         value={form.linked_id}
-                        onChange={(val) =>
-                          setForm({ ...form, linked_id: val })
-                        }
+                        onChange={(val) => setForm({ ...form, linked_id: val })}
                       />
                     ) : (
                       <input
@@ -583,7 +585,11 @@ function ObligationList() {
                           setForm({ ...form, linked_id: e.target.value })
                         }
                         className="w-full border rounded-lg px-3 py-2 text-sm"
-                        placeholder={form.linked_type === "other" ? "Reference" : "Select linked type first"}
+                        placeholder={
+                          form.linked_type === "other"
+                            ? "Reference"
+                            : "Select linked type first"
+                        }
                         disabled={!form.linked_type}
                       />
                     )}

@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
 
@@ -41,7 +35,9 @@ const LIABILITY_LABELS = {
 function HeroCard({ label, value, sub, color }) {
   return (
     <div className={`rounded-xl p-5 shadow-sm border ${color}`}>
-      <p className="text-xs font-medium uppercase tracking-wider opacity-70">{label}</p>
+      <p className="text-xs font-medium uppercase tracking-wider opacity-70">
+        {label}
+      </p>
       <p className="text-2xl font-bold mt-1">{formatCurrency(value)}</p>
       {sub && <p className="text-xs mt-1 opacity-60">{sub}</p>}
     </div>
@@ -64,14 +60,21 @@ function SectionHeader({ title, total, count, color, expanded, onToggle }) {
         )}
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-sm font-bold text-gray-700">{formatCurrency(total)}</span>
+        <span className="text-sm font-bold text-gray-700">
+          {formatCurrency(total)}
+        </span>
         <svg
           className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 9l-7 7-7-7"
+          />
         </svg>
       </div>
     </button>
@@ -103,16 +106,44 @@ export default function Assets() {
   // Pie chart data
   const assetPie = [
     { name: "Cash", value: assets.cash.total, color: COLORS.cash },
-    { name: "Loans Given", value: assets.loans_given.total, color: COLORS.loans_given },
-    { name: "Properties", value: assets.properties.total, color: COLORS.properties },
-    { name: "Partnerships", value: assets.partnerships.total, color: COLORS.partnerships },
-    { name: "Receivables", value: assets.receivables.total, color: COLORS.receivables },
+    {
+      name: "Loans Given",
+      value: assets.loans_given.total,
+      color: COLORS.loans_given,
+    },
+    {
+      name: "Properties",
+      value: assets.properties.total,
+      color: COLORS.properties,
+    },
+    {
+      name: "Partnerships",
+      value: assets.partnerships.total,
+      color: COLORS.partnerships,
+    },
+    {
+      name: "Receivables",
+      value: assets.receivables.total,
+      color: COLORS.receivables,
+    },
   ].filter((d) => d.value > 0);
 
   const liabilityPie = [
-    { name: "Loans Taken", value: liabilities.loans_taken.total, color: COLORS.loans_taken },
-    { name: "Payables", value: liabilities.payables.total, color: COLORS.payables },
-    { name: "Partner Payables", value: liabilities.partner_payables.total, color: COLORS.partner_payables },
+    {
+      name: "Loans Taken",
+      value: liabilities.loans_taken.total,
+      color: COLORS.loans_taken,
+    },
+    {
+      name: "Payables",
+      value: liabilities.payables.total,
+      color: COLORS.payables,
+    },
+    {
+      name: "Partner Payables",
+      value: liabilities.partner_payables.total,
+      color: COLORS.partner_payables,
+    },
   ].filter((d) => d.value > 0);
 
   return (
@@ -120,14 +151,31 @@ export default function Assets() {
       {/* Header */}
       <div className="bg-white border-b sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <button
+            onClick={() => navigate(-1)}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
           </button>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Assets & Liabilities</h1>
-            <p className="text-xs text-gray-500">Balance sheet as of {data.as_of_date}</p>
+            <h1 className="text-lg font-bold text-gray-900">
+              Assets & Liabilities
+            </h1>
+            <p className="text-xs text-gray-500">
+              Balance sheet as of {data.as_of_date}
+            </p>
           </div>
         </div>
       </div>
@@ -150,7 +198,11 @@ export default function Assets() {
           <HeroCard
             label="Net Worth"
             value={data.net_worth}
-            sub={data.net_worth >= 0 ? "You're in the green" : "Liabilities exceed assets"}
+            sub={
+              data.net_worth >= 0
+                ? "You're in the green"
+                : "Liabilities exceed assets"
+            }
             color={
               data.net_worth >= 0
                 ? "bg-blue-50 border-blue-200 text-blue-900"
@@ -164,11 +216,23 @@ export default function Assets() {
           {/* ── ASSETS COLUMN ── */}
           <div className="space-y-4">
             <h2 className="text-base font-bold text-green-800 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                />
               </svg>
               What I Own
-              <span className="text-sm font-medium text-gray-500 ml-auto">{formatCurrency(data.total_assets)}</span>
+              <span className="text-sm font-medium text-gray-500 ml-auto">
+                {formatCurrency(data.total_assets)}
+              </span>
             </h2>
 
             {/* Pie Chart */}
@@ -178,7 +242,13 @@ export default function Assets() {
                   <div className="w-36 h-36">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={assetPie} dataKey="value" innerRadius={30} outerRadius={60} paddingAngle={2}>
+                        <Pie
+                          data={assetPie}
+                          dataKey="value"
+                          innerRadius={30}
+                          outerRadius={60}
+                          paddingAngle={2}
+                        >
                           {assetPie.map((d, i) => (
                             <Cell key={i} fill={d.color} />
                           ))}
@@ -189,12 +259,20 @@ export default function Assets() {
                   </div>
                   <div className="flex-1 space-y-1.5">
                     {assetPie.map((d) => (
-                      <div key={d.name} className="flex items-center justify-between text-xs">
+                      <div
+                        key={d.name}
+                        className="flex items-center justify-between text-xs"
+                      >
                         <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />
+                          <div
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ background: d.color }}
+                          />
                           <span className="text-gray-600">{d.name}</span>
                         </div>
-                        <span className="font-medium text-gray-800">{formatCurrency(d.value)}</span>
+                        <span className="font-medium text-gray-800">
+                          {formatCurrency(d.value)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -221,12 +299,17 @@ export default function Assets() {
                       className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{a.name}</p>
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          {a.name}
+                        </p>
                         <p className="text-[11px] text-gray-400">
-                          {a.bank_name ? `${a.bank_name} · ` : ""}{a.type}
+                          {a.bank_name ? `${a.bank_name} · ` : ""}
+                          {a.type}
                         </p>
                       </div>
-                      <span className={`text-sm font-semibold ${a.balance >= 0 ? "text-green-700" : "text-red-600"}`}>
+                      <span
+                        className={`text-sm font-semibold ${a.balance >= 0 ? "text-green-700" : "text-red-600"}`}
+                      >
                         {formatCurrency(a.balance)}
                       </span>
                     </div>
@@ -261,9 +344,13 @@ export default function Assets() {
                         className="flex items-center gap-4 px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800 truncate">{l.contact}</p>
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {l.contact}
+                          </p>
                           <p className="text-[11px] text-gray-400">
-                            {l.institution_name ? `${l.institution_name} · ` : ""}
+                            {l.institution_name
+                              ? `${l.institution_name} · `
+                              : ""}
                             {l.loan_type} · {l.rate}% p.a.
                           </p>
                         </div>
@@ -315,18 +402,27 @@ export default function Assets() {
                         className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-800 truncate">{p.title}</p>
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {p.title}
+                          </p>
                           <p className="text-[11px] text-gray-400">
-                            {p.property_type} · {p.deal_type} · {p.location || "—"} ·{" "}
-                            <span className={`font-medium ${p.status === "settled" ? "text-green-600" : "text-blue-500"}`}>
+                            {p.property_type} · {p.deal_type} ·{" "}
+                            {p.location || "—"} ·{" "}
+                            <span
+                              className={`font-medium ${p.status === "settled" ? "text-green-600" : "text-blue-500"}`}
+                            >
                               {p.status}
                             </span>
                           </p>
                         </div>
                         <div className="text-right shrink-0 ml-3">
-                          <p className="text-sm font-semibold text-gray-800">{formatCurrency(p.current_value)}</p>
+                          <p className="text-sm font-semibold text-gray-800">
+                            {formatCurrency(p.current_value)}
+                          </p>
                           {p.invested !== p.current_value && (
-                            <p className="text-[10px] text-gray-400">invested {formatCurrency(p.invested)}</p>
+                            <p className="text-[10px] text-gray-400">
+                              invested {formatCurrency(p.invested)}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -356,9 +452,12 @@ export default function Assets() {
                         className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-800 truncate">{p.title}</p>
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {p.title}
+                          </p>
                           <p className="text-[11px] text-gray-400">
-                            Invested {formatCurrency(p.invested)} · Received {formatCurrency(p.received)} ·{" "}
+                            Invested {formatCurrency(p.invested)} · Received{" "}
+                            {formatCurrency(p.received)} ·{" "}
                             <span className="font-medium">{p.status}</span>
                           </p>
                         </div>
@@ -386,11 +485,17 @@ export default function Assets() {
                 {expanded.receivables && (
                   <div className="divide-y border-t">
                     {assets.receivables.items.map((o) => (
-                      <div key={o.id} className="flex items-center justify-between px-4 py-2.5">
+                      <div
+                        key={o.id}
+                        className="flex items-center justify-between px-4 py-2.5"
+                      >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-800">{o.contact}</p>
+                          <p className="text-sm font-medium text-gray-800">
+                            {o.contact}
+                          </p>
                           <p className="text-[11px] text-gray-400 truncate">
-                            {o.reason}{o.due_date ? ` · Due ${o.due_date}` : ""}
+                            {o.reason}
+                            {o.due_date ? ` · Due ${o.due_date}` : ""}
                           </p>
                         </div>
                         <span className="text-sm font-semibold text-green-700 shrink-0 ml-3">
@@ -423,9 +528,14 @@ export default function Assets() {
                         className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-800">{c.contact}</p>
+                          <p className="text-sm font-medium text-gray-800">
+                            {c.contact}
+                          </p>
                           <p className="text-[11px] text-gray-400">
-                            {c.type}{c.gold_weight_grams ? ` · ${c.gold_weight_grams}g ${c.gold_carat}K gold` : ""}
+                            {c.type}
+                            {c.gold_weight_grams
+                              ? ` · ${c.gold_weight_grams}g ${c.gold_carat}K gold`
+                              : ""}
                             {c.description ? ` · ${c.description}` : ""}
                           </p>
                         </div>
@@ -443,11 +553,23 @@ export default function Assets() {
           {/* ── LIABILITIES COLUMN ── */}
           <div className="space-y-4">
             <h2 className="text-base font-bold text-red-800 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"
+                />
               </svg>
               What I Owe
-              <span className="text-sm font-medium text-gray-500 ml-auto">{formatCurrency(data.total_liabilities)}</span>
+              <span className="text-sm font-medium text-gray-500 ml-auto">
+                {formatCurrency(data.total_liabilities)}
+              </span>
             </h2>
 
             {/* Pie Chart */}
@@ -457,7 +579,13 @@ export default function Assets() {
                   <div className="w-36 h-36">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={liabilityPie} dataKey="value" innerRadius={30} outerRadius={60} paddingAngle={2}>
+                        <Pie
+                          data={liabilityPie}
+                          dataKey="value"
+                          innerRadius={30}
+                          outerRadius={60}
+                          paddingAngle={2}
+                        >
                           {liabilityPie.map((d, i) => (
                             <Cell key={i} fill={d.color} />
                           ))}
@@ -468,12 +596,20 @@ export default function Assets() {
                   </div>
                   <div className="flex-1 space-y-1.5">
                     {liabilityPie.map((d) => (
-                      <div key={d.name} className="flex items-center justify-between text-xs">
+                      <div
+                        key={d.name}
+                        className="flex items-center justify-between text-xs"
+                      >
                         <div className="flex items-center gap-2">
-                          <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />
+                          <div
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ background: d.color }}
+                          />
                           <span className="text-gray-600">{d.name}</span>
                         </div>
-                        <span className="font-medium text-gray-800">{formatCurrency(d.value)}</span>
+                        <span className="font-medium text-gray-800">
+                          {formatCurrency(d.value)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -512,7 +648,9 @@ export default function Assets() {
                           </p>
                           <p className="text-[11px] text-gray-400">
                             {l.loan_type} · {l.rate}% p.a.
-                            {l.expected_end_date ? ` · Ends ${l.expected_end_date}` : ""}
+                            {l.expected_end_date
+                              ? ` · Ends ${l.expected_end_date}`
+                              : ""}
                           </p>
                         </div>
                         <span className="w-20 text-right text-xs text-gray-600">
@@ -557,11 +695,17 @@ export default function Assets() {
                 {expanded.payables && (
                   <div className="divide-y border-t">
                     {liabilities.payables.items.map((o) => (
-                      <div key={o.id} className="flex items-center justify-between px-4 py-2.5">
+                      <div
+                        key={o.id}
+                        className="flex items-center justify-between px-4 py-2.5"
+                      >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-800">{o.contact}</p>
+                          <p className="text-sm font-medium text-gray-800">
+                            {o.contact}
+                          </p>
                           <p className="text-[11px] text-gray-400 truncate">
-                            {o.reason}{o.due_date ? ` · Due ${o.due_date}` : ""}
+                            {o.reason}
+                            {o.due_date ? ` · Due ${o.due_date}` : ""}
                           </p>
                         </div>
                         <span className="text-sm font-semibold text-red-700 shrink-0 ml-3">
@@ -590,13 +734,18 @@ export default function Assets() {
                     {liabilities.partner_payables.items.map((pp, i) => (
                       <div
                         key={i}
-                        onClick={() => navigate(`/partnerships/${pp.partnership_id}`)}
+                        onClick={() =>
+                          navigate(`/partnerships/${pp.partnership_id}`)
+                        }
                         className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-800">{pp.partner}</p>
+                          <p className="text-sm font-medium text-gray-800">
+                            {pp.partner}
+                          </p>
                           <p className="text-[11px] text-gray-400 truncate">
-                            {pp.partnership} · Owed {formatCurrency(pp.owed)} · Paid {formatCurrency(pp.paid)}
+                            {pp.partnership} · Owed {formatCurrency(pp.owed)} ·
+                            Paid {formatCurrency(pp.paid)}
                           </p>
                         </div>
                         <span className="text-sm font-semibold text-red-700 shrink-0 ml-3">
@@ -612,7 +761,9 @@ export default function Assets() {
             {/* Empty state for liabilities */}
             {data.total_liabilities === 0 && (
               <div className="bg-white rounded-xl border p-8 text-center">
-                <p className="text-gray-400 text-sm">No outstanding liabilities</p>
+                <p className="text-gray-400 text-sm">
+                  No outstanding liabilities
+                </p>
               </div>
             )}
           </div>

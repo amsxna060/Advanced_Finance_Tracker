@@ -214,9 +214,8 @@ export default function PartnershipDetail() {
         txn_date: txnForm.txn_date,
         payment_mode: txnForm.payment_mode,
         description: txnForm.description?.trim() || null,
-        account_id: isSelf && txnForm.account_id
-          ? parseInt(txnForm.account_id)
-          : null,
+        account_id:
+          isSelf && txnForm.account_id ? parseInt(txnForm.account_id) : null,
         member_id: memberId,
         received_by_member_id: null,
       });
@@ -284,7 +283,9 @@ export default function PartnershipDetail() {
       description: txn.description || "",
       account_id: txn.account_id ? String(txn.account_id) : "",
       member_id: txn.member_id ? String(txn.member_id) : "",
-      received_by_member_id: txn.received_by_member_id ? String(txn.received_by_member_id) : "",
+      received_by_member_id: txn.received_by_member_id
+        ? String(txn.received_by_member_id)
+        : "",
     });
   };
 
@@ -298,9 +299,15 @@ export default function PartnershipDetail() {
         txn_date: editTxnForm.txn_date,
         payment_mode: editTxnForm.payment_mode,
         description: editTxnForm.description?.trim() || null,
-        account_id: editTxnForm.account_id ? parseInt(editTxnForm.account_id) : null,
-        member_id: editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null,
-        received_by_member_id: editTxnForm.received_by_member_id ? parseInt(editTxnForm.received_by_member_id) : null,
+        account_id: editTxnForm.account_id
+          ? parseInt(editTxnForm.account_id)
+          : null,
+        member_id: editTxnForm.member_id
+          ? parseInt(editTxnForm.member_id)
+          : null,
+        received_by_member_id: editTxnForm.received_by_member_id
+          ? parseInt(editTxnForm.received_by_member_id)
+          : null,
       },
     });
   };
@@ -695,7 +702,9 @@ export default function PartnershipDetail() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="advance_given">Advance</option>
-                      <option value="buyer_payment_received">Money Received from Buyer</option>
+                      <option value="buyer_payment_received">
+                        Money Received from Buyer
+                      </option>
                     </select>
                   </div>
 
@@ -898,49 +907,82 @@ export default function PartnershipDetail() {
                         <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 space-y-2">
                           <div className="grid grid-cols-3 gap-2">
                             <div>
-                              <label className="block text-xs text-gray-500 mb-0.5">Amount</label>
+                              <label className="block text-xs text-gray-500 mb-0.5">
+                                Amount
+                              </label>
                               <input
                                 type="number"
                                 value={editTxnForm.amount}
-                                onChange={(e) => setEditTxnForm((p) => ({ ...p, amount: e.target.value }))}
+                                onChange={(e) =>
+                                  setEditTxnForm((p) => ({
+                                    ...p,
+                                    amount: e.target.value,
+                                  }))
+                                }
                                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-gray-500 mb-0.5">Date</label>
+                              <label className="block text-xs text-gray-500 mb-0.5">
+                                Date
+                              </label>
                               <input
                                 type="date"
                                 value={editTxnForm.txn_date}
-                                onChange={(e) => setEditTxnForm((p) => ({ ...p, txn_date: e.target.value }))}
+                                onChange={(e) =>
+                                  setEditTxnForm((p) => ({
+                                    ...p,
+                                    txn_date: e.target.value,
+                                  }))
+                                }
                                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-gray-500 mb-0.5">Account</label>
+                              <label className="block text-xs text-gray-500 mb-0.5">
+                                Account
+                              </label>
                               <select
                                 value={editTxnForm.account_id}
-                                onChange={(e) => setEditTxnForm((p) => ({ ...p, account_id: e.target.value }))}
+                                onChange={(e) =>
+                                  setEditTxnForm((p) => ({
+                                    ...p,
+                                    account_id: e.target.value,
+                                  }))
+                                }
                                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
                               >
                                 <option value="">None</option>
                                 {accounts.map((a) => (
-                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                  <option key={a.id} value={a.id}>
+                                    {a.name}
+                                  </option>
                                 ))}
                               </select>
                             </div>
                           </div>
                           <div>
-                            <label className="block text-xs text-gray-500 mb-0.5">Description</label>
+                            <label className="block text-xs text-gray-500 mb-0.5">
+                              Description
+                            </label>
                             <input
                               type="text"
                               value={editTxnForm.description}
-                              onChange={(e) => setEditTxnForm((p) => ({ ...p, description: e.target.value }))}
+                              onChange={(e) =>
+                                setEditTxnForm((p) => ({
+                                  ...p,
+                                  description: e.target.value,
+                                }))
+                              }
                               className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
                             />
                           </div>
                           <div className="flex gap-2 justify-end">
                             <button
-                              onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }}
+                              onClick={() => {
+                                setEditingTxnId(null);
+                                setEditTxnForm(null);
+                              }}
                               className="px-2 py-1 border border-gray-300 rounded text-xs text-gray-600"
                             >
                               Cancel
@@ -950,7 +992,9 @@ export default function PartnershipDetail() {
                               disabled={updateTxnMutation.isPending}
                               className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
                             >
-                              {updateTxnMutation.isPending ? "Saving..." : "Update"}
+                              {updateTxnMutation.isPending
+                                ? "Saving..."
+                                : "Update"}
                             </button>
                           </div>
                         </div>
@@ -961,21 +1005,27 @@ export default function PartnershipDetail() {
                             <p className="text-sm font-medium text-gray-800 capitalize">
                               {txn.txn_type.replace(/_/g, " ")}
                             </p>
-                            {txn.txn_type === "advance_given" && txn.member_id && (
-                              <p className="text-xs text-blue-600">
-                                Given by:{" "}
-                                {members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
-                                  ? "Self"
-                                  : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner"}
-                              </p>
-                            )}
+                            {txn.txn_type === "advance_given" &&
+                              txn.member_id && (
+                                <p className="text-xs text-blue-600">
+                                  Given by:{" "}
+                                  {members.find(
+                                    (m) => m.member?.id === txn.member_id,
+                                  )?.member?.is_self
+                                    ? "Self"
+                                    : members.find(
+                                        (m) => m.member?.id === txn.member_id,
+                                      )?.contact?.name || "Partner"}
+                                </p>
+                              )}
                             {txn.txn_type === "buyer_payment_received" &&
                               txn.received_by_member_id && (
                                 <p className="text-xs text-amber-600">
                                   Received by:{" "}
                                   {members.find(
                                     (m) =>
-                                      m.member?.id === txn.received_by_member_id,
+                                      m.member?.id ===
+                                      txn.received_by_member_id,
                                   )?.contact?.name || "Partner"}{" "}
                                   — obligation created
                                 </p>
@@ -1011,7 +1061,11 @@ export default function PartnershipDetail() {
                             </button>
                             <button
                               onClick={() => {
-                                if (window.confirm("Delete this transaction? This will reverse all linked entries."))
+                                if (
+                                  window.confirm(
+                                    "Delete this transaction? This will reverse all linked entries.",
+                                  )
+                                )
                                   deleteTxnMutation.mutate(txn.id);
                               }}
                               className="text-xs text-red-600 hover:underline"

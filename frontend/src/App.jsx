@@ -58,7 +58,9 @@ function App() {
               path="/dashboard"
               element={
                 <ProtectedRoute>
-                  <Layout><Dashboard /></Layout>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -66,7 +68,9 @@ function App() {
               path="/contacts"
               element={
                 <ProtectedRoute>
-                  <Layout><ContactList /></Layout>
+                  <Layout>
+                    <ContactList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -74,7 +78,9 @@ function App() {
               path="/contacts/new"
               element={
                 <ProtectedRoute>
-                  <Layout><ContactForm /></Layout>
+                  <Layout>
+                    <ContactForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -82,7 +88,9 @@ function App() {
               path="/contacts/:id/edit"
               element={
                 <ProtectedRoute>
-                  <Layout><ContactForm /></Layout>
+                  <Layout>
+                    <ContactForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -90,7 +98,9 @@ function App() {
               path="/contacts/:id"
               element={
                 <ProtectedRoute>
-                  <Layout><ContactDetail /></Layout>
+                  <Layout>
+                    <ContactDetail />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -98,7 +108,9 @@ function App() {
               path="/loans"
               element={
                 <ProtectedRoute>
-                  <Layout><LoanList /></Layout>
+                  <Layout>
+                    <LoanList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -106,7 +118,9 @@ function App() {
               path="/loans/new"
               element={
                 <ProtectedRoute>
-                  <Layout><LoanForm /></Layout>
+                  <Layout>
+                    <LoanForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -114,7 +128,9 @@ function App() {
               path="/loans/:id/edit"
               element={
                 <ProtectedRoute>
-                  <Layout><LoanForm /></Layout>
+                  <Layout>
+                    <LoanForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -122,7 +138,9 @@ function App() {
               path="/loans/:id/statement"
               element={
                 <ProtectedRoute>
-                  <Layout><LoanStatement /></Layout>
+                  <Layout>
+                    <LoanStatement />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -130,7 +148,9 @@ function App() {
               path="/loans/:id"
               element={
                 <ProtectedRoute>
-                  <Layout><LoanDetail /></Layout>
+                  <Layout>
+                    <LoanDetail />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -138,7 +158,9 @@ function App() {
               path="/properties"
               element={
                 <ProtectedRoute>
-                  <Layout><PropertyList /></Layout>
+                  <Layout>
+                    <PropertyList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -146,7 +168,9 @@ function App() {
               path="/properties/new"
               element={
                 <ProtectedRoute>
-                  <Layout><PropertyForm /></Layout>
+                  <Layout>
+                    <PropertyForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -154,7 +178,9 @@ function App() {
               path="/properties/:id/edit"
               element={
                 <ProtectedRoute>
-                  <Layout><PropertyForm /></Layout>
+                  <Layout>
+                    <PropertyForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -162,7 +188,9 @@ function App() {
               path="/properties/:id"
               element={
                 <ProtectedRoute>
-                  <Layout><PropertyDetail /></Layout>
+                  <Layout>
+                    <PropertyDetail />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -170,7 +198,9 @@ function App() {
               path="/partnerships"
               element={
                 <ProtectedRoute>
-                  <Layout><PartnershipList /></Layout>
+                  <Layout>
+                    <PartnershipList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -178,7 +208,9 @@ function App() {
               path="/partnerships/new"
               element={
                 <ProtectedRoute>
-                  <Layout><PartnershipForm /></Layout>
+                  <Layout>
+                    <PartnershipForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -186,7 +218,9 @@ function App() {
               path="/partnerships/:id/edit"
               element={
                 <ProtectedRoute>
-                  <Layout><PartnershipForm /></Layout>
+                  <Layout>
+                    <PartnershipForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -194,7 +228,9 @@ function App() {
               path="/partnerships/:id"
               element={
                 <ProtectedRoute>
-                  <Layout><PartnershipDetail /></Layout>
+                  <Layout>
+                    <PartnershipDetail />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -202,7 +238,9 @@ function App() {
               path="/expenses"
               element={
                 <ProtectedRoute>
-                  <Layout><ExpenseList /></Layout>
+                  <Layout>
+                    <ExpenseList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -210,7 +248,9 @@ function App() {
               path="/reports"
               element={
                 <ProtectedRoute>
-                  <Layout><Reports /></Layout>
+                  <Layout>
+                    <Reports />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -218,7 +258,9 @@ function App() {
               path="/analytics"
               element={
                 <ProtectedRoute>
-                  <Layout><Analytics /></Layout>
+                  <Layout>
+                    <Analytics />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -226,7 +268,9 @@ function App() {
               path="/forecast"
               element={
                 <ProtectedRoute>
-                  <Layout><Forecast /></Layout>
+                  <Layout>
+                    <Forecast />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -234,7 +278,9 @@ function App() {
               path="/assets"
               element={
                 <ProtectedRoute>
-                  <Layout><Assets /></Layout>
+                  <Layout>
+                    <Assets />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -242,7 +288,9 @@ function App() {
               path="/beesi"
               element={
                 <ProtectedRoute>
-                  <Layout><BeesiList /></Layout>
+                  <Layout>
+                    <BeesiList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -250,7 +298,9 @@ function App() {
               path="/beesi/new"
               element={
                 <ProtectedRoute>
-                  <Layout><BeesiForm /></Layout>
+                  <Layout>
+                    <BeesiForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -258,7 +308,9 @@ function App() {
               path="/beesi/:id/edit"
               element={
                 <ProtectedRoute>
-                  <Layout><BeesiForm /></Layout>
+                  <Layout>
+                    <BeesiForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -266,7 +318,9 @@ function App() {
               path="/beesi/:id"
               element={
                 <ProtectedRoute>
-                  <Layout><BeesiDetail /></Layout>
+                  <Layout>
+                    <BeesiDetail />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -274,7 +328,9 @@ function App() {
               path="/accounts"
               element={
                 <ProtectedRoute>
-                  <Layout><AccountList /></Layout>
+                  <Layout>
+                    <AccountList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -282,7 +338,9 @@ function App() {
               path="/accounts/new"
               element={
                 <ProtectedRoute>
-                  <Layout><AccountForm /></Layout>
+                  <Layout>
+                    <AccountForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -290,7 +348,9 @@ function App() {
               path="/accounts/:id/edit"
               element={
                 <ProtectedRoute>
-                  <Layout><AccountForm /></Layout>
+                  <Layout>
+                    <AccountForm />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -298,7 +358,9 @@ function App() {
               path="/accounts/:id"
               element={
                 <ProtectedRoute>
-                  <Layout><AccountDetail /></Layout>
+                  <Layout>
+                    <AccountDetail />
+                  </Layout>
                 </ProtectedRoute>
               }
             />
@@ -306,7 +368,9 @@ function App() {
               path="/obligations"
               element={
                 <ProtectedRoute>
-                  <Layout><ObligationList /></Layout>
+                  <Layout>
+                    <ObligationList />
+                  </Layout>
                 </ProtectedRoute>
               }
             />

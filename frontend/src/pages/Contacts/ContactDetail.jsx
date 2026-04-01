@@ -235,7 +235,9 @@ export default function ContactDetail() {
                   </p>
                 </div>
                 <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
-                  <p className="text-sm text-teal-600 mb-1">Principal Outstanding</p>
+                  <p className="text-sm text-teal-600 mb-1">
+                    Principal Outstanding
+                  </p>
                   <p className="text-2xl font-bold text-teal-900">
                     {formatCurrency(summary?.principal_outstanding || 0)}
                   </p>
@@ -251,7 +253,9 @@ export default function ContactDetail() {
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 col-span-2">
                   <p className="text-sm text-red-600 mb-1">
                     Total Outstanding
-                    <span className="text-xs text-red-400 ml-1">(Principal + Interest)</span>
+                    <span className="text-xs text-red-400 ml-1">
+                      (Principal + Interest)
+                    </span>
                   </p>
                   <p className="text-2xl font-bold text-red-900">
                     {formatCurrency(summary?.total_outstanding || 0)}
@@ -336,14 +340,17 @@ export default function ContactDetail() {
                           // For capitalized loans where interest has been rolled into principal,
                           // show the original principal and the full true interest (including
                           // what was capitalized). For all other loans show current outstanding principal.
-                          const capGrown = l.capitalization_enabled &&
+                          const capGrown =
+                            l.capitalization_enabled &&
                             l.current_principal != null &&
                             l.current_principal > l.principal_amount;
                           const showPrincipal = capGrown
                             ? l.principal_amount
                             : (l.current_principal ?? l.principal_amount);
                           const showInterest = capGrown
-                            ? (l.total_outstanding != null ? l.total_outstanding - l.principal_amount : null)
+                            ? l.total_outstanding != null
+                              ? l.total_outstanding - l.principal_amount
+                              : null
                             : l.interest_outstanding;
                           return (
                             <>

@@ -140,7 +140,12 @@ export default function PropertyDetail() {
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [showAddAdvance, setShowAddAdvance] = useState(false);
   const [editingTxnId, setEditingTxnId] = useState(null);
-  const [editTxnForm, setEditTxnForm] = useState({ amount: "", txn_date: "", account_id: "", description: "" });
+  const [editTxnForm, setEditTxnForm] = useState({
+    amount: "",
+    txn_date: "",
+    account_id: "",
+    description: "",
+  });
   const [advanceForm, setAdvanceForm] = useState({
     amount: "",
     txn_date: new Date().toISOString().split("T")[0],
@@ -183,7 +188,8 @@ export default function PropertyDetail() {
 
   const { data: transactions = [] } = useQuery({
     queryKey: ["property-transactions", id],
-    queryFn: async () => (await api.get(`/api/properties/${id}/transactions`)).data,
+    queryFn: async () =>
+      (await api.get(`/api/properties/${id}/transactions`)).data,
   });
 
   const addAdvanceMutation = useMutation({
@@ -191,20 +197,31 @@ export default function PropertyDetail() {
       return api.post(`/api/properties/${id}/transactions`, payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({
+        queryKey: ["property-transactions", id],
+      });
       queryClient.invalidateQueries({ queryKey: ["property", id] });
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
       setShowAddAdvance(false);
-      setAdvanceForm({ amount: "", txn_date: new Date().toISOString().split("T")[0], account_id: "", description: "" });
+      setAdvanceForm({
+        amount: "",
+        txn_date: new Date().toISOString().split("T")[0],
+        account_id: "",
+        description: "",
+      });
     },
-    onError: (err) => alert(err?.response?.data?.detail || "Failed to add advance"),
+    onError: (err) =>
+      alert(err?.response?.data?.detail || "Failed to add advance"),
   });
 
   const deleteAdvanceMutation = useMutation({
-    mutationFn: async (txnId) => api.delete(`/api/properties/${id}/transactions/${txnId}`),
+    mutationFn: async (txnId) =>
+      api.delete(`/api/properties/${id}/transactions/${txnId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({
+        queryKey: ["property-transactions", id],
+      });
       queryClient.invalidateQueries({ queryKey: ["property", id] });
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
@@ -216,7 +233,9 @@ export default function PropertyDetail() {
     mutationFn: async ({ txnId, payload }) =>
       api.put(`/api/properties/${id}/transactions/${txnId}`, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({
+        queryKey: ["property-transactions", id],
+      });
       queryClient.invalidateQueries({ queryKey: ["property", id] });
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
@@ -231,7 +250,9 @@ export default function PropertyDetail() {
       txn_type: "advance_to_seller",
       amount: parseFloat(advanceForm.amount),
       txn_date: advanceForm.txn_date,
-      account_id: advanceForm.account_id ? Number(advanceForm.account_id) : null,
+      account_id: advanceForm.account_id
+        ? Number(advanceForm.account_id)
+        : null,
       payment_mode: "bank_transfer",
       description: advanceForm.description || "Advance to seller",
     });
@@ -253,7 +274,9 @@ export default function PropertyDetail() {
       payload: {
         amount: parseFloat(editTxnForm.amount),
         txn_date: editTxnForm.txn_date,
-        account_id: editTxnForm.account_id ? Number(editTxnForm.account_id) : null,
+        account_id: editTxnForm.account_id
+          ? Number(editTxnForm.account_id)
+          : null,
         description: editTxnForm.description || null,
       },
     });
@@ -697,28 +720,41 @@ export default function PropertyDetail() {
                   {/* My Investment with per-account breakdown */}
                   <div className="py-2 border-b border-gray-100 last:border-0">
                     <div className="flex justify-between items-start">
-                      <span className="text-sm text-gray-500">My Investment</span>
+                      <span className="text-sm text-gray-500">
+                        My Investment
+                      </span>
                       <span className="text-sm font-semibold text-gray-900">
-                        {property.my_investment ? formatCurrency(property.my_investment) : "—"}
+                        {property.my_investment
+                          ? formatCurrency(property.my_investment)
+                          : "—"}
                       </span>
                     </div>
                     {/* Per-account breakdown */}
                     {(() => {
-                      const advTxns = transactions.filter(t => t.txn_type === "advance_to_seller");
+                      const advTxns = transactions.filter(
+                        (t) => t.txn_type === "advance_to_seller",
+                      );
                       if (advTxns.length === 0) return null;
                       // Group by account_id
                       const byAccount = {};
                       for (const t of advTxns) {
                         const key = t.account_id ?? "__none__";
-                        byAccount[key] = (byAccount[key] || 0) + parseFloat(t.amount);
+                        byAccount[key] =
+                          (byAccount[key] || 0) + parseFloat(t.amount);
                       }
                       const entries = Object.entries(byAccount);
                       if (entries.length === 0) return null;
                       return (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {entries.map(([accId, total]) => {
-                            const acct = accounts.find(a => a.id === Number(accId));
-                            const name = acct ? acct.name : (accId === "__none__" ? "Unspecified" : "Unknown");
+                            const acct = accounts.find(
+                              (a) => a.id === Number(accId),
+                            );
+                            const name = acct
+                              ? acct.name
+                              : accId === "__none__"
+                                ? "Unspecified"
+                                : "Unknown";
                             return (
                               <span
                                 key={accId}
@@ -997,14 +1033,24 @@ export default function PropertyDetail() {
               </div>
 
               {showAddAdvance && (
-                <form onSubmit={handleAddAdvance} className="mb-4 p-3 bg-gray-50 rounded-lg space-y-3">
+                <form
+                  onSubmit={handleAddAdvance}
+                  className="mb-4 p-3 bg-gray-50 rounded-lg space-y-3"
+                >
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Amount (₹) *</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Amount (₹) *
+                      </label>
                       <input
                         type="number"
                         value={advanceForm.amount}
-                        onChange={(e) => setAdvanceForm(p => ({ ...p, amount: e.target.value }))}
+                        onChange={(e) =>
+                          setAdvanceForm((p) => ({
+                            ...p,
+                            amount: e.target.value,
+                          }))
+                        }
                         required
                         min="1"
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
@@ -1012,35 +1058,58 @@ export default function PropertyDetail() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Date *</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Date *
+                      </label>
                       <input
                         type="date"
                         value={advanceForm.txn_date}
-                        onChange={(e) => setAdvanceForm(p => ({ ...p, txn_date: e.target.value }))}
+                        onChange={(e) =>
+                          setAdvanceForm((p) => ({
+                            ...p,
+                            txn_date: e.target.value,
+                          }))
+                        }
                         required
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">From Account</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      From Account
+                    </label>
                     <select
                       value={advanceForm.account_id}
-                      onChange={(e) => setAdvanceForm(p => ({ ...p, account_id: e.target.value }))}
+                      onChange={(e) =>
+                        setAdvanceForm((p) => ({
+                          ...p,
+                          account_id: e.target.value,
+                        }))
+                      }
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">— Select Account —</option>
                       {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Description
+                    </label>
                     <input
                       type="text"
                       value={advanceForm.description}
-                      onChange={(e) => setAdvanceForm(p => ({ ...p, description: e.target.value }))}
+                      onChange={(e) =>
+                        setAdvanceForm((p) => ({
+                          ...p,
+                          description: e.target.value,
+                        }))
+                      }
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                       placeholder="Advance to seller"
                     />
@@ -1050,37 +1119,60 @@ export default function PropertyDetail() {
                     disabled={addAdvanceMutation.isPending}
                     className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {addAdvanceMutation.isPending ? "Adding…" : "Add Advance Payment"}
+                    {addAdvanceMutation.isPending
+                      ? "Adding…"
+                      : "Add Advance Payment"}
                   </button>
                 </form>
               )}
 
               {(() => {
-                const advanceTxns = transactions.filter(t => t.txn_type === "advance_to_seller");
-                const totalAdvance = advanceTxns.reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                const advanceTxns = transactions.filter(
+                  (t) => t.txn_type === "advance_to_seller",
+                );
+                const totalAdvance = advanceTxns.reduce(
+                  (s, t) => s + parseFloat(t.amount || 0),
+                  0,
+                );
                 return advanceTxns.length > 0 ? (
                   <>
                     <table className="min-w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-200">
-                          <th className="text-left py-2 text-gray-500 font-medium">Date</th>
-                          <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
-                          <th className="text-left py-2 text-gray-500 font-medium pl-3">Account</th>
+                          <th className="text-left py-2 text-gray-500 font-medium">
+                            Date
+                          </th>
+                          <th className="text-right py-2 text-gray-500 font-medium">
+                            Amount
+                          </th>
+                          <th className="text-left py-2 text-gray-500 font-medium pl-3">
+                            Account
+                          </th>
                           {!isSettled && <th className="py-2 w-20"></th>}
                         </tr>
                       </thead>
                       <tbody>
                         {advanceTxns.map((t) => {
-                          const acct = accounts.find(a => a.id === t.account_id);
+                          const acct = accounts.find(
+                            (a) => a.id === t.account_id,
+                          );
                           const isEditing = editingTxnId === t.id;
                           if (isEditing) {
                             return (
-                              <tr key={t.id} className="border-b border-blue-100 bg-blue-50">
+                              <tr
+                                key={t.id}
+                                className="border-b border-blue-100 bg-blue-50"
+                              >
                                 <td className="py-2 pr-2">
                                   <input
                                     type="date"
                                     value={editTxnForm.txn_date}
-                                    onChange={(e) => setEditTxnForm(p => ({ ...p, txn_date: e.target.value }))}
+                                    onChange={(e) =>
+                                      setEditTxnForm((p) => ({
+                                        ...p,
+                                        txn_date: e.target.value,
+                                      }))
+                                    }
                                     className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
                                   />
                                 </td>
@@ -1088,7 +1180,12 @@ export default function PropertyDetail() {
                                   <input
                                     type="number"
                                     value={editTxnForm.amount}
-                                    onChange={(e) => setEditTxnForm(p => ({ ...p, amount: e.target.value }))}
+                                    onChange={(e) =>
+                                      setEditTxnForm((p) => ({
+                                        ...p,
+                                        amount: e.target.value,
+                                      }))
+                                    }
                                     className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-right focus:ring-1 focus:ring-blue-500"
                                     min="1"
                                   />
@@ -1096,11 +1193,20 @@ export default function PropertyDetail() {
                                 <td className="py-2 pl-3 pr-2">
                                   <select
                                     value={editTxnForm.account_id}
-                                    onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))}
+                                    onChange={(e) =>
+                                      setEditTxnForm((p) => ({
+                                        ...p,
+                                        account_id: e.target.value,
+                                      }))
+                                    }
                                     className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
                                   >
                                     <option value="">— None —</option>
-                                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                    {accounts.map((a) => (
+                                      <option key={a.id} value={a.id}>
+                                        {a.name}
+                                      </option>
+                                    ))}
                                   </select>
                                 </td>
                                 <td className="py-2 pl-2">
@@ -1125,9 +1231,15 @@ export default function PropertyDetail() {
                           }
                           return (
                             <tr key={t.id} className="border-b border-gray-100">
-                              <td className="py-2 text-gray-700">{formatDate(t.txn_date)}</td>
-                              <td className="text-right py-2 font-medium text-gray-900">{formatCurrency(t.amount)}</td>
-                              <td className="py-2 text-gray-600 pl-3">{acct?.name || "—"}</td>
+                              <td className="py-2 text-gray-700">
+                                {formatDate(t.txn_date)}
+                              </td>
+                              <td className="text-right py-2 font-medium text-gray-900">
+                                {formatCurrency(t.amount)}
+                              </td>
+                              <td className="py-2 text-gray-600 pl-3">
+                                {acct?.name || "—"}
+                              </td>
                               {!isSettled && (
                                 <td className="py-2 pl-2">
                                   <div className="flex gap-1 justify-end">
@@ -1139,7 +1251,11 @@ export default function PropertyDetail() {
                                     </button>
                                     <button
                                       onClick={() => {
-                                        if (window.confirm("Delete this advance payment?")) {
+                                        if (
+                                          window.confirm(
+                                            "Delete this advance payment?",
+                                          )
+                                        ) {
                                           deleteAdvanceMutation.mutate(t.id);
                                         }
                                       }}
@@ -1156,7 +1272,9 @@ export default function PropertyDetail() {
                         })}
                         <tr className="border-t border-gray-300 font-semibold">
                           <td className="py-2">Total</td>
-                          <td className="text-right py-2 text-blue-700">{formatCurrency(totalAdvance)}</td>
+                          <td className="text-right py-2 text-blue-700">
+                            {formatCurrency(totalAdvance)}
+                          </td>
                           <td></td>
                           {!isSettled && <td></td>}
                         </tr>
@@ -1164,11 +1282,12 @@ export default function PropertyDetail() {
                     </table>
                   </>
                 ) : (
-                  <p className="text-sm text-gray-400 italic">No advance payments recorded yet.</p>
+                  <p className="text-sm text-gray-400 italic">
+                    No advance payments recorded yet.
+                  </p>
                 );
               })()}
             </div>
-
           </div>
 
           {/* Sidebar */}

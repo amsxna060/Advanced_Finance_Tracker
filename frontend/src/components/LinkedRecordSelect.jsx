@@ -8,16 +8,17 @@ const LINKED_CONFIGS = {
     label: (r) =>
       `#${r.id} — ${r.contact?.name || "?"} — ₹${Number(r.principal_amount || 0).toLocaleString("en-IN")} (${r.loan_direction}, ${r.status})`,
     search: (r, q) => {
-      const hay = `${r.id} ${r.contact?.name || ""} ${r.principal_amount || ""} ${r.status || ""} ${r.loan_direction || ""}`.toLowerCase();
+      const hay =
+        `${r.id} ${r.contact?.name || ""} ${r.principal_amount || ""} ${r.status || ""} ${r.loan_direction || ""}`.toLowerCase();
       return hay.includes(q);
     },
   },
   property: {
     endpoint: "/api/properties",
-    label: (r) =>
-      `#${r.id} — ${r.title || r.location || "?"} (${r.status})`,
+    label: (r) => `#${r.id} — ${r.title || r.location || "?"} (${r.status})`,
     search: (r, q) => {
-      const hay = `${r.id} ${r.title || ""} ${r.location || ""} ${r.status || ""}`.toLowerCase();
+      const hay =
+        `${r.id} ${r.title || ""} ${r.location || ""} ${r.status || ""}`.toLowerCase();
       return hay.includes(q);
     },
   },
@@ -43,7 +44,8 @@ const LINKED_CONFIGS = {
     label: (r) =>
       `#${r.id} — ${r.category || "General"} — ₹${Number(r.amount || 0).toLocaleString("en-IN")}`,
     search: (r, q) => {
-      const hay = `${r.id} ${r.category || ""} ${r.amount || ""} ${r.description || ""}`.toLowerCase();
+      const hay =
+        `${r.id} ${r.category || ""} ${r.amount || ""} ${r.description || ""}`.toLowerCase();
       return hay.includes(q);
     },
   },
@@ -55,7 +57,8 @@ const LINKED_CONFIGS = {
     },
     search: (r, q) => {
       const ob = r.obligation || r;
-      const hay = `${ob.id} ${r.contact?.name || ""} ${ob.reason || ""} ${ob.amount || ""}`.toLowerCase();
+      const hay =
+        `${ob.id} ${r.contact?.name || ""} ${ob.reason || ""} ${ob.amount || ""}`.toLowerCase();
       return hay.includes(q);
     },
     getId: (r) => (r.obligation || r).id,
@@ -108,9 +111,7 @@ export default function LinkedRecordSelect({
 
   const getId = config.getId || ((r) => r.id);
   const q = search.toLowerCase();
-  const filtered = q
-    ? records.filter((r) => config.search(r, q))
-    : records;
+  const filtered = q ? records.filter((r) => config.search(r, q)) : records;
 
   // Find currently selected record
   const selected = value

@@ -69,7 +69,11 @@ export default function Forecast() {
   const { data: forecast, isLoading } = useQuery({
     queryKey: ["analytics-forecast", fromDate, toDate],
     queryFn: async () =>
-      (await api.get("/api/analytics/forecast", { params: { from_date: fromDate, to_date: toDate } })).data,
+      (
+        await api.get("/api/analytics/forecast", {
+          params: { from_date: fromDate, to_date: toDate },
+        })
+      ).data,
   });
 
   const handlePreset = (preset) => {
@@ -133,17 +137,62 @@ export default function Forecast() {
   const categories =
     direction === "inflow"
       ? [
-          { key: "emi_receipts", label: "EMI Receipts", amount: flow.emi_receipts, color: "bg-green-500" },
-          { key: "interest_receipts", label: "Interest", amount: flow.interest_receipts, color: "bg-emerald-500" },
-          { key: "principal_returns", label: "Principal", amount: flow.principal_returns, color: "bg-teal-500" },
-          { key: "property", label: "Property", amount: flow.property, color: "bg-purple-500" },
-          { key: "receivables", label: "Receivables", amount: flow.receivables, color: "bg-indigo-500" },
+          {
+            key: "emi_receipts",
+            label: "EMI Receipts",
+            amount: flow.emi_receipts,
+            color: "bg-green-500",
+          },
+          {
+            key: "interest_receipts",
+            label: "Interest",
+            amount: flow.interest_receipts,
+            color: "bg-emerald-500",
+          },
+          {
+            key: "principal_returns",
+            label: "Principal",
+            amount: flow.principal_returns,
+            color: "bg-teal-500",
+          },
+          {
+            key: "property",
+            label: "Property",
+            amount: flow.property,
+            color: "bg-purple-500",
+          },
+          {
+            key: "receivables",
+            label: "Receivables",
+            amount: flow.receivables,
+            color: "bg-indigo-500",
+          },
         ].filter((c) => c.amount > 0)
       : [
-          { key: "emi_payments", label: "EMI Payments", amount: flow.emi_payments, color: "bg-red-500" },
-          { key: "interest_payments", label: "Interest", amount: flow.interest_payments, color: "bg-orange-500" },
-          { key: "principal_payments", label: "Principal", amount: flow.principal_payments, color: "bg-rose-500" },
-          { key: "payables", label: "Payables", amount: flow.payables, color: "bg-pink-500" },
+          {
+            key: "emi_payments",
+            label: "EMI Payments",
+            amount: flow.emi_payments,
+            color: "bg-red-500",
+          },
+          {
+            key: "interest_payments",
+            label: "Interest",
+            amount: flow.interest_payments,
+            color: "bg-orange-500",
+          },
+          {
+            key: "principal_payments",
+            label: "Principal",
+            amount: flow.principal_payments,
+            color: "bg-rose-500",
+          },
+          {
+            key: "payables",
+            label: "Payables",
+            amount: flow.payables,
+            color: "bg-pink-500",
+          },
         ].filter((c) => c.amount > 0);
 
   const isIn = direction === "inflow";
@@ -253,8 +302,16 @@ export default function Forecast() {
               value={flow.total}
               color={isIn ? "green" : "red"}
             />
-            <SummaryCard label="High Confidence" value={flow.high} color="emerald" />
-            <SummaryCard label="Medium Confidence" value={flow.medium} color="yellow" />
+            <SummaryCard
+              label="High Confidence"
+              value={flow.high}
+              color="emerald"
+            />
+            <SummaryCard
+              label="Medium Confidence"
+              value={flow.medium}
+              color="yellow"
+            />
             <SummaryCard label="Low Confidence" value={flow.low} color="gray" />
           </div>
         </div>

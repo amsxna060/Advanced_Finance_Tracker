@@ -256,8 +256,7 @@ export default function AccountDetail() {
                     ))}
                   </select>
                 </div>
-                {txnForm.linked_type &&
-                  txnForm.linked_type !== "manual" && (
+                {txnForm.linked_type && txnForm.linked_type !== "manual" && (
                   <div>
                     <label className="block text-gray-600 mb-1">
                       Linked Record
