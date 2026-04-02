@@ -12,7 +12,7 @@ from app.models.contact import Contact
 # Average number of days in a month (used for duration calculations)
 _AVG_DAYS_PER_MONTH = 30.44
 from app.models.partnership import Partnership, PartnershipMember
-from app.models.property_deal import PropertyDeal, PropertyTransaction
+from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot
 from app.models.user import User
 from app.schemas.property_deal import (
     PropertyDealCreate,
@@ -22,6 +22,8 @@ from app.schemas.property_deal import (
     PropertyTransactionUpdate,
     PropertyTransactionOut,
     PropertySettleRequest,
+    SitePlotCreate,
+    SitePlotOut,
 )
 from app.schemas.loan import ContactBrief
 from app.schemas.partnership import PartnershipOut, PartnershipMemberOut
@@ -37,6 +39,7 @@ OUTFLOW_TXN_TYPES = {
     "commission_paid",
     "expense",
     "other",
+    "other_expense",
 }
 
 
@@ -260,6 +263,10 @@ def get_property(
 
     linked_partnership_data = _get_linked_partnership_data(property_id, db)
 
+    site_plots = db.query(SitePlot).filter(
+        SitePlot.property_deal_id == property_id,
+    ).order_by(SitePlot.id).all()
+
     return {
         "property": PropertyDealOut.model_validate(property_deal),
         "seller": ContactBrief.model_validate(property_deal.seller) if property_deal.seller else None,
@@ -268,6 +275,7 @@ def get_property(
         "partnerships": [PartnershipOut.model_validate(p) for p in linked_partnerships],
         "linked_partnership": linked_partnership_data,
         "summary": _calculate_property_summary(property_deal, transactions, linked_partnerships),
+        "site_plots": [SitePlotOut.model_validate(p) for p in site_plots],
     }
 
 
@@ -724,3 +732,80 @@ def settle_property_deal(
             "partner_settlements": partner_settlements,
         },
     }
+
+
+# ─── Site Plots CRUD ─────────────────────────────────────────────────────────
+
+@router.get("/{property_id}/plots", response_model=List[SitePlotOut])
+def list_site_plots(
+    property_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_property_or_404(property_id, db)
+    return db.query(SitePlot).filter(
+        SitePlot.property_deal_id == property_id,
+    ).order_by(SitePlot.id).all()
+
+
+@router.post("/{property_id}/plots", response_model=SitePlotOut)
+def create_site_plot(
+    property_id: int,
+    plot_data: SitePlotCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _get_property_or_404(property_id, db)
+    data = plot_data.model_dump()
+    # Auto-calculate price if not supplied
+    if data.get("calculated_price") is None and data.get("area_sqft") and data.get("sold_price_per_sqft"):
+        data["calculated_price"] = Decimal(str(data["area_sqft"])) * Decimal(str(data["sold_price_per_sqft"]))
+    plot = SitePlot(property_deal_id=property_id, created_by=current_user.id, **data)
+    db.add(plot)
+    db.commit()
+    db.refresh(plot)
+    return plot
+
+
+@router.put("/{property_id}/plots/{plot_id}", response_model=SitePlotOut)
+def update_site_plot(
+    property_id: int,
+    plot_id: int,
+    plot_data: SitePlotCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _get_property_or_404(property_id, db)
+    plot = db.query(SitePlot).filter(
+        SitePlot.id == plot_id,
+        SitePlot.property_deal_id == property_id,
+    ).first()
+    if not plot:
+        raise HTTPException(status_code=404, detail="Plot not found")
+    data = plot_data.model_dump(exclude_unset=True)
+    if data.get("calculated_price") is None and data.get("area_sqft") and data.get("sold_price_per_sqft"):
+        data["calculated_price"] = Decimal(str(data["area_sqft"])) * Decimal(str(data["sold_price_per_sqft"]))
+    for field, value in data.items():
+        setattr(plot, field, value)
+    db.commit()
+    db.refresh(plot)
+    return plot
+
+
+@router.delete("/{property_id}/plots/{plot_id}")
+def delete_site_plot(
+    property_id: int,
+    plot_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _get_property_or_404(property_id, db)
+    plot = db.query(SitePlot).filter(
+        SitePlot.id == plot_id,
+        SitePlot.property_deal_id == property_id,
+    ).first()
+    if not plot:
+        raise HTTPException(status_code=404, detail="Plot not found")
+    db.delete(plot)
+    db.commit()
+    return {"message": "Plot deleted"}

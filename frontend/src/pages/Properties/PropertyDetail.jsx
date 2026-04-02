@@ -13,7 +13,7 @@ const STATUS_COLORS = {
   cancelled: "bg-red-100 text-red-800",
 };
 
-function PlotDiagram({ left, right, top, bottom, area }) {
+function PlotDiagram({ left, right, top, bottom, area, roads }) {
   const hasAny = left || right || top || bottom;
   if (!hasAny) return null;
 
@@ -22,11 +22,18 @@ function PlotDiagram({ left, right, top, bottom, area }) {
   const t = parseFloat(top) || 0;
   const b = parseFloat(bottom) || 0;
 
+  // Parse roads
+  let parsedRoads = [];
+  try {
+    if (roads) parsedRoads = typeof roads === "string" ? JSON.parse(roads) : roads;
+  } catch { /* ignore */ }
+
   // Scale sides proportionally for visual representation
   const maxSide = Math.max(l, r, t, b, 1);
   const BASE_W = 200,
     BASE_H = 140,
     PAD = 55;
+  const ROAD_W = 22;
 
   // Top and bottom widths proportional to actual measurements
   const topW = t > 0 ? Math.max((t / maxSide) * BASE_W, 80) : BASE_W;
@@ -35,30 +42,63 @@ function PlotDiagram({ left, right, top, bottom, area }) {
   const rightH = r > 0 ? Math.max((r / maxSide) * BASE_H, 60) : BASE_H;
   const plotH = Math.max(leftH, rightH);
 
-  const svgW = Math.max(topW, botW) + PAD * 2;
-  const svgH = plotH + PAD * 2;
+  const svgW = Math.max(topW, botW) + PAD * 2 + ROAD_W * 2;
+  const svgH = plotH + PAD * 2 + ROAD_W * 2;
   const cx = svgW / 2;
+  const oY = PAD + ROAD_W;
 
-  // Four corners of the quadrilateral
-  const x1 = cx - topW / 2,
-    y1 = PAD; // top-left
-  const x2 = cx + topW / 2,
-    y2 = PAD; // top-right
   const x3 = cx + botW / 2,
-    y3 = PAD + plotH; // bottom-right (right side height)
-  const x4 = cx - botW / 2,
-    y4 = PAD + plotH; // bottom-left (left side height)
+    y4 = oY + plotH;
+  const x4 = cx - botW / 2;
+  const y1L = oY + (plotH - leftH);
+  const y1R = oY + (plotH - rightH);
 
-  // Adjust y for unequal left/right heights
-  const y1L = PAD + (plotH - leftH); // top-left adjusted
-  const y1R = PAD + (plotH - rightH); // top-right adjusted
-
-  const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y3}`;
-
+  const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y4}`;
   const midY = (Math.min(y1L, y1R) + y4) / 2;
+
+  // Road rectangles
+  const roadRects = parsedRoads.map((rd, i) => {
+    const dir = (rd.direction || "").toLowerCase();
+    const w = parseFloat(rd.width_ft) || 20;
+    const label = `Road ${w}ft`;
+    if (dir === "north") {
+      return (
+        <g key={i}>
+          <rect x={cx - topW / 2 - 5} y={Math.min(y1L, y1R) - ROAD_W - 2} width={topW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} />
+          <text x={cx} y={Math.min(y1L, y1R) - ROAD_W / 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text>
+        </g>
+      );
+    }
+    if (dir === "south") {
+      return (
+        <g key={i}>
+          <rect x={cx - botW / 2 - 5} y={y4 + 2} width={botW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} />
+          <text x={cx} y={y4 + ROAD_W / 2 + 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text>
+        </g>
+      );
+    }
+    if (dir === "east") {
+      return (
+        <g key={i}>
+          <rect x={Math.max(x3, cx + topW / 2) + 2} y={Math.min(y1R, y1L)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} />
+          <text x={Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(90, ${Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}, ${midY})`}>{label}</text>
+        </g>
+      );
+    }
+    if (dir === "west") {
+      return (
+        <g key={i}>
+          <rect x={Math.min(x4, cx - topW / 2) - ROAD_W - 2} y={Math.min(y1L, y1R)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} />
+          <text x={Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(-90, ${Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}, ${midY})`}>{label}</text>
+        </g>
+      );
+    }
+    return null;
+  });
 
   return (
     <svg width={svgW} height={svgH} style={{ overflow: "visible" }}>
+      {roadRects}
       <polygon
         points={points}
         fill="#eff6ff"
@@ -66,7 +106,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         strokeWidth={2}
         strokeLinejoin="round"
       />
-      {/* Top label */}
+      {/* North label */}
       <text
         x={cx}
         y={Math.min(y1L, y1R) - 10}
@@ -74,13 +114,13 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         fontSize={12}
         fill="#1d4ed8"
       >
-        {top ? `${top} ft` : "—"}
+        {top ? `N: ${top} ft` : "—"}
       </text>
-      {/* Bottom label */}
+      {/* South label */}
       <text x={cx} y={y4 + 20} textAnchor="middle" fontSize={12} fill="#1d4ed8">
-        {bottom ? `${bottom} ft` : "—"}
+        {bottom ? `S: ${bottom} ft` : "—"}
       </text>
-      {/* Left label */}
+      {/* West label */}
       <text
         x={Math.min(x4, cx - topW / 2) - 8}
         y={(y1L + y4) / 2}
@@ -89,9 +129,9 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         fontSize={12}
         fill="#1d4ed8"
       >
-        {left ? `${left} ft` : "—"}
+        {left ? `W: ${left} ft` : "—"}
       </text>
-      {/* Right label */}
+      {/* East label */}
       <text
         x={Math.max(x3, cx + topW / 2) + 8}
         y={(y1R + y3) / 2}
@@ -100,7 +140,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         fontSize={12}
         fill="#1d4ed8"
       >
-        {right ? `${right} ft` : "—"}
+        {right ? `E: ${right} ft` : "—"}
       </text>
       {/* Area in center */}
       {area && (
@@ -128,6 +168,225 @@ function InfoRow({ label, value }) {
       <span className="text-sm font-medium text-gray-900 text-right max-w-[60%]">
         {value}
       </span>
+    </div>
+  );
+}
+
+function SitePlotsSection({ propertyId, plots, accounts, isSettled }) {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const emptyPlot = {
+    plot_number: "",
+    area_sqft: "",
+    side_north_ft: "",
+    side_south_ft: "",
+    side_east_ft: "",
+    side_west_ft: "",
+    sold_price_per_sqft: "",
+    calculated_price: "",
+    buyer_name: "",
+    notes: "",
+    sold_date: new Date().toISOString().split("T")[0],
+  };
+  const [form, setForm] = useState(emptyPlot);
+
+  const set = (k, v) => {
+    setForm((prev) => {
+      const next = { ...prev, [k]: v };
+      if ((k === "area_sqft" || k === "sold_price_per_sqft") && next.area_sqft && next.sold_price_per_sqft) {
+        next.calculated_price = String((parseFloat(next.area_sqft) || 0) * (parseFloat(next.sold_price_per_sqft) || 0));
+      }
+      return next;
+    });
+  };
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["property", propertyId] });
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async (payload) => {
+      if (editingId) {
+        return api.put(`/api/properties/${propertyId}/plots/${editingId}`, payload);
+      }
+      return api.post(`/api/properties/${propertyId}/plots`, payload);
+    },
+    onSuccess: () => { invalidate(); setShowForm(false); setEditingId(null); setForm(emptyPlot); },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to save plot"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (plotId) => api.delete(`/api/properties/${propertyId}/plots/${plotId}`),
+    onSuccess: invalidate,
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to delete plot"),
+  });
+
+  const handleSave = () => {
+    const payload = {};
+    for (const [k, v] of Object.entries(form)) {
+      if (v === "" || v === null) { payload[k] = null; continue; }
+      if (["area_sqft", "side_north_ft", "side_south_ft", "side_east_ft", "side_west_ft", "sold_price_per_sqft", "calculated_price"].includes(k)) {
+        payload[k] = parseFloat(v) || null;
+      } else {
+        payload[k] = v || null;
+      }
+    }
+    saveMutation.mutate(payload);
+  };
+
+  const openEdit = (p) => {
+    setEditingId(p.id);
+    setForm({
+      plot_number: p.plot_number || "",
+      area_sqft: p.area_sqft ? String(p.area_sqft) : "",
+      side_north_ft: p.side_north_ft ? String(p.side_north_ft) : "",
+      side_south_ft: p.side_south_ft ? String(p.side_south_ft) : "",
+      side_east_ft: p.side_east_ft ? String(p.side_east_ft) : "",
+      side_west_ft: p.side_west_ft ? String(p.side_west_ft) : "",
+      sold_price_per_sqft: p.sold_price_per_sqft ? String(p.sold_price_per_sqft) : "",
+      calculated_price: p.calculated_price ? String(p.calculated_price) : "",
+      buyer_name: p.buyer_name || "",
+      notes: p.notes || "",
+      sold_date: p.sold_date || "",
+    });
+    setShowForm(true);
+  };
+
+  const totalRevenue = plots.reduce((s, p) => s + parseFloat(p.calculated_price || 0), 0);
+  const totalAreaSold = plots.reduce((s, p) => s + parseFloat(p.area_sqft || 0), 0);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold text-gray-800">Plots Sold</h2>
+        {!isSettled && (
+          <button
+            onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyPlot); }}
+            className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+          >
+            {showForm ? "Cancel" : "+ Add Plot"}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Plot Number</label>
+              <input type="text" value={form.plot_number} onChange={(e) => set("plot_number", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. A-1" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Area (sqft)</label>
+              <input type="number" step="0.001" value={form.area_sqft} onChange={(e) => set("area_sqft", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="0" min="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Sold Date</label>
+              <input type="date" value={form.sold_date} onChange={(e) => set("sold_date", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">North (ft)</label>
+              <input type="number" step="0.001" value={form.side_north_ft} onChange={(e) => set("side_north_ft", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">South (ft)</label>
+              <input type="number" step="0.001" value={form.side_south_ft} onChange={(e) => set("side_south_ft", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">East (ft)</label>
+              <input type="number" step="0.001" value={form.side_east_ft} onChange={(e) => set("side_east_ft", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">West (ft)</label>
+              <input type="number" step="0.001" value={form.side_west_ft} onChange={(e) => set("side_west_ft", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Price / sqft (₹)</label>
+              <input type="number" step="0.001" value={form.sold_price_per_sqft} onChange={(e) => set("sold_price_per_sqft", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Calculated Price (₹)</label>
+              <input type="number" step="0.001" value={form.calculated_price} onChange={(e) => set("calculated_price", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Buyer Name</label>
+              <input type="text" value={form.buyer_name} onChange={(e) => set("buyer_name", e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Buyer name" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+            <input type="text" value={form.notes} onChange={(e) => set("notes", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Optional" />
+          </div>
+          <button onClick={handleSave} disabled={saveMutation.isPending}
+            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {saveMutation.isPending ? "Saving…" : editingId ? "Update Plot" : "Add Plot"}
+          </button>
+        </div>
+      )}
+
+      {plots.length > 0 ? (
+        <>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 text-gray-500 font-medium">Plot</th>
+                  <th className="text-right py-2 text-gray-500 font-medium">Area</th>
+                  <th className="text-right py-2 text-gray-500 font-medium">Rate/sqft</th>
+                  <th className="text-right py-2 text-gray-500 font-medium">Price</th>
+                  <th className="text-left py-2 text-gray-500 font-medium pl-3">Buyer</th>
+                  <th className="text-left py-2 text-gray-500 font-medium pl-3">Date</th>
+                  <th className="py-2 w-20"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {plots.map((p) => (
+                  <tr key={p.id} className="border-b border-gray-100">
+                    <td className="py-2 font-medium">{p.plot_number || "—"}</td>
+                    <td className="text-right py-2">{p.area_sqft ? `${Number(p.area_sqft).toLocaleString()} sqft` : "—"}</td>
+                    <td className="text-right py-2">{p.sold_price_per_sqft ? `₹${Number(p.sold_price_per_sqft).toLocaleString()}` : "—"}</td>
+                    <td className="text-right py-2 font-semibold text-green-700">{p.calculated_price ? formatCurrency(p.calculated_price) : "—"}</td>
+                    <td className="py-2 pl-3">{p.buyer_name || "—"}</td>
+                    <td className="py-2 pl-3 text-gray-500">{p.sold_date ? formatDate(p.sold_date) : "—"}</td>
+                    <td className="py-2">
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => openEdit(p)} className="text-xs text-blue-600 hover:underline">Edit</button>
+                        <button onClick={() => { if (window.confirm("Delete this plot?")) deleteMutation.mutate(p.id); }}
+                          className="text-xs text-red-600 hover:underline">Del</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-gray-300 font-semibold">
+                  <td className="py-2">Total</td>
+                  <td className="text-right py-2">{totalAreaSold.toLocaleString()} sqft</td>
+                  <td></td>
+                  <td className="text-right py-2 text-green-700">{formatCurrency(totalRevenue)}</td>
+                  <td colSpan={3}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-gray-400 italic text-center py-4">No plots sold yet.</p>
+      )}
     </div>
   );
 }
@@ -802,11 +1061,12 @@ export default function PropertyDetail() {
                   {/* Plot dimensions diagram — PlotDiagram renders nothing if no dimensions set */}
                   <div className="flex justify-center mb-4">
                     <PlotDiagram
-                      left={property.side_left_ft}
-                      right={property.side_right_ft}
-                      top={property.side_top_ft}
-                      bottom={property.side_bottom_ft}
+                      left={property.side_west_ft || property.side_left_ft}
+                      right={property.side_east_ft || property.side_right_ft}
+                      top={property.side_north_ft || property.side_top_ft}
+                      bottom={property.side_south_ft || property.side_bottom_ft}
                       area={property.total_area_sqft}
+                      roads={property.roads_json}
                     />
                   </div>
                   <InfoRow
@@ -941,6 +1201,11 @@ export default function PropertyDetail() {
                   }
                 />
               </div>
+            )}
+
+            {/* ── SITE PLOTS SOLD SECTION ── */}
+            {isSite && (
+              <SitePlotsSection propertyId={id} plots={data.site_plots || []} accounts={accounts} isSettled={isSettled} />
             )}
 
             {/* Partnership Info */}

@@ -219,6 +219,17 @@ export default function PartnershipDetail() {
         member_id: memberId,
         received_by_member_id: null,
       });
+    } else if (txnFormType === "other_expense") {
+      addTxnMutation.mutate({
+        txn_type: "other_expense",
+        amount: parseFloat(txnForm.amount) || 0,
+        txn_date: txnForm.txn_date,
+        payment_mode: txnForm.payment_mode,
+        description: txnForm.description?.trim() || null,
+        account_id: txnForm.account_id ? parseInt(txnForm.account_id) : null,
+        member_id: null,
+        received_by_member_id: null,
+      });
     } else {
       // buyer_payment_received
       const receivedByPartner = txnForm.received_by !== "self";
@@ -409,6 +420,11 @@ export default function PartnershipDetail() {
     .filter((t) => t.txn_type === "buyer_payment_received")
     .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
 
+  // Compute other expense total from transactions
+  const otherExpenseTotal = (data.transactions || [])
+    .filter((t) => t.txn_type === "other_expense")
+    .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
   // Net profit: prefer linked property's net_profit (already deducts broker + other expenses)
   const netProfit =
     linkedProperty && linkedProperty.net_profit != null
@@ -501,7 +517,7 @@ export default function PartnershipDetail() {
           {/* Main content */}
           <div className="lg:col-span-2 space-y-5">
             {/* Summary cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
                 <div className="text-xs text-gray-400 mb-1">Total Advance</div>
                 <div className="text-lg font-bold text-gray-900">
@@ -516,6 +532,14 @@ export default function PartnershipDetail() {
                   {formatCurrency(buyerPaymentsTotal)}
                 </div>
               </div>
+              {otherExpenseTotal > 0 && (
+                <div className="bg-white rounded-xl border border-orange-200 p-4 text-center">
+                  <div className="text-xs text-orange-500 mb-1">Other Expenses</div>
+                  <div className="text-lg font-bold text-orange-700">
+                    {formatCurrency(otherExpenseTotal)}
+                  </div>
+                </div>
+              )}
               <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
                 <div className="text-xs text-gray-400 mb-1">Net Profit</div>
                 <div
@@ -705,6 +729,7 @@ export default function PartnershipDetail() {
                       <option value="buyer_payment_received">
                         Money Received from Buyer
                       </option>
+                      <option value="other_expense">Other Expense</option>
                     </select>
                   </div>
 
@@ -857,6 +882,35 @@ export default function PartnershipDetail() {
                       ) : (
                         <div />
                       )}
+                    </div>
+                  )}
+
+                  {/* Other Expense fields */}
+                  {txnFormType === "other_expense" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          From Account
+                        </label>
+                        <select
+                          value={txnForm.account_id}
+                          onChange={(e) =>
+                            setTxnForm((p) => ({
+                              ...p,
+                              account_id: e.target.value,
+                            }))
+                          }
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        >
+                          <option value="">— Select Account —</option>
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div />
                     </div>
                   )}
 
@@ -1040,6 +1094,11 @@ export default function PartnershipDetail() {
                                   for distribution
                                 </p>
                               )}
+                            {txn.txn_type === "other_expense" && (
+                              <p className="text-xs text-orange-600">
+                                Other expense — tracked in investment
+                              </p>
+                            )}
                             {txn.description && (
                               <p className="text-xs text-gray-400">
                                 {txn.description}

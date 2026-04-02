@@ -31,7 +31,7 @@ from app.models.cash_account import AccountTransaction, CashAccount
 
 router = APIRouter(prefix="/api/partnerships", tags=["partnerships"])
 
-OUTFLOW_TYPES = {"advance_given", "broker_paid", "invested", "expense"}
+OUTFLOW_TYPES = {"advance_given", "broker_paid", "invested", "expense", "other_expense"}
 INFLOW_TYPES = {"buyer_payment_received", "received", "profit_distributed"}
 
 
@@ -238,6 +238,9 @@ def _calculate_summary(
     expense_total = sum(
         _decimal(txn.amount) for txn in transactions if txn.txn_type == "expense"
     )
+    other_expense_total = sum(
+        _decimal(txn.amount) for txn in transactions if txn.txn_type == "other_expense"
+    )
     our_pnl = _decimal(partnership.total_received) - _decimal(partnership.our_investment)
 
     return {
@@ -247,6 +250,7 @@ def _calculate_summary(
         "invested_total": invested_total,
         "received_total": received_total,
         "expense_total": expense_total,
+        "other_expense_total": other_expense_total,
         "member_count": len(members),
     }
 
@@ -644,7 +648,7 @@ def create_partnership_transaction(
             )
 
     # Update partnership totals
-    if txn_type in {"advance_given", "invested"}:
+    if txn_type in {"advance_given", "invested", "other_expense"}:
         partnership.our_investment = _decimal(partnership.our_investment) + amount
     elif txn_type in {"buyer_payment_received", "received", "profit_distributed"}:
         if not buyer_received_by_partner:
@@ -719,7 +723,7 @@ def delete_partnership_transaction(
             break  # delete only one matching entry
 
     # Reverse partnership totals
-    if txn_type in {"advance_given", "invested"}:
+    if txn_type in {"advance_given", "invested", "other_expense"}:
         partnership.our_investment = max(
             _decimal(partnership.our_investment) - amount, Decimal("0")
         )
@@ -787,7 +791,7 @@ def update_partnership_transaction(
             break
 
     # ── Reverse old partnership totals ──────────────────────────────────────
-    if old_type in {"advance_given", "invested"}:
+    if old_type in {"advance_given", "invested", "other_expense"}:
         partnership.our_investment = max(
             _decimal(partnership.our_investment) - old_amount, Decimal("0")
         )
@@ -855,7 +859,7 @@ def update_partnership_transaction(
             )
 
     # ── Apply new partnership totals ────────────────────────────────────────
-    if new_type in {"advance_given", "invested"}:
+    if new_type in {"advance_given", "invested", "other_expense"}:
         partnership.our_investment = _decimal(partnership.our_investment) + new_amount
     elif new_type in {"buyer_payment_received", "received", "profit_distributed"}:
         if not buyer_received_by_partner:

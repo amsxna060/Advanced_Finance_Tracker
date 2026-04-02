@@ -49,10 +49,20 @@ class PropertyDeal(Base):
     sale_date = Column(Date)
 
     # Plot dimension fields (only relevant for plot type)
-    side_left_ft = Column(Numeric(10, 2))
-    side_right_ft = Column(Numeric(10, 2))
-    side_top_ft = Column(Numeric(10, 2))
-    side_bottom_ft = Column(Numeric(10, 2))
+    side_left_ft = Column(Numeric(10, 3))
+    side_right_ft = Column(Numeric(10, 3))
+    side_top_ft = Column(Numeric(10, 3))
+    side_bottom_ft = Column(Numeric(10, 3))
+
+    # NSEW direction fields (preferred over left/right/top/bottom)
+    side_north_ft = Column(Numeric(10, 3))
+    side_south_ft = Column(Numeric(10, 3))
+    side_east_ft = Column(Numeric(10, 3))
+    side_west_ft = Column(Numeric(10, 3))
+
+    # Road info
+    road_count = Column(Integer)
+    roads_json = Column(Text)  # JSON string: [{"direction":"north","width_ft":20}]
 
     # Site-type investment fields
     my_investment = Column(Numeric(15, 2), default=0)
@@ -75,6 +85,7 @@ class PropertyDeal(Base):
     buyer = relationship("Contact", foreign_keys=[buyer_contact_id])
     creator = relationship("User", foreign_keys=[created_by])
     transactions = relationship("PropertyTransaction", back_populates="property_deal")
+    site_plots = relationship("SitePlot", back_populates="property_deal")
 
 
 class PropertyTransaction(Base):
@@ -96,3 +107,26 @@ class PropertyTransaction(Base):
     property_deal = relationship("PropertyDeal", back_populates="transactions")
     creator = relationship("User", foreign_keys=[created_by])
     account = relationship("CashAccount", foreign_keys=[account_id])
+
+
+class SitePlot(Base):
+    __tablename__ = "site_plots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_deal_id = Column(Integer, ForeignKey("property_deals.id"), nullable=False)
+    plot_number = Column(String(50))
+    area_sqft = Column(Numeric(12, 3))
+    side_north_ft = Column(Numeric(10, 3))
+    side_south_ft = Column(Numeric(10, 3))
+    side_east_ft = Column(Numeric(10, 3))
+    side_west_ft = Column(Numeric(10, 3))
+    sold_price_per_sqft = Column(Numeric(12, 3))
+    calculated_price = Column(Numeric(15, 3))
+    buyer_name = Column(String(255))
+    notes = Column(Text)
+    sold_date = Column(Date)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    property_deal = relationship("PropertyDeal", back_populates="site_plots")
+    creator = relationship("User", foreign_keys=[created_by])

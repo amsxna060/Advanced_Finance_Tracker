@@ -12,7 +12,7 @@ const toNullableNumber = (value) => {
 
 const toNullableString = (value) => (value?.trim() ? value.trim() : null);
 
-function PlotDiagram({ left, right, top, bottom, area }) {
+function PlotDiagram({ left, right, top, bottom, area, roads }) {
   const hasAny = left || right || top || bottom;
   if (!hasAny) return null;
 
@@ -21,10 +21,16 @@ function PlotDiagram({ left, right, top, bottom, area }) {
   const t = parseFloat(top) || 0;
   const b = parseFloat(bottom) || 0;
 
+  let parsedRoads = [];
+  try {
+    if (roads) parsedRoads = typeof roads === "string" ? JSON.parse(roads) : roads;
+  } catch { /* ignore */ }
+
   const maxSide = Math.max(l, r, t, b, 1);
   const BASE_W = 200,
     BASE_H = 140,
     PAD = 55;
+  const ROAD_W = 22;
 
   const topW = t > 0 ? Math.max((t / maxSide) * BASE_W, 80) : BASE_W;
   const botW = b > 0 ? Math.max((b / maxSide) * BASE_W, 80) : BASE_W;
@@ -32,18 +38,38 @@ function PlotDiagram({ left, right, top, bottom, area }) {
   const rightH = r > 0 ? Math.max((r / maxSide) * BASE_H, 60) : BASE_H;
   const plotH = Math.max(leftH, rightH);
 
-  const svgW = Math.max(topW, botW) + PAD * 2;
-  const svgH = plotH + PAD * 2;
+  const svgW = Math.max(topW, botW) + PAD * 2 + ROAD_W * 2;
+  const svgH = plotH + PAD * 2 + ROAD_W * 2;
   const cx = svgW / 2;
+  const oY = PAD + ROAD_W;
 
   const x3 = cx + botW / 2,
-    y4 = PAD + plotH;
+    y4 = oY + plotH;
   const x4 = cx - botW / 2;
-  const y1L = PAD + (plotH - leftH);
-  const y1R = PAD + (plotH - rightH);
+  const y1L = oY + (plotH - leftH);
+  const y1R = oY + (plotH - rightH);
 
   const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y4}`;
   const midY = (Math.min(y1L, y1R) + y4) / 2;
+
+  const roadRects = parsedRoads.map((rd, i) => {
+    const dir = (rd.direction || "").toLowerCase();
+    const w = parseFloat(rd.width_ft) || 20;
+    const label = `Road ${w}ft`;
+    if (dir === "north") {
+      return (<g key={i}><rect x={cx - topW / 2 - 5} y={Math.min(y1L, y1R) - ROAD_W - 2} width={topW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={cx} y={Math.min(y1L, y1R) - ROAD_W / 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text></g>);
+    }
+    if (dir === "south") {
+      return (<g key={i}><rect x={cx - botW / 2 - 5} y={y4 + 2} width={botW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={cx} y={y4 + ROAD_W / 2 + 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text></g>);
+    }
+    if (dir === "east") {
+      return (<g key={i}><rect x={Math.max(x3, cx + topW / 2) + 2} y={Math.min(y1R, y1L)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(90, ${Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}, ${midY})`}>{label}</text></g>);
+    }
+    if (dir === "west") {
+      return (<g key={i}><rect x={Math.min(x4, cx - topW / 2) - ROAD_W - 2} y={Math.min(y1L, y1R)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(-90, ${Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}, ${midY})`}>{label}</text></g>);
+    }
+    return null;
+  });
 
   return (
     <div className="mt-3 flex justify-center">
@@ -53,6 +79,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
         className="text-blue-700"
         style={{ overflow: "visible" }}
       >
+        {roadRects}
         <polygon
           points={points}
           fill="#eff6ff"
@@ -67,7 +94,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {top ? `${top} ft` : "—"}
+          {top ? `N: ${top} ft` : "—"}
         </text>
         <text
           x={cx}
@@ -76,7 +103,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {bottom ? `${bottom} ft` : "—"}
+          {bottom ? `S: ${bottom} ft` : "—"}
         </text>
         <text
           x={Math.min(x4, cx - topW / 2) - 8}
@@ -86,7 +113,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {left ? `${left} ft` : "—"}
+          {left ? `W: ${left} ft` : "—"}
         </text>
         <text
           x={Math.max(x3, cx + topW / 2) + 8}
@@ -96,7 +123,7 @@ function PlotDiagram({ left, right, top, bottom, area }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {right ? `${right} ft` : "—"}
+          {right ? `E: ${right} ft` : "—"}
         </text>
         {area && (
           <text
@@ -126,6 +153,8 @@ const EMPTY_FORM_PLOT = {
   side_right_ft: "",
   side_top_ft: "",
   side_bottom_ft: "",
+  road_count: "0",
+  roads_json: "[]",
   seller_contact_id: "",
   seller_rate_per_sqft: "",
   total_seller_value: "",
@@ -166,6 +195,8 @@ function normalizeForForm(property) {
     side_bottom_ft: property.side_bottom_ft
       ? String(property.side_bottom_ft)
       : "",
+    road_count: property.road_count != null ? String(property.road_count) : "0",
+    roads_json: property.roads_json || "[]",
     seller_contact_id: property.seller_contact_id
       ? String(property.seller_contact_id)
       : "",
@@ -219,6 +250,8 @@ function buildPayload(formData, isEditMode) {
     payload.side_right_ft = toNullableNumber(formData.side_right_ft);
     payload.side_top_ft = toNullableNumber(formData.side_top_ft);
     payload.side_bottom_ft = toNullableNumber(formData.side_bottom_ft);
+    payload.road_count = toNullableNumber(formData.road_count);
+    payload.roads_json = formData.roads_json || null;
     payload.seller_contact_id = toNullableNumber(formData.seller_contact_id);
     payload.seller_rate_per_sqft = toNullableNumber(
       formData.seller_rate_per_sqft,
@@ -570,61 +603,133 @@ export default function PropertyForm() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g. 1200"
                       min="0"
+                      step="0.001"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Left Side (ft)
+                      West Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_left_ft}
                       onChange={(e) => set("side_left_ft", e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Left"
+                      placeholder="West"
                       min="0"
+                      step="0.001"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Right Side (ft)
+                      East Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_right_ft}
                       onChange={(e) => set("side_right_ft", e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Right"
+                      placeholder="East"
                       min="0"
+                      step="0.001"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Top Side (ft)
+                      North Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_top_ft}
                       onChange={(e) => set("side_top_ft", e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Top"
+                      placeholder="North"
                       min="0"
+                      step="0.001"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Bottom Side (ft)
+                      South Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_bottom_ft}
                       onChange={(e) => set("side_bottom_ft", e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Bottom"
+                      placeholder="South"
                       min="0"
+                      step="0.001"
                     />
                   </div>
                 </div>
+
+                {/* Road inputs */}
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Number of Roads
+                  </label>
+                  <select
+                    value={formData.road_count}
+                    onChange={(e) => {
+                      const count = parseInt(e.target.value) || 0;
+                      set("road_count", String(count));
+                      try {
+                        let existing = JSON.parse(formData.roads_json || "[]");
+                        while (existing.length < count) existing.push({ direction: "north", width_ft: "20" });
+                        existing = existing.slice(0, count);
+                        set("roads_json", JSON.stringify(existing));
+                      } catch { set("roads_json", JSON.stringify(Array.from({ length: count }, () => ({ direction: "north", width_ft: "20" })))); }
+                    }}
+                    className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {[0, 1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+                {(() => {
+                  let roads = [];
+                  try { roads = JSON.parse(formData.roads_json || "[]"); } catch { /* ignore */ }
+                  if (roads.length === 0) return null;
+                  return (
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {roads.map((rd, idx) => (
+                        <div key={idx} className="flex gap-2 items-center bg-gray-50 rounded-lg p-2 border border-gray-200">
+                          <span className="text-xs font-medium text-gray-500 w-14">Road {idx + 1}</span>
+                          <select
+                            value={rd.direction}
+                            onChange={(e) => {
+                              const copy = [...roads];
+                              copy[idx] = { ...copy[idx], direction: e.target.value };
+                              set("roads_json", JSON.stringify(copy));
+                            }}
+                            className="border border-gray-300 rounded px-2 py-1 text-sm"
+                          >
+                            <option value="north">North</option>
+                            <option value="south">South</option>
+                            <option value="east">East</option>
+                            <option value="west">West</option>
+                          </select>
+                          <input
+                            type="number"
+                            value={rd.width_ft}
+                            onChange={(e) => {
+                              const copy = [...roads];
+                              copy[idx] = { ...copy[idx], width_ft: e.target.value };
+                              set("roads_json", JSON.stringify(copy));
+                            }}
+                            className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                            placeholder="Width"
+                            min="0"
+                            step="0.001"
+                          />
+                          <span className="text-xs text-gray-400">ft</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 <PlotDiagram
                   left={formData.side_left_ft}
@@ -632,6 +737,7 @@ export default function PropertyForm() {
                   top={formData.side_top_ft}
                   bottom={formData.side_bottom_ft}
                   area={formData.total_area_sqft}
+                  roads={formData.roads_json}
                 />
               </div>
 

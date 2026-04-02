@@ -29,11 +29,19 @@ class PropertyDealCreate(BaseModel):
     sale_price: Optional[Decimal] = None
     sale_date: Optional[date] = None
     notes: Optional[str] = None
-    # Plot dimension fields
+    # Plot dimension fields (legacy)
     side_left_ft: Optional[Decimal] = None
     side_right_ft: Optional[Decimal] = None
     side_top_ft: Optional[Decimal] = None
     side_bottom_ft: Optional[Decimal] = None
+    # NSEW direction fields
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+    # Road info
+    road_count: Optional[int] = None
+    roads_json: Optional[str] = None
     # Site-type investment fields
     my_investment: Optional[Decimal] = None
     my_share_percentage: Optional[Decimal] = None
@@ -69,11 +77,19 @@ class PropertyDealUpdate(BaseModel):
     sale_date: Optional[date] = None
     status: Optional[str] = None
     notes: Optional[str] = None
-    # Plot dimension fields
+    # Plot dimension fields (legacy)
     side_left_ft: Optional[Decimal] = None
     side_right_ft: Optional[Decimal] = None
     side_top_ft: Optional[Decimal] = None
     side_bottom_ft: Optional[Decimal] = None
+    # NSEW direction fields
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+    # Road info
+    road_count: Optional[int] = None
+    roads_json: Optional[str] = None
     # Site-type investment fields
     my_investment: Optional[Decimal] = None
     my_share_percentage: Optional[Decimal] = None
@@ -111,11 +127,19 @@ class PropertyDealOut(BaseModel):
     sale_date: Optional[date]
     status: str
     notes: Optional[str]
-    # Plot dimension fields
+    # Plot dimension fields (legacy)
     side_left_ft: Optional[Decimal]
     side_right_ft: Optional[Decimal]
     side_top_ft: Optional[Decimal]
     side_bottom_ft: Optional[Decimal]
+    # NSEW direction fields
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+    # Road info
+    road_count: Optional[int] = None
+    roads_json: Optional[str] = None
     # Site-type investment fields
     my_investment: Optional[Decimal]
     my_share_percentage: Optional[Decimal]
@@ -173,6 +197,41 @@ class PropertyTransactionOut(BaseModel):
     payment_mode: Optional[str]
     description: Optional[str]
     account_id: Optional[int] = None
+    created_by: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SitePlotCreate(BaseModel):
+    plot_number: Optional[str] = None
+    area_sqft: Optional[Decimal] = None
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+    sold_price_per_sqft: Optional[Decimal] = None
+    calculated_price: Optional[Decimal] = None
+    buyer_name: Optional[str] = None
+    notes: Optional[str] = None
+    sold_date: Optional[date] = None
+
+
+class SitePlotOut(BaseModel):
+    id: int
+    property_deal_id: int
+    plot_number: Optional[str]
+    area_sqft: Optional[Decimal]
+    side_north_ft: Optional[Decimal]
+    side_south_ft: Optional[Decimal]
+    side_east_ft: Optional[Decimal]
+    side_west_ft: Optional[Decimal]
+    sold_price_per_sqft: Optional[Decimal]
+    calculated_price: Optional[Decimal]
+    buyer_name: Optional[str]
+    notes: Optional[str]
+    sold_date: Optional[date]
     created_by: Optional[int]
     created_at: datetime
 
