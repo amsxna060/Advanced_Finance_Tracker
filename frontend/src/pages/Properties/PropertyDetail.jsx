@@ -56,6 +56,12 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
   const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y4}`;
   const midY = (Math.min(y1L, y1R) + y4) / 2;
 
+  // Detect which sides have roads for label offsets
+  const hasRoadN = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "north");
+  const hasRoadS = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "south");
+  const hasRoadE = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "east");
+  const hasRoadW = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "west");
+
   // Road rectangles
   const roadRects = parsedRoads.map((rd, i) => {
     const dir = (rd.direction || "").toLowerCase();
@@ -109,7 +115,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
       {/* North label */}
       <text
         x={cx}
-        y={Math.min(y1L, y1R) - 10}
+        y={Math.min(y1L, y1R) - (hasRoadN ? ROAD_W + 10 : 10)}
         textAnchor="middle"
         fontSize={12}
         fill="#1d4ed8"
@@ -117,12 +123,12 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
         {top ? `N: ${top} ft` : "—"}
       </text>
       {/* South label */}
-      <text x={cx} y={y4 + 20} textAnchor="middle" fontSize={12} fill="#1d4ed8">
+      <text x={cx} y={y4 + (hasRoadS ? ROAD_W + 10 : 20)} textAnchor="middle" fontSize={12} fill="#1d4ed8">
         {bottom ? `S: ${bottom} ft` : "—"}
       </text>
       {/* West label */}
       <text
-        x={Math.min(x4, cx - topW / 2) - 8}
+        x={Math.min(x4, cx - topW / 2) - (hasRoadW ? ROAD_W + 8 : 8)}
         y={(y1L + y4) / 2}
         textAnchor="end"
         dominantBaseline="middle"
@@ -133,8 +139,8 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
       </text>
       {/* East label */}
       <text
-        x={Math.max(x3, cx + topW / 2) + 8}
-        y={(y1R + y3) / 2}
+        x={Math.max(x3, cx + topW / 2) + (hasRoadE ? ROAD_W + 8 : 8)}
+        y={(y1R + y4) / 2}
         textAnchor="start"
         dominantBaseline="middle"
         fontSize={12}

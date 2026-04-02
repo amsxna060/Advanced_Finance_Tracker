@@ -52,6 +52,11 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
   const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y4}`;
   const midY = (Math.min(y1L, y1R) + y4) / 2;
 
+  const hasRoadN = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "north");
+  const hasRoadS = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "south");
+  const hasRoadE = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "east");
+  const hasRoadW = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "west");
+
   const roadRects = parsedRoads.map((rd, i) => {
     const dir = (rd.direction || "").toLowerCase();
     const w = parseFloat(rd.width_ft) || 20;
@@ -89,7 +94,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
         />
         <text
           x={cx}
-          y={Math.min(y1L, y1R) - 8}
+          y={Math.min(y1L, y1R) - (hasRoadN ? ROAD_W + 10 : 8)}
           textAnchor="middle"
           fontSize={12}
           fill="#1d4ed8"
@@ -98,7 +103,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
         </text>
         <text
           x={cx}
-          y={y4 + 18}
+          y={y4 + (hasRoadS ? ROAD_W + 10 : 18)}
           textAnchor="middle"
           fontSize={12}
           fill="#1d4ed8"
@@ -106,7 +111,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
           {bottom ? `S: ${bottom} ft` : "—"}
         </text>
         <text
-          x={Math.min(x4, cx - topW / 2) - 8}
+          x={Math.min(x4, cx - topW / 2) - (hasRoadW ? ROAD_W + 8 : 8)}
           y={(y1L + y4) / 2}
           textAnchor="end"
           dominantBaseline="middle"
@@ -116,7 +121,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
           {left ? `W: ${left} ft` : "—"}
         </text>
         <text
-          x={Math.max(x3, cx + topW / 2) + 8}
+          x={Math.max(x3, cx + topW / 2) + (hasRoadE ? ROAD_W + 8 : 8)}
           y={(y1R + y4) / 2}
           textAnchor="start"
           dominantBaseline="middle"
