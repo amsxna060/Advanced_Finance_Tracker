@@ -45,6 +45,16 @@ export default function ContactDetail() {
     },
   });
 
+  const { data: obligationsData } = useQuery({
+    queryKey: ["contact-obligations", id],
+    queryFn: async () => {
+      const res = await api.get("/api/obligations", {
+        params: { contact_id: id, limit: 50 },
+      });
+      return res.data;
+    },
+  });
+
   const deleteContactMutation = useMutation({
     mutationFn: async () => {
       await api.delete(`/api/contacts/${id}`);
@@ -78,6 +88,7 @@ export default function ContactDetail() {
   const properties = contactData?.properties || [];
   const partnerships = contactData?.partnerships || [];
   const beesis = contactData?.beesis || [];
+  const obligations = obligationsData || [];
 
   if (isError || !contact) {
     return (
@@ -471,6 +482,86 @@ export default function ContactDetail() {
                 </div>
               </div>
             )}
+            {/* Obligations / Money Flow */}
+            {obligations.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Money Flow ({obligations.length})
+                  </h3>
+                  <button
+                    onClick={() => navigate(`/obligations`)}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    View all →
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {obligations.map((item) => {
+                    const ob = item.obligation || item;
+                    const remaining =
+                      Number(ob.amount) - Number(ob.amount_settled || 0);
+                    const isReceivable = ob.obligation_type === "receivable";
+                    return (
+                      <div
+                        key={ob.id}
+                        className={`flex items-start justify-between gap-3 rounded-lg border px-3.5 py-3 ${
+                          isReceivable
+                            ? "border-green-100 bg-green-50/40"
+                            : "border-red-100 bg-red-50/40"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                isReceivable
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {isReceivable ? "To Receive" : "To Pay"}
+                            </span>
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full ${
+                                ob.status === "settled"
+                                  ? "bg-gray-100 text-gray-500"
+                                  : ob.status === "partial"
+                                    ? "bg-yellow-100 text-yellow-700"
+                                    : "bg-orange-100 text-orange-700"
+                              }`}
+                            >
+                              {ob.status}
+                            </span>
+                          </div>
+                          {ob.reason && (
+                            <p className="text-sm text-gray-700 mt-1 truncate">
+                              {ob.reason}
+                            </p>
+                          )}
+                          {ob.due_date && (
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              Due: {formatDate(ob.due_date)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-bold text-gray-900">
+                            {formatCurrency(ob.amount)}
+                          </div>
+                          {ob.status !== "settled" && remaining > 0 && (
+                            <div className="text-xs text-orange-600 mt-0.5">
+                              {formatCurrency(remaining)} pending
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {paymentBehavior && paymentBehavior.length > 0 && (
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">

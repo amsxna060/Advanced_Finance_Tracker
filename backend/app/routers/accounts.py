@@ -238,6 +238,72 @@ def add_transaction(
     return _txn_dict(txn)
 
 
+@router.post("/transfer", response_model=dict)
+def transfer_between_accounts(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from_id = payload.get("from_account_id")
+    to_id = payload.get("to_account_id")
+    amount = payload.get("amount")
+    txn_date_str = payload.get("txn_date")
+    description = payload.get("description", "Transfer")
+
+    if not all([from_id, to_id, amount, txn_date_str]):
+        raise HTTPException(
+            status_code=422,
+            detail="Missing required fields: from_account_id, to_account_id, amount, txn_date",
+        )
+    if from_id == to_id:
+        raise HTTPException(status_code=422, detail="Cannot transfer to the same account")
+
+    from_account = (
+        db.query(CashAccount)
+        .filter(CashAccount.id == from_id, CashAccount.is_deleted == False)
+        .first()
+    )
+    to_account = (
+        db.query(CashAccount)
+        .filter(CashAccount.id == to_id, CashAccount.is_deleted == False)
+        .first()
+    )
+    if not from_account:
+        raise HTTPException(status_code=404, detail="Source account not found")
+    if not to_account:
+        raise HTTPException(status_code=404, detail="Destination account not found")
+
+    try:
+        txn_date = date.fromisoformat(txn_date_str)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid txn_date format, expected YYYY-MM-DD")
+
+    debit = AccountTransaction(
+        account_id=from_id,
+        txn_type="debit",
+        amount=Decimal(str(amount)),
+        txn_date=txn_date,
+        description=f"Transfer to {to_account.name}: {description}",
+        linked_type="transfer",
+        created_by=current_user.id,
+    )
+    credit = AccountTransaction(
+        account_id=to_id,
+        txn_type="credit",
+        amount=Decimal(str(amount)),
+        txn_date=txn_date,
+        description=f"Transfer from {from_account.name}: {description}",
+        linked_type="transfer",
+        created_by=current_user.id,
+    )
+    db.add(debit)
+    db.add(credit)
+    db.commit()
+    db.refresh(debit)
+    db.refresh(credit)
+    return {"debit": _txn_dict(debit), "credit": _txn_dict(credit), "message": "Transfer successful"}
+
+
 @router.delete("/transactions/{txn_id}", response_model=dict)
 def delete_transaction(
     txn_id: int,
