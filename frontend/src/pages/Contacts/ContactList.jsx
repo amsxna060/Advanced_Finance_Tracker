@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Plus, Search, User, Building } from "lucide-react";
@@ -7,31 +7,36 @@ import { useAuth } from "../../hooks/useAuth";
 
 export default function ContactList() {
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [contactType, setContactType] = useState("");
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 350);
-    return () => clearTimeout(timer);
-  }, [search]);
-
   const {
-    data: contacts,
+    data: allContacts = [],
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["contacts", debouncedSearch, contactType],
+    queryKey: ["contacts"],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (debouncedSearch) params.append("search", debouncedSearch);
-      if (contactType) params.append("contact_type", contactType);
-      params.append("limit", "500");
-      const response = await api.get(`/api/contacts?${params}`);
+      const response = await api.get("/api/contacts?limit=1000");
       return response.data;
     },
   });
+
+  const contacts = useMemo(() => {
+    let result = allContacts;
+    if (contactType) result = result.filter((c) => c.contact_type === contactType);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.name?.toLowerCase().includes(q) ||
+          c.phone?.toLowerCase().includes(q) ||
+          c.city?.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [allContacts, search, contactType]);
 
   if (isLoading) {
     return (
@@ -114,7 +119,7 @@ export default function ContactList() {
         {/* Results count */}
         <div className="mb-4">
           <p className="text-sm text-gray-600">
-            {contacts?.length || 0} contact(s) found
+            {contacts.length} contact(s) found{(search || contactType) && allContacts.length !== contacts.length ? ` of ${allContacts.length}` : ""}
           </p>
         </div>
 
@@ -126,7 +131,7 @@ export default function ContactList() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {contacts?.map((contact) => (
+          {contacts.map((contact) => (
             <div
               key={contact.id}
               onClick={() => navigate(`/contacts/${contact.id}`)}
@@ -167,14 +172,14 @@ export default function ContactList() {
           ))}
         </div>
 
-        {contacts?.length === 0 && !error && (
+        {contacts.length === 0 && !error && (
           <div className="text-center py-12">
             <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              No contacts found
+              {search || contactType ? "No contacts match your search" : "No contacts found"}
             </h3>
             <p className="text-gray-600 mb-4">
-              Get started by adding your first contact
+              {search || contactType ? "Try a different search or filter" : "Get started by adding your first contact"}
             </p>
             {user?.role === "admin" && (
               <button
