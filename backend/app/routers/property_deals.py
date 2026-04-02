@@ -635,7 +635,15 @@ def settle_property_deal(
         if settle_data.broker_commission is not None
         else _decimal(property_deal.broker_commission)
     )
-    other_expenses = _decimal(settle_data.other_expenses)
+    # Sum other_expense transactions recorded on this property — these were paid by Self
+    txn_other_expenses = _decimal(
+        db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
+            PropertyTransaction.property_deal_id == deal_id,
+            PropertyTransaction.txn_type == "other_expense",
+        ).scalar()
+    )
+    # Use form value if explicitly provided, else fall back to transaction sum
+    other_expenses = _decimal(settle_data.other_expenses) if _decimal(settle_data.other_expenses) > 0 else txn_other_expenses
 
     gross_profit = total_buyer_value - total_seller_value
     total_expenses = broker_commission + other_expenses
@@ -661,7 +669,9 @@ def settle_property_deal(
                 advance = _decimal(member.advance_contributed)
                 total_advance_pool += advance
                 profit_share = net_profit * (share_pct / Decimal("100"))
-                total_to_receive = advance + profit_share
+                # Self gets back other_expenses they paid from pocket (like advance return)
+                other_exp_returned = other_expenses if member.is_self else Decimal("0")
+                total_to_receive = advance + other_exp_returned + profit_share
 
                 member.total_received = total_to_receive
 
@@ -676,6 +686,7 @@ def settle_property_deal(
                     "share_percentage": float(share_pct),
                     "advance_contributed": float(advance),
                     "advance_returned": float(advance),
+                    "other_expense_returned": float(other_exp_returned),
                     "profit_share": float(profit_share),
                     "total_to_receive": float(total_to_receive),
                 })
@@ -685,7 +696,7 @@ def settle_property_deal(
             if registry_date:
                 partnership.actual_end_date = registry_date
     else:
-        # No partnership — 100% to self
+        # No partnership — 100% to self (self gets back all other_expenses too)
         partner_settlements.append({
             "member_id": None,
             "contact_name": "Self",
@@ -693,8 +704,9 @@ def settle_property_deal(
             "share_percentage": 100.0,
             "advance_contributed": 0.0,
             "advance_returned": 0.0,
+            "other_expense_returned": float(other_expenses),
             "profit_share": float(net_profit),
-            "total_to_receive": float(net_profit),
+            "total_to_receive": float(net_profit + other_expenses),
         })
 
     # Persist deal fields

@@ -404,6 +404,13 @@ export default function PropertyDetail() {
 
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [showAddAdvance, setShowAddAdvance] = useState(false);
+  const [showAddOtherExpense, setShowAddOtherExpense] = useState(false);
+  const [otherExpenseForm, setOtherExpenseForm] = useState({
+    amount: "",
+    txn_date: new Date().toISOString().split("T")[0],
+    account_id: "",
+    description: "",
+  });
   const [editingTxnId, setEditingTxnId] = useState(null);
   const [editTxnForm, setEditTxnForm] = useState({
     amount: "",
@@ -547,6 +554,30 @@ export default function PropertyDetail() {
     });
   };
 
+  const addOtherExpenseMutation = useMutation({
+    mutationFn: async (payload) => api.post(`/api/properties/${id}/transactions`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      setShowAddOtherExpense(false);
+      setOtherExpenseForm({ amount: "", txn_date: new Date().toISOString().split("T")[0], account_id: "", description: "" });
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to add expense"),
+  });
+
+  const handleAddOtherExpense = (e) => {
+    e.preventDefault();
+    addOtherExpenseMutation.mutate({
+      txn_type: "other_expense",
+      amount: parseFloat(otherExpenseForm.amount),
+      txn_date: otherExpenseForm.txn_date,
+      account_id: otherExpenseForm.account_id ? Number(otherExpenseForm.account_id) : null,
+      payment_mode: "bank_transfer",
+      description: otherExpenseForm.description || "Other expense",
+    });
+  };
+
   const settleMutation = useMutation({
     mutationFn: async (payload) => {
       const res = await api.post(`/api/properties/${id}/settle`, payload);
@@ -660,17 +691,20 @@ export default function PropertyDetail() {
     const netProfit = parseFloat(property.net_profit || 0);
     const sellerValue = parseFloat(property.total_seller_value || 0);
     const advancePaid = parseFloat(property.advance_paid || 0);
+    const storedOtherExp = parseFloat(property.other_expenses || 0);
     const partnerSettlements = members.map((m) => {
       const sharePct = parseFloat(m.member?.share_percentage || 0);
       const advance = parseFloat(m.member?.advance_contributed || 0);
       const profitShare = netProfit * (sharePct / 100);
+      const otherExpReturned = m.member?.is_self ? storedOtherExp : 0;
       return {
         contact_name: m.member?.is_self ? "Self" : m.contact?.name || "Unknown",
         is_self: m.member?.is_self,
         share_percentage: sharePct,
         advance_returned: advance,
+        other_expense_returned: otherExpReturned,
         profit_share: profitShare,
-        total_to_receive: advance + profitShare,
+        total_to_receive: advance + otherExpReturned + profitShare,
       };
     });
     return {
@@ -707,6 +741,9 @@ export default function PropertyDetail() {
     liveGross !== null
       ? liveGross - brokerComm - (isNaN(liveOther) ? 0 : liveOther)
       : null;
+
+  const otherExpenseTxns = transactions.filter((t) => t.txn_type === "other_expense");
+  const totalOtherExpenses = otherExpenseTxns.reduce((s, t) => s + parseFloat(t.amount || 0), 0);
 
   const totalAdvancePool = members.reduce(
     (sum, m) => sum + parseFloat(m.member?.advance_contributed || 0),
@@ -896,6 +933,9 @@ export default function PropertyDetail() {
                             Advance Back
                           </th>
                           <th className="text-right py-2 text-gray-600 font-medium">
+                            Exp. Back
+                          </th>
+                          <th className="text-right py-2 text-gray-600 font-medium">
                             Profit Share
                           </th>
                           <th className="text-right py-2 text-gray-600 font-medium">
@@ -916,6 +956,11 @@ export default function PropertyDetail() {
                               </td>
                               <td className="text-right py-2">
                                 {formatCurrency(ps.advance_returned)}
+                              </td>
+                              <td className="text-right py-2">
+                                {ps.other_expense_returned > 0
+                                  ? formatCurrency(ps.other_expense_returned)
+                                  : "—"}
                               </td>
                               <td className="text-right py-2">
                                 {formatCurrency(ps.profit_share)}
@@ -1559,6 +1604,132 @@ export default function PropertyDetail() {
                 );
               })()}
             </div>
+
+            {/* Other Expenses Section */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold text-gray-800">
+                  Other Expenses
+                </h2>
+                {!isSettled && (
+                  <button
+                    onClick={() => setShowAddOtherExpense(!showAddOtherExpense)}
+                    className="text-sm text-orange-600 hover:text-orange-800 font-medium"
+                  >
+                    {showAddOtherExpense ? "Cancel" : "+ Add Expense"}
+                  </button>
+                )}
+              </div>
+
+              {showAddOtherExpense && (
+                <form onSubmit={handleAddOtherExpense} className="mb-4 p-3 bg-orange-50 rounded-lg space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Amount (₹) *</label>
+                      <input
+                        type="number"
+                        value={otherExpenseForm.amount}
+                        onChange={(e) => setOtherExpenseForm((p) => ({ ...p, amount: e.target.value }))}
+                        required
+                        min="1"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
+                        placeholder="5000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Date *</label>
+                      <input
+                        type="date"
+                        value={otherExpenseForm.txn_date}
+                        onChange={(e) => setOtherExpenseForm((p) => ({ ...p, txn_date: e.target.value }))}
+                        required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">From Account</label>
+                    <select
+                      value={otherExpenseForm.account_id}
+                      onChange={(e) => setOtherExpenseForm((p) => ({ ...p, account_id: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
+                    >
+                      <option value="">— Select Account —</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                    <input
+                      type="text"
+                      value={otherExpenseForm.description}
+                      onChange={(e) => setOtherExpenseForm((p) => ({ ...p, description: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
+                      placeholder="e.g. Stamp duty, legal fee"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={addOtherExpenseMutation.isPending}
+                    className="w-full py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
+                  >
+                    {addOtherExpenseMutation.isPending ? "Adding..." : "Add Expense"}
+                  </button>
+                </form>
+              )}
+
+              {otherExpenseTxns.length > 0 ? (
+                <>
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 text-gray-500 font-medium">Date</th>
+                        <th className="text-left py-2 text-gray-500 font-medium pl-2">Description</th>
+                        <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
+                        {!isSettled && <th className="py-2 w-16"></th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {otherExpenseTxns.map((t) => (
+                        <tr key={t.id} className="border-b border-gray-100">
+                          <td className="py-2 text-gray-700">{formatDate(t.txn_date)}</td>
+                          <td className="py-2 text-gray-600 pl-2">{t.description || "—"}</td>
+                          <td className="text-right py-2 font-medium text-orange-700">
+                            {formatCurrency(t.amount)}
+                          </td>
+                          {!isSettled && (
+                            <td className="py-2 pl-2">
+                              <button
+                                onClick={() => {
+                                  if (window.confirm("Delete this expense?"))
+                                    deleteAdvanceMutation.mutate(t.id);
+                                }}
+                                disabled={deleteAdvanceMutation.isPending}
+                                className="px-2 py-0.5 text-[10px] text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                              >
+                                Del
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                      <tr className="border-t border-gray-300 font-semibold">
+                        <td className="py-2" colSpan={2}>Total</td>
+                        <td className="text-right py-2 text-orange-700">{formatCurrency(totalOtherExpenses)}</td>
+                        {!isSettled && <td></td>}
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-orange-600 mt-2">
+                    ℹ️ These expenses will be returned to you at settlement, before profit sharing.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No other expenses recorded yet.</p>
+              )}
+            </div>
           </div>
 
           {/* Sidebar */}
@@ -1570,7 +1741,15 @@ export default function PropertyDetail() {
                   Actions
                 </h2>
                 <button
-                  onClick={() => setShowSettleModal(true)}
+                  onClick={() => {
+                    setSettleForm((p) => ({
+                      ...p,
+                      other_expenses: totalOtherExpenses > 0 && p.other_expenses === "0"
+                        ? String(totalOtherExpenses)
+                        : p.other_expenses,
+                    }));
+                    setShowSettleModal(true);
+                  }}
                   className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 text-sm"
                 >
                   🤝 Settle Deal
@@ -1798,14 +1977,17 @@ export default function PropertyDetail() {
                               m.member.advance_contributed || 0,
                             );
                             const profit = (liveNet * sharePct) / 100;
-                            const total = advance + profit;
+                            const otherExpBack = m.member.is_self ? (isNaN(liveOther) ? 0 : liveOther) : 0;
+                            const total = advance + otherExpBack + profit;
                             const name = m.member.is_self
                               ? "Self (You)"
                               : m.contact?.name || "Unknown";
                             return (
                               <div key={i} className="text-xs text-gray-600">
                                 • {name} ({sharePct}%) — Advance:{" "}
-                                {formatCurrency(advance)} · Profit:{" "}
+                                {formatCurrency(advance)}
+                                {otherExpBack > 0 && <> · Exp. Back: {formatCurrency(otherExpBack)}</>}
+                                {" · "}Profit:{" "}
                                 {formatCurrency(profit)} ·{" "}
                                 <strong>Total: {formatCurrency(total)}</strong>
                               </div>
