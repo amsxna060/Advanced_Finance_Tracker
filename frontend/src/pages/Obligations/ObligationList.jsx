@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
@@ -41,6 +41,9 @@ function ObligationList() {
   const [settleForm, setSettleForm] = useState(defaultSettleForm);
   const [errorMessage, setErrorMessage] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [contactSearch, setContactSearch] = useState("");
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+  const contactSearchRef = useRef(null);
 
   const { data: obligations = [], isLoading } = useQuery({
     queryKey: ["obligations", filters],
@@ -85,6 +88,8 @@ function ObligationList() {
       setShowModal(false);
       setForm(defaultForm);
       setErrorMessage("");
+      setContactSearch("");
+      setShowContactDropdown(false);
     },
     onError: (e) =>
       setErrorMessage(
@@ -132,6 +137,12 @@ function ObligationList() {
     });
     return { receivable, payable };
   }, [obligations]);
+
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch.trim()) return contacts;
+    const q = contactSearch.toLowerCase();
+    return contacts.filter((c) => c.name.toLowerCase().includes(q));
+  }, [contacts, contactSearch]);
 
   const handleCreate = (e) => {
     e.preventDefault();
@@ -197,6 +208,8 @@ function ObligationList() {
             onClick={() => {
               setShowModal(true);
               setErrorMessage("");
+              setContactSearch("");
+              setShowContactDropdown(false);
             }}
             className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 text-sm font-medium"
           >
@@ -482,21 +495,49 @@ function ObligationList() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">
                       Contact *
                     </label>
-                    <select
-                      required
-                      value={form.contact_id}
-                      onChange={(e) =>
-                        setForm({ ...form, contact_id: e.target.value })
-                      }
-                      className="w-full border rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">Select contact</option>
-                      {contacts.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowContactDropdown(false); }}>
+                      <input
+                        ref={contactSearchRef}
+                        type="text"
+                        required={!form.contact_id}
+                        placeholder={form.contact_id ? contacts.find(c => c.id === parseInt(form.contact_id))?.name || "Search contact..." : "Search contact..."}
+                        value={contactSearch}
+                        onFocus={() => setShowContactDropdown(true)}
+                        onChange={(e) => {
+                          setContactSearch(e.target.value);
+                          setForm({ ...form, contact_id: "" });
+                          setShowContactDropdown(true);
+                        }}
+                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                      />
+                      {form.contact_id && (
+                        <span className="absolute right-7 top-1/2 -translate-y-1/2 text-xs text-green-600">✓</span>
+                      )}
+                      {showContactDropdown && (
+                        <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                          {filteredContacts.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500">No contacts found</div>
+                          ) : (
+                            filteredContacts.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2"
+                                onMouseDown={() => {
+                                  setForm({ ...form, contact_id: String(c.id) });
+                                  setContactSearch(c.name);
+                                  setShowContactDropdown(false);
+                                }}
+                              >
+                                <span className="text-gray-400 text-xs">{c.contact_type === "institution" ? "🏦" : "👤"}</span>
+                                {c.name}
+                                {c.relationship_type && <span className="text-xs text-gray-400 ml-auto">{c.relationship_type}</span>}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -633,6 +674,8 @@ function ObligationList() {
                     onClick={() => {
                       setShowModal(false);
                       setForm(defaultForm);
+                      setContactSearch("");
+                      setShowContactDropdown(false);
                     }}
                     className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
                   >

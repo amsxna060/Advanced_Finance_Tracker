@@ -404,13 +404,6 @@ export default function PropertyDetail() {
 
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [showAddAdvance, setShowAddAdvance] = useState(false);
-  const [showAddOtherExpense, setShowAddOtherExpense] = useState(false);
-  const [otherExpenseForm, setOtherExpenseForm] = useState({
-    amount: "",
-    txn_date: new Date().toISOString().split("T")[0],
-    account_id: "",
-    description: "",
-  });
   const [editingTxnId, setEditingTxnId] = useState(null);
   const [editTxnForm, setEditTxnForm] = useState({
     amount: "",
@@ -551,30 +544,6 @@ export default function PropertyDetail() {
           : null,
         description: editTxnForm.description || null,
       },
-    });
-  };
-
-  const addOtherExpenseMutation = useMutation({
-    mutationFn: async (payload) => api.post(`/api/properties/${id}/transactions`, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["property-transactions", id] });
-      queryClient.invalidateQueries({ queryKey: ["property", id] });
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      setShowAddOtherExpense(false);
-      setOtherExpenseForm({ amount: "", txn_date: new Date().toISOString().split("T")[0], account_id: "", description: "" });
-    },
-    onError: (err) => alert(err?.response?.data?.detail || "Failed to add expense"),
-  });
-
-  const handleAddOtherExpense = (e) => {
-    e.preventDefault();
-    addOtherExpenseMutation.mutate({
-      txn_type: "other_expense",
-      amount: parseFloat(otherExpenseForm.amount),
-      txn_date: otherExpenseForm.txn_date,
-      account_id: otherExpenseForm.account_id ? Number(otherExpenseForm.account_id) : null,
-      payment_mode: "bank_transfer",
-      description: otherExpenseForm.description || "Other expense",
     });
   };
 
@@ -1630,74 +1599,7 @@ export default function PropertyDetail() {
                 <h2 className="text-base font-semibold text-gray-800">
                   Other Expenses
                 </h2>
-                {!isSettled && (
-                  <button
-                    onClick={() => setShowAddOtherExpense(!showAddOtherExpense)}
-                    className="text-sm text-orange-600 hover:text-orange-800 font-medium"
-                  >
-                    {showAddOtherExpense ? "Cancel" : "+ Add Expense"}
-                  </button>
-                )}
               </div>
-
-              {showAddOtherExpense && (
-                <form onSubmit={handleAddOtherExpense} className="mb-4 p-3 bg-orange-50 rounded-lg space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Amount (₹) *</label>
-                      <input
-                        type="number"
-                        value={otherExpenseForm.amount}
-                        onChange={(e) => setOtherExpenseForm((p) => ({ ...p, amount: e.target.value }))}
-                        required
-                        min="1"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
-                        placeholder="5000"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Date *</label>
-                      <input
-                        type="date"
-                        value={otherExpenseForm.txn_date}
-                        onChange={(e) => setOtherExpenseForm((p) => ({ ...p, txn_date: e.target.value }))}
-                        required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">From Account</label>
-                    <select
-                      value={otherExpenseForm.account_id}
-                      onChange={(e) => setOtherExpenseForm((p) => ({ ...p, account_id: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
-                    >
-                      <option value="">— Select Account —</option>
-                      {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
-                    <input
-                      type="text"
-                      value={otherExpenseForm.description}
-                      onChange={(e) => setOtherExpenseForm((p) => ({ ...p, description: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400"
-                      placeholder="e.g. Stamp duty, legal fee"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={addOtherExpenseMutation.isPending}
-                    className="w-full py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
-                  >
-                    {addOtherExpenseMutation.isPending ? "Adding..." : "Add Expense"}
-                  </button>
-                </form>
-              )}
 
               {allOtherExpenses.length > 0 ? (
                 <>

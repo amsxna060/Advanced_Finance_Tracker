@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Plus, Search, User, Building } from "lucide-react";
@@ -7,19 +7,25 @@ import { useAuth } from "../../hooks/useAuth";
 
 export default function ContactList() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [contactType, setContactType] = useState("");
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const {
     data: contacts,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["contacts", search, contactType],
+    queryKey: ["contacts", debouncedSearch, contactType],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search) params.append("search", search);
+      if (debouncedSearch) params.append("search", debouncedSearch);
       if (contactType) params.append("contact_type", contactType);
       params.append("limit", "500");
       const response = await api.get(`/api/contacts?${params}`);
