@@ -11,7 +11,7 @@ from app.models.contact import Contact
 
 # Average number of days in a month (used for duration calculations)
 _AVG_DAYS_PER_MONTH = 30.44
-from app.models.partnership import Partnership, PartnershipMember
+from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot
 from app.models.user import User
 from app.schemas.property_deal import (
@@ -267,6 +267,34 @@ def get_property(
         SitePlot.property_deal_id == property_id,
     ).order_by(SitePlot.id).all()
 
+    # Collect other_expense transactions from linked partnerships with payer info
+    partnership_expenses = []
+    for lp in linked_partnerships:
+        lp_members = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == lp.id,
+        ).all()
+        member_map = {m.id: m for m in lp_members}
+        lp_expense_txns = db.query(PartnershipTransaction).filter(
+            PartnershipTransaction.partnership_id == lp.id,
+            PartnershipTransaction.txn_type == "other_expense",
+        ).order_by(PartnershipTransaction.txn_date.desc()).all()
+        for txn in lp_expense_txns:
+            payer_member = member_map.get(txn.member_id) if txn.member_id else None
+            payer_contact = None
+            if payer_member and payer_member.contact_id:
+                payer_contact = db.query(Contact).filter(Contact.id == payer_member.contact_id).first()
+            partnership_expenses.append({
+                "id": txn.id,
+                "source": "partnership",
+                "partnership_id": lp.id,
+                "txn_date": str(txn.txn_date),
+                "amount": float(txn.amount),
+                "description": txn.description,
+                "payer_name": "Self" if (payer_member and payer_member.is_self) else (payer_contact.name if payer_contact else "Partner"),
+                "is_self": payer_member.is_self if payer_member else False,
+                "member_id": txn.member_id,
+            })
+
     return {
         "property": PropertyDealOut.model_validate(property_deal),
         "seller": ContactBrief.model_validate(property_deal.seller) if property_deal.seller else None,
@@ -276,6 +304,7 @@ def get_property(
         "linked_partnership": linked_partnership_data,
         "summary": _calculate_property_summary(property_deal, transactions, linked_partnerships),
         "site_plots": [SitePlotOut.model_validate(p) for p in site_plots],
+        "partnership_expenses": partnership_expenses,
     }
 
 
@@ -635,44 +664,71 @@ def settle_property_deal(
         if settle_data.broker_commission is not None
         else _decimal(property_deal.broker_commission)
     )
-    # Sum other_expense transactions recorded on this property — these were paid by Self
-    txn_other_expenses = _decimal(
-        db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
-            PropertyTransaction.property_deal_id == deal_id,
-            PropertyTransaction.txn_type == "other_expense",
-        ).scalar()
-    )
-    # Use form value if explicitly provided, else fall back to transaction sum
-    other_expenses = _decimal(settle_data.other_expenses) if _decimal(settle_data.other_expenses) > 0 else txn_other_expenses
+    # Gather all other_expense transactions (property-level + partnership-level)
+    # and attribute each to the paying member
+    prop_expense_txns = db.query(PropertyTransaction).filter(
+        PropertyTransaction.property_deal_id == deal_id,
+        PropertyTransaction.txn_type == "other_expense",
+    ).all()
+
+    # For property-level expenses, payer is always treated as self (no member_id on property txns)
+    # For partnership-level expenses, payer is whoever has member_id on the txn
+    linked_partnerships_for_settle = db.query(Partnership).filter(
+        Partnership.linked_property_deal_id == deal_id,
+        Partnership.is_deleted == False,
+    ).all()
+
+    # Build member_id -> total_expense_paid mapping from partnership transactions
+    # member_id=None means Self (property-level expense with no member)
+    member_expense_map: dict = {}  # {member_id_or_None: Decimal}
+
+    # Property-level other_expenses → attributed to self (None key)
+    prop_exp_total = sum((_decimal(t.amount) for t in prop_expense_txns), Decimal("0"))
+    member_expense_map[None] = member_expense_map.get(None, Decimal("0")) + prop_exp_total
+
+    for lp in linked_partnerships_for_settle:
+        lp_exp_txns = db.query(PartnershipTransaction).filter(
+            PartnershipTransaction.partnership_id == lp.id,
+            PartnershipTransaction.txn_type == "other_expense",
+        ).all()
+        for t in lp_exp_txns:
+            key = t.member_id  # member_id on partnership transaction
+            member_expense_map[key] = member_expense_map.get(key, Decimal("0")) + _decimal(t.amount)
+
+    total_other_expenses = sum(member_expense_map.values(), Decimal("0"))
+    # If form explicitly provides a value use it (legacy / manual override), else use tracked total
+    other_expenses = _decimal(settle_data.other_expenses) if _decimal(settle_data.other_expenses) > 0 else total_other_expenses
 
     gross_profit = total_buyer_value - total_seller_value
     total_expenses = broker_commission + other_expenses
     net_profit = gross_profit - total_expenses
 
-    # Sum of all partner advances (for summary display)
-    linked_partnerships = db.query(Partnership).filter(
-        Partnership.linked_property_deal_id == deal_id,
-        Partnership.is_deleted == False,
-    ).all()
-
     total_advance_pool = Decimal("0")
     partner_settlements = []
 
-    if linked_partnerships:
-        for partnership in linked_partnerships:
+    if linked_partnerships_for_settle:
+        for partnership in linked_partnerships_for_settle:
             members = db.query(PartnershipMember).filter(
                 PartnershipMember.partnership_id == partnership.id,
             ).all()
+
+            # Build id -> member map for this partnership
+            pm_map = {m.id: m for m in members}
 
             for member in members:
                 share_pct = _decimal(member.share_percentage)
                 advance = _decimal(member.advance_contributed)
                 total_advance_pool += advance
                 profit_share = net_profit * (share_pct / Decimal("100"))
-                # Self gets back other_expenses they paid from pocket (like advance return)
-                other_exp_returned = other_expenses if member.is_self else Decimal("0")
-                total_to_receive = advance + other_exp_returned + profit_share
 
+                # Other expenses paid by this member:
+                # Check partnership transaction member_id == member.id
+                # Also include property-level expenses if member is self (None key)
+                other_exp_returned = member_expense_map.get(member.id, Decimal("0"))
+                if member.is_self:
+                    other_exp_returned += member_expense_map.get(None, Decimal("0"))
+
+                total_to_receive = advance + other_exp_returned + profit_share
                 member.total_received = total_to_receive
 
                 contact = None
@@ -696,7 +752,7 @@ def settle_property_deal(
             if registry_date:
                 partnership.actual_end_date = registry_date
     else:
-        # No partnership — 100% to self (self gets back all other_expenses too)
+        # No partnership — 100% to self, self gets back all other_expenses
         partner_settlements.append({
             "member_id": None,
             "contact_name": "Self",

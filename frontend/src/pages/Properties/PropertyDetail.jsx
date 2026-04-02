@@ -644,6 +644,7 @@ export default function PropertyDetail() {
   const isSite = property.property_type === "site";
   const isSettled = property.status === "settled";
   const members = lp?.members || [];
+  const partnershipExpenses = data.partnership_expenses || []; // from linked partnership
 
   // Calculate site settlement summary from property data (for display after page reload)
   const calculateSiteSettlementSummary = () => {
@@ -691,12 +692,25 @@ export default function PropertyDetail() {
     const netProfit = parseFloat(property.net_profit || 0);
     const sellerValue = parseFloat(property.total_seller_value || 0);
     const advancePaid = parseFloat(property.advance_paid || 0);
-    const storedOtherExp = parseFloat(property.other_expenses || 0);
+    // Build per-member expense map from stored partnership_expenses
+    // member_id null = property-level expense = self
+    const memberExpMap = {};
+    partnershipExpenses.forEach((pe) => {
+      const key = pe.member_id ?? "self";
+      memberExpMap[key] = (memberExpMap[key] || 0) + pe.amount;
+    });
+    // property-level transactions (stored in property.other_expenses at settle time)
+    // property.other_expenses includes all after settlement
+    const partnerPartnershipExpTotal = partnershipExpenses.reduce((s, pe) => s + pe.amount, 0);
+    const propLevelExpTotal = parseFloat(property.other_expenses || 0) - partnerPartnershipExpTotal;
+
     const partnerSettlements = members.map((m) => {
       const sharePct = parseFloat(m.member?.share_percentage || 0);
       const advance = parseFloat(m.member?.advance_contributed || 0);
       const profitShare = netProfit * (sharePct / 100);
-      const otherExpReturned = m.member?.is_self ? storedOtherExp : 0;
+      // Expenses this member paid: by member.id in partnership_expenses + prop-level if self
+      let otherExpReturned = memberExpMap[m.member?.id] || 0;
+      if (m.member?.is_self) otherExpReturned += Math.max(propLevelExpTotal, 0);
       return {
         contact_name: m.member?.is_self ? "Self" : m.contact?.name || "Unknown",
         is_self: m.member?.is_self,
@@ -743,7 +757,12 @@ export default function PropertyDetail() {
       : null;
 
   const otherExpenseTxns = transactions.filter((t) => t.txn_type === "other_expense");
-  const totalOtherExpenses = otherExpenseTxns.reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  // Combine property-level + partnership-level expenses for display
+  const allOtherExpenses = [
+    ...otherExpenseTxns.map((t) => ({ ...t, source: "property", payer_name: "Self" })),
+    ...partnershipExpenses,
+  ];
+  const totalOtherExpenses = allOtherExpenses.reduce((s, t) => s + parseFloat(t.amount || 0), 0);
 
   const totalAdvancePool = members.reduce(
     (sum, m) => sum + parseFloat(m.member?.advance_contributed || 0),
@@ -1680,50 +1699,61 @@ export default function PropertyDetail() {
                 </form>
               )}
 
-              {otherExpenseTxns.length > 0 ? (
+              {allOtherExpenses.length > 0 ? (
                 <>
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200">
                         <th className="text-left py-2 text-gray-500 font-medium">Date</th>
                         <th className="text-left py-2 text-gray-500 font-medium pl-2">Description</th>
+                        <th className="text-left py-2 text-gray-500 font-medium pl-2">Paid by</th>
                         <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
                         {!isSettled && <th className="py-2 w-16"></th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {otherExpenseTxns.map((t) => (
-                        <tr key={t.id} className="border-b border-gray-100">
+                      {allOtherExpenses.map((t) => (
+                        <tr key={`${t.source}-${t.id}`} className="border-b border-gray-100">
                           <td className="py-2 text-gray-700">{formatDate(t.txn_date)}</td>
                           <td className="py-2 text-gray-600 pl-2">{t.description || "—"}</td>
+                          <td className="py-2 pl-2">
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${t.source === "partnership" ? "bg-purple-50 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                              {t.payer_name || "Self"}
+                              {t.source === "partnership" && " (via partnership)"}
+                            </span>
+                          </td>
                           <td className="text-right py-2 font-medium text-orange-700">
                             {formatCurrency(t.amount)}
                           </td>
                           {!isSettled && (
                             <td className="py-2 pl-2">
-                              <button
-                                onClick={() => {
-                                  if (window.confirm("Delete this expense?"))
-                                    deleteAdvanceMutation.mutate(t.id);
-                                }}
-                                disabled={deleteAdvanceMutation.isPending}
-                                className="px-2 py-0.5 text-[10px] text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
-                              >
-                                Del
-                              </button>
+                              {t.source !== "partnership" ? (
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm("Delete this expense?"))
+                                      deleteAdvanceMutation.mutate(t.id);
+                                  }}
+                                  disabled={deleteAdvanceMutation.isPending}
+                                  className="px-2 py-0.5 text-[10px] text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                                >
+                                  Del
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-gray-400">via P</span>
+                              )}
                             </td>
                           )}
                         </tr>
                       ))}
                       <tr className="border-t border-gray-300 font-semibold">
-                        <td className="py-2" colSpan={2}>Total</td>
+                        <td className="py-2" colSpan={3}>Total</td>
                         <td className="text-right py-2 text-orange-700">{formatCurrency(totalOtherExpenses)}</td>
                         {!isSettled && <td></td>}
                       </tr>
                     </tbody>
                   </table>
                   <p className="text-xs text-orange-600 mt-2">
-                    ℹ️ These expenses will be returned to you at settlement, before profit sharing.
+                    ℹ️ Each person's expenses are returned to them at settlement, before profit sharing.
                   </p>
                 </>
               ) : (
@@ -1977,7 +2007,16 @@ export default function PropertyDetail() {
                               m.member.advance_contributed || 0,
                             );
                             const profit = (liveNet * sharePct) / 100;
-                            const otherExpBack = m.member.is_self ? (isNaN(liveOther) ? 0 : liveOther) : 0;
+                            // Per-member expense back: sum partnership expenses by member_id
+                            // + property-level expenses (from form) for self
+                            const partnerExpBack = partnershipExpenses
+                              .filter((pe) => pe.member_id === m.member.id)
+                              .reduce((s, pe) => s + pe.amount, 0);
+                            const propExpBack = m.member.is_self ? (isNaN(liveOther) ? 0 : liveOther) - partnershipExpenses.filter((pe) => pe.is_self).reduce((s, pe) => s + pe.amount, 0) : 0;
+                            const selfPartnerExpBack = m.member.is_self
+                              ? partnershipExpenses.filter((pe) => pe.is_self).reduce((s, pe) => s + pe.amount, 0)
+                              : 0;
+                            const otherExpBack = partnerExpBack + Math.max(propExpBack, 0) + selfPartnerExpBack;
                             const total = advance + otherExpBack + profit;
                             const name = m.member.is_self
                               ? "Self (You)"
