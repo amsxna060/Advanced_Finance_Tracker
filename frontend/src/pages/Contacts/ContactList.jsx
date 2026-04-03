@@ -18,7 +18,7 @@ export default function ContactList() {
   } = useQuery({
     queryKey: ["contacts"],
     queryFn: async () => {
-      const response = await api.get("/api/contacts?limit=1000");
+      const response = await api.get("/api/contacts?limit=500");
       return response.data;
     },
   });
