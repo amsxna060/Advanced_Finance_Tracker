@@ -114,16 +114,16 @@ function ExpenseList() {
     let category = form.category;
     let sub_category = form.sub_category;
 
-    // Auto-categorize on save if description present and category not manually chosen
-    if (!category && form.description && form.description.trim().length >= 3) {
+    // Auto-categorize on save if category or sub_category not set
+    if (form.description && form.description.trim().length >= 3 && (!category || !sub_category)) {
       try {
         const res = await api.post("/api/expenses/suggest-category", {
           description: form.description,
         });
-        if (res.data?.suggested_category) {
+        if (!category && res.data?.suggested_category) {
           category = res.data.suggested_category;
         }
-        if (res.data?.suggested_subcategory && !sub_category) {
+        if (!sub_category && res.data?.suggested_subcategory) {
           sub_category = res.data.suggested_subcategory;
         }
       } catch {
