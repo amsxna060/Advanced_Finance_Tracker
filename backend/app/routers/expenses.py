@@ -23,7 +23,7 @@ def _get_expense_or_404(expense_id: int, db: Session) -> Expense:
     return expense
 
 
-@router.get("", response_model=List[ExpenseOut])
+@router.get("")
 def get_expenses(
     category: Optional[str] = None,
     linked_type: Optional[str] = None,
