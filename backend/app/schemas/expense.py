@@ -6,6 +6,7 @@ from decimal import Decimal
 
 class ExpenseCreate(BaseModel):
     category: Optional[str] = None
+    sub_category: Optional[str] = None
     amount: Decimal
     expense_date: date
     linked_type: Optional[str] = None
@@ -18,6 +19,7 @@ class ExpenseCreate(BaseModel):
 
 class ExpenseUpdate(BaseModel):
     category: Optional[str] = None
+    sub_category: Optional[str] = None
     amount: Optional[Decimal] = None
     expense_date: Optional[date] = None
     linked_type: Optional[str] = None
@@ -30,6 +32,7 @@ class ExpenseUpdate(BaseModel):
 class ExpenseOut(BaseModel):
     id: int
     category: Optional[str]
+    sub_category: Optional[str] = None
     amount: Decimal
     expense_date: date
     linked_type: Optional[str]

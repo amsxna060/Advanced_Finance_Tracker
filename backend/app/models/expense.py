@@ -8,7 +8,8 @@ class Expense(Base):
     __tablename__ = "expenses"
 
     id = Column(Integer, primary_key=True, index=True)
-    category = Column(String(100))  # travel | legal | registration | office | commission | misc
+    category = Column(String(100))
+    sub_category = Column(String(100), nullable=True)
     amount = Column(Numeric(15, 2), nullable=False)
     expense_date = Column(Date, nullable=False)
     linked_type = Column(String(30))  # loan | property | partnership | general

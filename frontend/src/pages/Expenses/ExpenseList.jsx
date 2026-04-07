@@ -29,8 +29,24 @@ const EXPENSE_CATEGORIES = [
   "Miscellaneous",
 ];
 
+const SUBCATEGORIES = {
+  "Grocery":       ["Vegetables & Fruits", "Dairy & Eggs", "Grains & Staples", "Grocery Apps"],
+  "Food & Dining": ["Restaurant", "Food Delivery", "Snacks & Coffee", "Fast Food", "Mess / Tiffin"],
+  "Travel":        ["Cab & Taxi", "Air Travel", "Rail Travel", "Local Transport", "Toll & Parking"],
+  "Medical":       ["Hospital", "Medicine / Pharmacy", "Diagnostic", "Dental"],
+  "Education":     ["School / College Fees", "Books & Stationery", "Online Courses", "Coaching"],
+  "Utilities":     ["Electricity", "Internet & Phone", "Gas", "Water", "DTH / Cable"],
+  "Shopping":      ["Online Shopping", "Clothing & Fashion", "Electronics", "Jewellery"],
+  "Entertainment": ["Movies", "Streaming", "Gaming", "Events"],
+  "Maintenance":   ["Vehicle Service", "Home Repair", "Appliance", "Painting / Renovation"],
+  "Personal":      ["Salon & Grooming", "Fitness", "Clothing"],
+  "Fuel":          ["Petrol", "Diesel", "CNG", "EV Charging"],
+  "Home":          ["Furniture", "Appliances", "Household Help", "Cleaning"],
+};
+
 const defaultForm = {
   category: "",
+  sub_category: "",
   amount: "",
   expense_date: new Date().toISOString().split("T")[0],
   linked_type: "general",
@@ -92,21 +108,41 @@ function ExpenseList() {
     },
   });
 
-  const suggestCategory = async (description) => {
-    if (!description || description.trim().length < 3) return;
-    // Only suggest if category is not already set by user
-    if (form.category) return;
-    try {
-      const res = await api.post("/api/expenses/suggest-category", { description });
-      if (res.data?.suggested_category) {
-        setForm((prev) => {
-          if (prev.category) return prev;
-          return { ...prev, category: res.data.suggested_category };
+  const submitExpense = async (event) => {
+    event.preventDefault();
+
+    let category = form.category;
+    let sub_category = form.sub_category;
+
+    // Auto-categorize on save if description present and category not manually chosen
+    if (!category && form.description && form.description.trim().length >= 3) {
+      try {
+        const res = await api.post("/api/expenses/suggest-category", {
+          description: form.description,
         });
+        if (res.data?.suggested_category) {
+          category = res.data.suggested_category;
+        }
+        if (res.data?.suggested_subcategory && !sub_category) {
+          sub_category = res.data.suggested_subcategory;
+        }
+      } catch {
+        // silently ignore suggestion errors
       }
-    } catch {
-      // silently ignore suggestion errors
     }
+
+    expenseMutation.mutate({
+      category: category || null,
+      sub_category: sub_category || null,
+      amount: Number(form.amount),
+      expense_date: form.expense_date,
+      linked_type: form.linked_type || null,
+      linked_id: form.linked_id ? Number(form.linked_id) : null,
+      description: form.description || null,
+      payment_mode: form.payment_mode || null,
+      receipt_url: form.receipt_url || null,
+      account_id: form.account_id ? Number(form.account_id) : null,
+    });
   };
 
   const expenseMutation = useMutation({
@@ -176,6 +212,7 @@ function ExpenseList() {
     setEditingExpense(expense);
     setForm({
       category: expense.category || "",
+      sub_category: expense.sub_category || "",
       amount: expense.amount?.toString() || "",
       expense_date: expense.expense_date || defaultForm.expense_date,
       linked_type: expense.linked_type || "general",
@@ -187,21 +224,6 @@ function ExpenseList() {
     });
     setErrorMessage("");
     setShowModal(true);
-  };
-
-  const submitExpense = (event) => {
-    event.preventDefault();
-    expenseMutation.mutate({
-      category: form.category || null,
-      amount: Number(form.amount),
-      expense_date: form.expense_date,
-      linked_type: form.linked_type || null,
-      linked_id: form.linked_id ? Number(form.linked_id) : null,
-      description: form.description || null,
-      payment_mode: form.payment_mode || null,
-      receipt_url: form.receipt_url || null,
-      account_id: form.account_id ? Number(form.account_id) : null,
-    });
   };
 
   return (
@@ -341,6 +363,9 @@ function ExpenseList() {
                     Category
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Sub-Category
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Linked To
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -365,6 +390,9 @@ function ExpenseList() {
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {expense.category || "-"}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {expense.sub_category || "-"}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700 capitalize">
                       {expense.linked_type || "general"}
@@ -482,6 +510,7 @@ function ExpenseList() {
                     setForm((prev) => ({
                       ...prev,
                       category: event.target.value,
+                      sub_category: "",
                     }))
                   }
                   className="px-4 py-2 border border-gray-300 rounded-lg"
@@ -490,6 +519,24 @@ function ExpenseList() {
                   {EXPENSE_CATEGORIES.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={form.sub_category}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      sub_category: event.target.value,
+                    }))
+                  }
+                  className="px-4 py-2 border border-gray-300 rounded-lg"
+                  disabled={!form.category || !SUBCATEGORIES[form.category]}
+                >
+                  <option value="">Sub-Category (auto / manual)</option>
+                  {(SUBCATEGORIES[form.category] || []).map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
                     </option>
                   ))}
                 </select>
@@ -592,7 +639,7 @@ function ExpenseList() {
               </select>
               <textarea
                 rows="4"
-                placeholder="Description (AI will suggest category)"
+                placeholder="Description (AI will suggest category on save)"
                 value={form.description}
                 onChange={(event) =>
                   setForm((prev) => ({
@@ -600,7 +647,6 @@ function ExpenseList() {
                     description: event.target.value,
                   }))
                 }
-                onBlur={(event) => suggestCategory(event.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
               />
               {errorMessage && (

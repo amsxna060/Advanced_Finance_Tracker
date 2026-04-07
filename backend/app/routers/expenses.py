@@ -143,12 +143,16 @@ def suggest_expense_category(
     current_user: User = Depends(get_current_user),
 ):
     """
-    AI-powered category suggestion based on expense description.
+    AI-powered category + sub-category suggestion based on expense description.
     """
-    from app.services.expense_categorizer import suggest_category
+    from app.services.expense_categorizer import suggest_category, suggest_subcategory
     description = payload.get("description", "")
-    suggested = suggest_category(description)
-    return {"suggested_category": suggested}
+    suggested_category = suggest_category(description)
+    suggested_subcategory = suggest_subcategory(suggested_category, description)
+    return {
+        "suggested_category": suggested_category,
+        "suggested_subcategory": suggested_subcategory,
+    }
 
 
 @router.post("", response_model=ExpenseOut)
@@ -161,8 +165,13 @@ def create_expense(
 
     # Auto-categorize if no category provided
     if not expense.category and expense.description:
-        from app.services.expense_categorizer import suggest_category
+        from app.services.expense_categorizer import suggest_category, suggest_subcategory
         expense.category = suggest_category(expense.description)
+        if not expense.sub_category and expense.category:
+            expense.sub_category = suggest_subcategory(expense.category, expense.description)
+    elif expense.category and not expense.sub_category and expense.description:
+        from app.services.expense_categorizer import suggest_subcategory
+        expense.sub_category = suggest_subcategory(expense.category, expense.description)
 
     db.add(expense)
     db.flush()
