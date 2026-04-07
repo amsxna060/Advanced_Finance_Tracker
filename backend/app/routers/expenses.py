@@ -31,6 +31,7 @@ def get_expenses(
     to_date: Optional[date] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
+    paginated: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -45,7 +46,109 @@ def get_expenses(
     if to_date:
         query = query.filter(Expense.expense_date <= to_date)
 
-    return query.order_by(Expense.expense_date.desc(), Expense.id.desc()).offset(skip).limit(limit).all()
+    ordered = query.order_by(Expense.expense_date.desc(), Expense.id.desc())
+
+    if paginated:
+        total = query.count()
+        items = ordered.offset(skip).limit(limit).all()
+        return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+    return ordered.offset(skip).limit(limit).all()
+
+
+@router.get("/analytics/summary")
+def expense_analytics(
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from collections import defaultdict
+    from app.models.cash_account import CashAccount
+
+    query = db.query(Expense)
+    if from_date:
+        query = query.filter(Expense.expense_date >= from_date)
+    if to_date:
+        query = query.filter(Expense.expense_date <= to_date)
+
+    expenses = query.order_by(Expense.expense_date.asc()).all()
+
+    by_category = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
+    by_month = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
+    by_mode = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
+    by_linked = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
+    by_account = defaultdict(lambda: {"total": Decimal("0"), "count": 0, "name": ""})
+    grand_total = Decimal("0")
+
+    accounts = {a.id: a.name for a in db.query(CashAccount).all()}
+
+    for exp in expenses:
+        amount = Decimal(str(exp.amount or 0))
+        grand_total += amount
+
+        cat = exp.category or "Uncategorized"
+        by_category[cat]["total"] += amount
+        by_category[cat]["count"] += 1
+
+        month_key = exp.expense_date.strftime("%Y-%m")
+        by_month[month_key]["total"] += amount
+        by_month[month_key]["count"] += 1
+
+        mode = exp.payment_mode or "unknown"
+        by_mode[mode]["total"] += amount
+        by_mode[mode]["count"] += 1
+
+        linked = exp.linked_type or "general"
+        by_linked[linked]["total"] += amount
+        by_linked[linked]["count"] += 1
+
+        if exp.account_id:
+            by_account[exp.account_id]["total"] += amount
+            by_account[exp.account_id]["count"] += 1
+            by_account[exp.account_id]["name"] = accounts.get(exp.account_id, f"Account #{exp.account_id}")
+
+    categories = sorted(
+        [{"category": k, "total": v["total"], "count": v["count"]} for k, v in by_category.items()],
+        key=lambda x: x["total"], reverse=True,
+    )
+    monthly = [{"month": k, "total": v["total"], "count": v["count"]} for k, v in sorted(by_month.items())]
+    modes = sorted(
+        [{"mode": k, "total": v["total"], "count": v["count"]} for k, v in by_mode.items()],
+        key=lambda x: x["total"], reverse=True,
+    )
+    linked_types = sorted(
+        [{"type": k, "total": v["total"], "count": v["count"]} for k, v in by_linked.items()],
+        key=lambda x: x["total"], reverse=True,
+    )
+    account_breakdown = sorted(
+        [{"account_id": k, "name": v["name"], "total": v["total"], "count": v["count"]} for k, v in by_account.items()],
+        key=lambda x: x["total"], reverse=True,
+    )
+
+    return {
+        "grand_total": grand_total,
+        "expense_count": len(expenses),
+        "categories": categories,
+        "monthly": monthly,
+        "payment_modes": modes,
+        "linked_types": linked_types,
+        "accounts": account_breakdown,
+    }
+
+
+@router.post("/suggest-category")
+def suggest_expense_category(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    AI-powered category suggestion based on expense description.
+    """
+    from app.services.expense_categorizer import suggest_category
+    description = payload.get("description", "")
+    suggested = suggest_category(description)
+    return {"suggested_category": suggested}
 
 
 @router.post("", response_model=ExpenseOut)
@@ -55,6 +158,12 @@ def create_expense(
     current_user: User = Depends(require_admin),
 ):
     expense = Expense(**expense_data.model_dump(), created_by=current_user.id)
+
+    # Auto-categorize if no category provided
+    if not expense.category and expense.description:
+        from app.services.expense_categorizer import suggest_category
+        expense.category = suggest_category(expense.description)
+
     db.add(expense)
     db.flush()
 

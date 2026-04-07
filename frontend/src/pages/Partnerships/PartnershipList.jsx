@@ -20,6 +20,7 @@ export default function PartnershipList() {
       const params = {};
       if (filters.search) params.search = filters.search;
       if (filters.status) params.status = filters.status;
+      params.limit = 100;
       const res = await api.get("/api/partnerships", { params });
       return res.data;
     },

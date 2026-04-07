@@ -28,7 +28,7 @@ export default function BeesiForm() {
 
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts"],
-    queryFn: async () => (await api.get("/api/contacts")).data,
+    queryFn: async () => (await api.get("/api/contacts", { params: { limit: 500 } })).data,
   });
 
   const { data: accounts = [] } = useQuery({

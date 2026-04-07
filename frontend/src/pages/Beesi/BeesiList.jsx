@@ -13,6 +13,7 @@ export default function BeesiList() {
     queryFn: async () => {
       const params = {};
       if (statusFilter) params.status = statusFilter;
+      params.limit = 500;
       const res = await api.get("/api/beesi", { params });
       return res.data;
     },

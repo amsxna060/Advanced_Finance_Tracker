@@ -48,7 +48,7 @@ function ObligationList() {
   const { data: obligations = [], isLoading } = useQuery({
     queryKey: ["obligations", filters],
     queryFn: async () => {
-      const params = {};
+      const params = { limit: 200 };
       Object.entries(filters).forEach(([k, v]) => {
         if (v) params[k] = v;
       });
@@ -65,7 +65,7 @@ function ObligationList() {
 
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts"],
-    queryFn: async () => (await api.get("/api/contacts")).data,
+    queryFn: async () => (await api.get("/api/contacts", { params: { limit: 500 } })).data,
   });
 
   const { data: accounts = [] } = useQuery({

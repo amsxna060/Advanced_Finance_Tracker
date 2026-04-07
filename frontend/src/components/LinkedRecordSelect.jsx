@@ -89,7 +89,7 @@ export default function LinkedRecordSelect({
     queryKey: ["linked-records", linkedType],
     queryFn: async () => {
       if (!config) return [];
-      const res = await api.get(config.endpoint);
+      const res = await api.get(config.endpoint, { params: { limit: 500 } });
       return res.data;
     },
     enabled: !!config,

@@ -41,6 +41,17 @@ const defaultForm = {
   account_id: "",
 };
 
+const PAGE_SIZE = 50;
+
+function getMonthStart() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function getToday() {
+  return new Date().toISOString().split("T")[0];
+}
+
 function ExpenseList() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -48,18 +59,19 @@ function ExpenseList() {
   const [filters, setFilters] = useState({
     category: "",
     linked_type: "",
-    from_date: "",
-    to_date: "",
+    from_date: getMonthStart(),
+    to_date: getToday(),
   });
+  const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const { data: expenses = [], isLoading } = useQuery({
-    queryKey: ["expenses", filters],
+  const { data: expenseData, isLoading } = useQuery({
+    queryKey: ["expenses", filters, page],
     queryFn: async () => {
-      const params = {};
+      const params = { paginated: true, limit: PAGE_SIZE, skip: (page - 1) * PAGE_SIZE };
       Object.entries(filters).forEach(([key, value]) => {
         if (value) params[key] = value;
       });
@@ -68,6 +80,10 @@ function ExpenseList() {
     },
   });
 
+  const expenses = Array.isArray(expenseData) ? expenseData : (expenseData?.items || []);
+  const totalCount = expenseData?.total || expenses.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
   const { data: accountsList } = useQuery({
     queryKey: ["accounts"],
     queryFn: async () => {
@@ -75,6 +91,23 @@ function ExpenseList() {
       return response.data;
     },
   });
+
+  const suggestCategory = async (description) => {
+    if (!description || description.trim().length < 3) return;
+    // Only suggest if category is not already set by user
+    if (form.category) return;
+    try {
+      const res = await api.post("/api/expenses/suggest-category", { description });
+      if (res.data?.suggested_category) {
+        setForm((prev) => {
+          if (prev.category) return prev;
+          return { ...prev, category: res.data.suggested_category };
+        });
+      }
+    } catch {
+      // silently ignore suggestion errors
+    }
+  };
 
   const expenseMutation = useMutation({
     mutationFn: async (payload) => {
@@ -223,23 +256,25 @@ function ExpenseList() {
             <input
               type="text"
               value={filters.category}
-              onChange={(event) =>
+              onChange={(event) => {
+                setPage(1);
                 setFilters((prev) => ({
                   ...prev,
                   category: event.target.value,
-                }))
-              }
+                }));
+              }}
               placeholder="Filter by category..."
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <select
               value={filters.linked_type}
-              onChange={(event) =>
+              onChange={(event) => {
+                setPage(1);
                 setFilters((prev) => ({
                   ...prev,
                   linked_type: event.target.value,
-                }))
-              }
+                }));
+              }}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="">All Linked Types</option>
@@ -251,34 +286,37 @@ function ExpenseList() {
             <input
               type="date"
               value={filters.from_date}
-              onChange={(event) =>
+              onChange={(event) => {
+                setPage(1);
                 setFilters((prev) => ({
                   ...prev,
                   from_date: event.target.value,
-                }))
-              }
+                }));
+              }}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <input
               type="date"
               value={filters.to_date}
-              onChange={(event) =>
-                setFilters((prev) => ({ ...prev, to_date: event.target.value }))
-              }
+              onChange={(event) => {
+                setPage(1);
+                setFilters((prev) => ({ ...prev, to_date: event.target.value }));
+              }}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <button
-              onClick={() =>
+              onClick={() => {
+                setPage(1);
                 setFilters({
                   category: "",
                   linked_type: "",
                   from_date: "",
                   to_date: "",
-                })
-              }
+                });
+              }}
               className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
             >
-              Clear Filters
+              All Time
             </button>
           </div>
         </div>
@@ -369,6 +407,63 @@ function ExpenseList() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between bg-white rounded-lg shadow-sm px-4 py-3">
+            <div className="text-sm text-gray-500">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount} expenses
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(1)}
+                disabled={page === 1}
+                className="px-2 py-1 text-sm rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1 text-sm rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+              >
+                ‹ Prev
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let start = Math.max(1, Math.min(page - 2, totalPages - 4));
+                const p = start + i;
+                if (p > totalPages) return null;
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className={`px-3 py-1 text-sm rounded border ${
+                      p === page
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1 text-sm rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+              >
+                Next ›
+              </button>
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={page === totalPages}
+                className="px-2 py-1 text-sm rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+              >
+                Last
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -497,7 +592,7 @@ function ExpenseList() {
               </select>
               <textarea
                 rows="4"
-                placeholder="Description"
+                placeholder="Description (AI will suggest category)"
                 value={form.description}
                 onChange={(event) =>
                   setForm((prev) => ({
@@ -505,6 +600,7 @@ function ExpenseList() {
                     description: event.target.value,
                   }))
                 }
+                onBlur={(event) => suggestCategory(event.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
               />
               {errorMessage && (

@@ -1634,3 +1634,162 @@ def analytics_activity(
             },
         },
     }
+
+
+# ── MONEY FLOW ANALYTICS — account-transaction-based in/out tracking ─────────
+
+@router.get("/money-flow")
+def analytics_money_flow(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    period: Optional[str] = Query("3_months"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Account-transaction-based money flow: every credit/debit across all accounts,
+    grouped by source type, account, and month.
+    """
+    today = date.today()
+    if period == "custom" and from_date and to_date:
+        start = date.fromisoformat(from_date)
+        end = date.fromisoformat(to_date)
+    elif period == "1_month":
+        start = today.replace(day=1)
+        end = today
+    elif period == "6_months":
+        start = (today.replace(day=1) - timedelta(days=180)).replace(day=1)
+        end = today
+    elif period == "1_year":
+        start = (today.replace(day=1) - timedelta(days=365)).replace(day=1)
+        end = today
+    elif period == "all":
+        start = date(2000, 1, 1)
+        end = today
+    else:  # 3_months
+        start = (today.replace(day=1) - timedelta(days=90)).replace(day=1)
+        end = today
+
+    txns = (
+        db.query(AccountTransaction)
+        .join(CashAccount, CashAccount.id == AccountTransaction.account_id)
+        .filter(
+            CashAccount.is_deleted == False,
+            AccountTransaction.txn_date >= start,
+            AccountTransaction.txn_date <= end,
+        )
+        .all()
+    )
+
+    # Gather account names
+    accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+    acct_map = {a.id: a.name for a in accounts}
+
+    total_in = 0.0
+    total_out = 0.0
+    by_source_in = {}
+    by_source_out = {}
+    by_account = {}
+    by_month = {}
+    by_payment_mode_in = {}
+    by_payment_mode_out = {}
+    recent = []
+
+    for t in txns:
+        amt = float(_D(t.amount))
+        src = t.linked_type or "manual"
+        mode = t.payment_mode or "unknown"
+        acct_name = acct_map.get(t.account_id, "Unknown")
+        month_key = t.txn_date.strftime("%Y-%m") if t.txn_date else "unknown"
+
+        # Per-account
+        if acct_name not in by_account:
+            by_account[acct_name] = {"credit": 0.0, "debit": 0.0}
+
+        # Per-month
+        if month_key not in by_month:
+            by_month[month_key] = {"credit": 0.0, "debit": 0.0}
+
+        if t.txn_type == "credit":
+            total_in += amt
+            by_source_in[src] = by_source_in.get(src, 0.0) + amt
+            by_account[acct_name]["credit"] += amt
+            by_month[month_key]["credit"] += amt
+            by_payment_mode_in[mode] = by_payment_mode_in.get(mode, 0.0) + amt
+        else:
+            total_out += amt
+            by_source_out[src] = by_source_out.get(src, 0.0) + amt
+            by_account[acct_name]["debit"] += amt
+            by_month[month_key]["debit"] += amt
+            by_payment_mode_out[mode] = by_payment_mode_out.get(mode, 0.0) + amt
+
+        recent.append({
+            "date": t.txn_date.isoformat() if t.txn_date else None,
+            "type": t.txn_type,
+            "amount": amt,
+            "source": src,
+            "description": t.description,
+            "account": acct_name,
+            "payment_mode": mode,
+        })
+
+    recent.sort(key=lambda x: x["date"] or "", reverse=True)
+
+    # Expenses by category in period
+    expenses = (
+        db.query(Expense)
+        .filter(
+            Expense.expense_date >= start,
+            Expense.expense_date <= end,
+        )
+        .all()
+    )
+    expense_by_category = {}
+    total_expenses = 0.0
+    for e in expenses:
+        cat = e.category or "misc"
+        amt = float(_D(e.amount))
+        expense_by_category[cat] = expense_by_category.get(cat, 0.0) + amt
+        total_expenses += amt
+
+    # Sort monthly data
+    monthly = sorted(
+        [{"month": k, "credit": round(v["credit"], 2), "debit": round(v["debit"], 2)} for k, v in by_month.items()],
+        key=lambda x: x["month"],
+    )
+
+    return {
+        "period": {"from": start.isoformat(), "to": end.isoformat(), "preset": period},
+        "total_in": round(total_in, 2),
+        "total_out": round(total_out, 2),
+        "net_flow": round(total_in - total_out, 2),
+        "inflow_by_source": [
+            {"source": k, "amount": round(v, 2)}
+            for k, v in sorted(by_source_in.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "outflow_by_source": [
+            {"source": k, "amount": round(v, 2)}
+            for k, v in sorted(by_source_out.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "by_account": [
+            {"account": k, "credit": round(v["credit"], 2), "debit": round(v["debit"], 2), "net": round(v["credit"] - v["debit"], 2)}
+            for k, v in sorted(by_account.items(), key=lambda x: x[1]["credit"] + x[1]["debit"], reverse=True)
+        ],
+        "monthly": monthly,
+        "inflow_by_mode": [
+            {"mode": k, "amount": round(v, 2)}
+            for k, v in sorted(by_payment_mode_in.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "outflow_by_mode": [
+            {"mode": k, "amount": round(v, 2)}
+            for k, v in sorted(by_payment_mode_out.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "expenses": {
+            "total": round(total_expenses, 2),
+            "by_category": [
+                {"category": k, "amount": round(v, 2)}
+                for k, v in sorted(expense_by_category.items(), key=lambda x: x[1], reverse=True)
+            ],
+        },
+        "recent_transactions": recent[:50],
+    }

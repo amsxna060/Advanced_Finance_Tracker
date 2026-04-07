@@ -19,6 +19,7 @@ function PropertyList() {
       if (filters.search) params.search = filters.search;
       if (filters.status) params.status = filters.status;
       if (filters.property_type) params.property_type = filters.property_type;
+      params.limit = 500;
       const response = await api.get("/api/properties", { params });
       return response.data;
     },

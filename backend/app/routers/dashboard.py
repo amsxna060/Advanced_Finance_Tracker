@@ -142,6 +142,8 @@ def get_dashboard_summary(
     total_outstanding_payable = Decimal("0")
     expected_this_month = Decimal("0")
     total_overdue = Decimal("0")
+    total_interest_earned = Decimal("0")
+    total_principal_recovered = Decimal("0")
 
     for loan in active_loans:
         try:
@@ -155,11 +157,14 @@ def get_dashboard_summary(
                 total_lent_out += principal
                 total_outstanding_receivable += total_due
                 total_overdue += interest_due
+                # Sum historical payments
+                for p in loan.payments:
+                    total_interest_earned += _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+                    total_principal_recovered += _decimal(p.allocated_to_principal)
             else:
                 total_borrowed += principal
                 total_outstanding_payable += total_due
         except Exception:
-            # Skip loans that error (e.g. missing data) so the summary still loads
             pass
 
     total_partnership_invested = sum(_decimal(item.our_investment) for item in active_partnerships)
@@ -179,6 +184,8 @@ def get_dashboard_summary(
         "net_position": total_outstanding_receivable - total_outstanding_payable,
         "expected_this_month": expected_this_month,
         "total_overdue": total_overdue,
+        "total_interest_earned": total_interest_earned,
+        "total_principal_recovered": total_principal_recovered,
         "active_property_deals": active_properties,
         "active_partnerships": len(active_partnerships),
         "total_partnership_invested": total_partnership_invested,
@@ -419,12 +426,17 @@ def get_this_month_stats(
         _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
         for p in this_month_payments
     )
+    principal_collected = sum(
+        _decimal(p.allocated_to_principal)
+        for p in this_month_payments
+    )
 
     return {
         "month": today.strftime("%B %Y"),
         "emis_expected": emis_expected,
         "emis_collected": emis_collected,
         "emis_pending": max(emis_expected - emis_collected, Decimal("0")),
+        "principal_collected": principal_collected,
         "interest_expected": interest_expected,
         "interest_collected": interest_collected,
         "overdue_interest": overdue_interest,

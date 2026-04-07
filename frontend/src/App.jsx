@@ -29,6 +29,8 @@ import Reports from "./pages/Reports/Reports";
 import Analytics from "./pages/Analytics/Analytics";
 import Forecast from "./pages/Analytics/Forecast";
 import Assets from "./pages/Analytics/Assets";
+import ExpenseAnalytics from "./pages/Analytics/ExpenseAnalytics";
+import MoneyFlowAnalytics from "./pages/Analytics/MoneyFlowAnalytics";
 import BeesiList from "./pages/Beesi/BeesiList";
 import BeesiForm from "./pages/Beesi/BeesiForm";
 import BeesiDetail from "./pages/Beesi/BeesiDetail";
@@ -280,6 +282,26 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Assets />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/expense-analytics"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ExpenseAnalytics />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/money-flow"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <MoneyFlowAnalytics />
                   </Layout>
                 </ProtectedRoute>
               }
