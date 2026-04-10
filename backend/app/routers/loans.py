@@ -129,7 +129,23 @@ def get_loan(
     
     # Calculate outstanding
     outstanding = calculate_outstanding(loan_id, date.today(), db)
-    
+
+    # Self-healing auto-close: if principal is fully recovered but the loan
+    # is still "active" (e.g. payment was recorded before this logic existed),
+    # close it now so the UI always reflects the correct state.
+    if (
+        loan.loan_type in ("interest_only", "short_term")
+        and loan.status == "active"
+        and outstanding["principal_outstanding"] <= Decimal("1.00")
+    ):
+        loan.status = "closed"
+        # Use the most recent payment date as the closure date
+        last_payment = db.query(LoanPayment).filter(
+            LoanPayment.loan_id == loan_id
+        ).order_by(LoanPayment.payment_date.desc()).first()
+        loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
+        db.commit()
+
     # Get payments
     payments = db.query(LoanPayment).filter(
         LoanPayment.loan_id == loan_id
