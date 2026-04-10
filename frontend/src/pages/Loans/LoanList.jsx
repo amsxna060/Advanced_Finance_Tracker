@@ -13,10 +13,10 @@ function LoanList() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [tab, setTab] = useState("active"); // "active" | "archived"
   const [filters, setFilters] = useState({
     direction: "",
     type: "",
-    status: "",
     contact_id: "",
     search: "",
   });
@@ -32,16 +32,14 @@ function LoanList() {
     },
   });
 
-  // Fetch loans with filters
+  // Fetch ALL loans (active + archived) so tab switch is instant
   const { data: loansData, isLoading } = useQuery({
     queryKey: ["loans", filters],
     queryFn: async () => {
       const params = { limit: 500 };
       if (filters.direction) params.direction = filters.direction;
       if (filters.type) params.loan_type = filters.type;
-      if (filters.status) params.status = filters.status;
       if (filters.contact_id) params.contact_id = filters.contact_id;
-
       const response = await api.get("/api/loans", { params });
       return response.data;
     },
@@ -52,30 +50,39 @@ function LoanList() {
   };
 
   const handleClearFilters = () => {
-    setFilters({
-      direction: "",
-      type: "",
-      status: "",
-      contact_id: "",
-      search: "",
-    });
+    setFilters({ direction: "", type: "", contact_id: "", search: "" });
   };
 
+  const ACTIVE_STATUSES = ["active", "on_hold", "defaulted"];
+
   const filteredLoans =
-    loansData?.filter((loan) => {
+    (loansData || []).filter((loan) => {
+      // Tab filter
+      const isArchived = !ACTIVE_STATUSES.includes(loan.status);
+      if (tab === "active" && isArchived) return false;
+      if (tab === "archived" && !isArchived) return false;
+
+      // Search filter
       if (filters.search) {
         const s = filters.search.toLowerCase();
-        return (
+        const matches =
           (loan.contact?.name || "").toLowerCase().includes(s) ||
           (loan.notes || "").toLowerCase().includes(s) ||
           (loan.institution_name || "").toLowerCase().includes(s) ||
           (loan.loan_type || "").toLowerCase().includes(s) ||
           String(loan.id).includes(s) ||
-          String(loan.principal_amount || "").includes(s)
-        );
+          String(loan.principal_amount || "").includes(s);
+        if (!matches) return false;
       }
       return true;
-    }) || [];
+    });
+
+  const activeCount = (loansData || []).filter((l) =>
+    ACTIVE_STATUSES.includes(l.status)
+  ).length;
+  const archivedCount = (loansData || []).filter(
+    (l) => !ACTIVE_STATUSES.includes(l.status)
+  ).length;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -100,12 +107,46 @@ function LoanList() {
           </button>
         </div>
 
+        {/* Active / Archived tabs */}
+        <div className="flex gap-1 mb-4">
+          <button
+            onClick={() => setTab("active")}
+            className={`px-5 py-2 rounded-t-lg text-sm font-semibold border-b-2 transition-colors ${
+              tab === "active"
+                ? "border-blue-600 text-blue-600 bg-white"
+                : "border-transparent text-gray-500 hover:text-gray-700 bg-gray-100"
+            }`}
+          >
+            Active
+            {activeCount > 0 && (
+              <span className="ml-2 bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full">
+                {activeCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab("archived")}
+            className={`px-5 py-2 rounded-t-lg text-sm font-semibold border-b-2 transition-colors ${
+              tab === "archived"
+                ? "border-gray-600 text-gray-700 bg-white"
+                : "border-transparent text-gray-500 hover:text-gray-700 bg-gray-100"
+            }`}
+          >
+            Archived (Closed)
+            {archivedCount > 0 && (
+              <span className="ml-2 bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded-full">
+                {archivedCount}
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Search */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Search
               </label>
               <input
@@ -113,21 +154,19 @@ function LoanList() {
                 placeholder="Contact or notes..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange("search", e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               />
             </div>
 
             {/* Direction Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Direction
               </label>
               <select
                 value={filters.direction}
-                onChange={(e) =>
-                  handleFilterChange("direction", e.target.value)
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={(e) => handleFilterChange("direction", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
                 <option value="">All Directions</option>
                 <option value="given">Given (Lent Out)</option>
@@ -137,13 +176,13 @@ function LoanList() {
 
             {/* Type Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Type
               </label>
               <select
                 value={filters.type}
                 onChange={(e) => handleFilterChange("type", e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
                 <option value="">All Types</option>
                 <option value="interest_only">Interest Only</option>
@@ -152,33 +191,15 @@ function LoanList() {
               </select>
             </div>
 
-            {/* Status Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Status
-              </label>
-              <select
-                value={filters.status}
-                onChange={(e) => handleFilterChange("status", e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="closed">Closed</option>
-              </select>
-            </div>
-
             {/* Contact Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Contact
               </label>
               <select
                 value={filters.contact_id}
-                onChange={(e) =>
-                  handleFilterChange("contact_id", e.target.value)
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onChange={(e) => handleFilterChange("contact_id", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
                 <option value="">All Contacts</option>
                 {contactsData?.map((contact) => (
@@ -190,20 +211,20 @@ function LoanList() {
             </div>
           </div>
 
-          <div className="mt-4 flex justify-between items-center">
+          <div className="mt-3 flex justify-between items-center">
             <button
               onClick={handleClearFilters}
-              className="text-sm text-gray-600 hover:text-gray-900"
+              className="text-sm text-gray-500 hover:text-gray-700"
             >
               Clear Filters
             </button>
-            <div className="text-sm text-gray-600">
-              {filteredLoans.length} loan(s) found
+            <div className="text-sm text-gray-500">
+              {filteredLoans.length} loan(s)
             </div>
           </div>
         </div>
 
-        {/* Loans List */}
+        {/* Loans Table */}
         {isLoading ? (
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -226,20 +247,25 @@ function LoanList() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              No loans found
+              {tab === "archived" ? "No archived loans" : "No active loans found"}
             </h3>
-            <p className="text-gray-600 mb-4">
-              Get started by creating your first loan
-            </p>
-            <button
-              onClick={() => navigate("/loans/new")}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Create Loan
-            </button>
+            {tab === "active" && (
+              <button
+                onClick={() => navigate("/loans/new")}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Create Loan
+              </button>
+            )}
           </div>
         ) : (
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+          <div className={`bg-white rounded-lg shadow-sm overflow-hidden ${tab === "archived" ? "opacity-90" : ""}`}>
+            {tab === "archived" && (
+              <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 text-sm text-gray-500 flex items-center gap-2">
+                <span>🗄️</span>
+                <span>Showing closed / settled loans</span>
+              </div>
+            )}
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -259,8 +285,13 @@ function LoanList() {
                     Interest Rate
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
+                    Start Date
                   </th>
+                  {tab === "archived" && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Closed Date
+                    </th>
+                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
@@ -292,9 +323,7 @@ function LoanList() {
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {loan.loan_direction === "given"
-                          ? "↑ Given"
-                          : "↓ Taken"}
+                        {loan.loan_direction === "given" ? "↑ Given" : "↓ Taken"}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -319,6 +348,11 @@ function LoanList() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate(loan.disbursed_date)}
                     </td>
+                    {tab === "archived" && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {loan.actual_end_date ? formatDate(loan.actual_end_date) : "—"}
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getLoanStatusColor(loan.status)}`}

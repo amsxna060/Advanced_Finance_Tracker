@@ -130,21 +130,55 @@ def get_loan(
     # Calculate outstanding
     outstanding = calculate_outstanding(loan_id, date.today(), db)
 
-    # Self-healing auto-close: if principal is fully recovered but the loan
-    # is still "active" (e.g. payment was recorded before this logic existed),
-    # close it now so the UI always reflects the correct state.
-    if (
-        loan.loan_type in ("interest_only", "short_term")
-        and loan.status == "active"
-        and outstanding["principal_outstanding"] <= Decimal("1.00")
-    ):
-        loan.status = "closed"
-        # Use the most recent payment date as the closure date
-        last_payment = db.query(LoanPayment).filter(
-            LoanPayment.loan_id == loan_id
-        ).order_by(LoanPayment.payment_date.desc()).first()
-        loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
-        db.commit()
+    # Self-healing auto-close for interest_only / short_term loans.
+    # Handles two cases:
+    #   A) Principal outstanding is already <= ₹1 (normal path, correct allocation in DB).
+    #   B) Payments have wrong allocation (allocated_to_principal = 0 due to old buggy code)
+    #      but total amount paid clearly covers the principal — retroactively fix allocations.
+    if loan.loan_type in ("interest_only", "short_term") and loan.status == "active":
+        healed = False
+
+        # Case A: correct allocation already recorded
+        if outstanding["principal_outstanding"] <= Decimal("1.00"):
+            healed = True
+
+        # Case B: total payments >= principal but principal allocation is wrong
+        if not healed:
+            all_pmts = db.query(LoanPayment).filter(
+                LoanPayment.loan_id == loan_id
+            ).order_by(LoanPayment.payment_date.asc()).all()
+            total_paid = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
+            total_principal_allocated = sum(
+                Decimal(str(p.allocated_to_principal or 0)) for p in all_pmts
+            )
+            principal_amount = Decimal(str(loan.principal_amount))
+
+            if (total_paid >= principal_amount
+                    and total_principal_allocated < principal_amount - Decimal("1")):
+                # Fix each payment's allocation: excess after interest → principal
+                remaining_principal = principal_amount
+                for p in all_pmts:
+                    interest_paid = (
+                        Decimal(str(p.allocated_to_current_interest or 0))
+                        + Decimal(str(p.allocated_to_overdue_interest or 0))
+                    )
+                    excess = max(Decimal(str(p.amount_paid or 0)) - interest_paid, Decimal("0"))
+                    if remaining_principal > Decimal("0") and excess > Decimal("0"):
+                        new_principal = min(excess, remaining_principal)
+                        p.allocated_to_principal = new_principal
+                        remaining_principal -= new_principal
+                db.flush()
+                healed = True
+
+        if healed:
+            loan.status = "closed"
+            last_payment = db.query(LoanPayment).filter(
+                LoanPayment.loan_id == loan_id
+            ).order_by(LoanPayment.payment_date.desc()).first()
+            loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
+            db.commit()
+            # Refresh outstanding after healing so the response shows ₹0
+            outstanding = calculate_outstanding(loan_id, date.today(), db)
 
     # Get payments
     payments = db.query(LoanPayment).filter(

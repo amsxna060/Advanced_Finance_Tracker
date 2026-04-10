@@ -28,9 +28,9 @@ const defaultSettleForm = {
 function ObligationList() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [tab, setTab] = useState("active"); // "active" | "archived"
   const [filters, setFilters] = useState({
     obligation_type: "",
-    status: "",
     contact_id: "",
     search: "",
   });
@@ -249,9 +249,53 @@ function ObligationList() {
           </div>
         )}
 
+        {/* Active / Archived tabs */}
+        <div className="flex gap-1">
+          <button
+            onClick={() => setTab("active")}
+            className={`px-5 py-2 rounded-t-lg text-sm font-semibold border-b-2 transition-colors ${
+              tab === "active"
+                ? "border-indigo-600 text-indigo-600 bg-white"
+                : "border-transparent text-gray-500 hover:text-gray-700 bg-gray-100"
+            }`}
+          >
+            Active
+            {(() => {
+              const cnt = obligations.filter(
+                ({ obligation: ob }) => ob.status !== "settled"
+              ).length;
+              return cnt > 0 ? (
+                <span className="ml-2 bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">
+                  {cnt}
+                </span>
+              ) : null;
+            })()}
+          </button>
+          <button
+            onClick={() => setTab("archived")}
+            className={`px-5 py-2 rounded-t-lg text-sm font-semibold border-b-2 transition-colors ${
+              tab === "archived"
+                ? "border-gray-600 text-gray-700 bg-white"
+                : "border-transparent text-gray-500 hover:text-gray-700 bg-gray-100"
+            }`}
+          >
+            Archived (Settled)
+            {(() => {
+              const cnt = obligations.filter(
+                ({ obligation: ob }) => ob.status === "settled"
+              ).length;
+              return cnt > 0 ? (
+                <span className="ml-2 bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded-full">
+                  {cnt}
+                </span>
+              ) : null;
+            })()}
+          </button>
+        </div>
+
         {/* Filters */}
         <div className="bg-white rounded-xl shadow-sm p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <select
               value={filters.obligation_type}
               onChange={(e) =>
@@ -262,18 +306,6 @@ function ObligationList() {
               <option value="">All Types</option>
               <option value="receivable">Receivable</option>
               <option value="payable">Payable</option>
-            </select>
-            <select
-              value={filters.status}
-              onChange={(e) =>
-                setFilters({ ...filters, status: e.target.value })
-              }
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="partial">Partial</option>
-              <option value="settled">Settled</option>
             </select>
             <select
               value={filters.contact_id}
@@ -304,13 +336,40 @@ function ObligationList() {
         {/* List */}
         {isLoading ? (
           <div className="text-center py-12 text-gray-400">Loading…</div>
-        ) : obligations.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            No obligations found
-          </div>
         ) : (
-          <div className="space-y-3">
-            {obligations.map(({ obligation: ob, contact }) => {
+          (() => {
+            const visible = obligations.filter(({ obligation: ob }) => {
+              if (tab === "active" && ob.status === "settled") return false;
+              if (tab === "archived" && ob.status !== "settled") return false;
+              if (
+                filters.search &&
+                !(ob.reason || "")
+                  .toLowerCase()
+                  .includes(filters.search.toLowerCase()) &&
+                !(ob.notes || "")
+                  .toLowerCase()
+                  .includes(filters.search.toLowerCase())
+              )
+                return false;
+              return true;
+            });
+            if (visible.length === 0)
+              return (
+                <div className="text-center py-12 text-gray-400">
+                  {tab === "archived"
+                    ? "No settled obligations"
+                    : "No active obligations"}
+                </div>
+              );
+            return (
+              <div className="space-y-3">
+                {tab === "archived" && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 px-1">
+                    <span>🗄️</span>
+                    <span>Showing settled obligations</span>
+                  </div>
+                )}
+                {visible.map(({ obligation: ob, contact }) => {
               const remaining =
                 parseFloat(ob.amount) - parseFloat(ob.amount_settled);
               const isExpanded = expandedId === ob.id;
@@ -460,6 +519,8 @@ function ObligationList() {
               );
             })}
           </div>
+            );
+          })()
         )}
       </div>
 
