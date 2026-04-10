@@ -338,7 +338,9 @@ def record_payment(
             db.commit()
     elif loan.loan_type in ("interest_only", "short_term") and loan.status == "active":
         outstanding = calculate_outstanding(loan_id, payment_date, db)
-        if outstanding["principal_outstanding"] <= Decimal("0.01"):
+        # Close the loan when principal is fully recovered.
+        # Use a tolerance of ₹1 to handle minor rounding / calculation differences.
+        if outstanding["principal_outstanding"] <= Decimal("1.00"):
             loan.status = "closed"
             loan.actual_end_date = payment_date
             db.commit()

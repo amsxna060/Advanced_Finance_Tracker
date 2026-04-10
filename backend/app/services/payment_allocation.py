@@ -125,22 +125,14 @@ def allocate_payment(
             allocated_current = interest_payment
             remaining -= interest_payment
 
-        if loan.loan_type == "interest_only":
-            # Auto-split: excess after interest goes to principal reduction
-            if auto_split and remaining > Decimal("0") and principal_outstanding > Decimal("0"):
-                principal_payment = min(remaining, principal_outstanding)
-                allocated_principal += principal_payment
-                remaining -= principal_payment
-            # Manual mode: excess acts as advance credit
-            if remaining > Decimal("0"):
-                allocated_current += remaining
-                remaining = Decimal("0")
-        else:
-            # short_term: remaining after interest reduces principal.
-            if remaining > 0 and principal_outstanding > 0:
-                principal_payment = min(remaining, principal_outstanding)
-                allocated_principal += principal_payment
-                remaining -= principal_payment
+        # For both interest_only and short_term: any amount above accrued interest
+        # is a principal repayment.  The caller never needs to tick a checkbox —
+        # principal comes back first if explicit, then interest, then the rest
+        # always reduces principal.  Excess beyond full principal = interest/bonus.
+        if remaining > 0 and principal_outstanding > 0:
+            principal_payment = min(remaining, principal_outstanding)
+            allocated_principal += principal_payment
+            remaining -= principal_payment
 
         return {
             "allocated_to_overdue_interest": allocated_overdue,
