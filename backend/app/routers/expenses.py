@@ -140,18 +140,34 @@ def expense_analytics(
 @router.post("/suggest-category")
 def suggest_expense_category(
     payload: dict,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    AI-powered category + sub-category suggestion based on expense description.
+    AI-powered category + sub-category suggestion.
+    Checks learned user mappings first, then falls back to keyword rules.
     """
     from app.services.expense_categorizer import suggest_category, suggest_subcategory
+    from app.services.learning import suggest_from_learnings
+
     description = payload.get("description", "")
+
+    # 1. Check learned mappings first
+    learned = suggest_from_learnings(db, description)
+    if learned:
+        return {
+            "suggested_category": learned[0],
+            "suggested_subcategory": learned[1],
+            "source": "learned",
+        }
+
+    # 2. Fall back to keyword rules
     suggested_category = suggest_category(description)
     suggested_subcategory = suggest_subcategory(suggested_category, description)
     return {
         "suggested_category": suggested_category,
         "suggested_subcategory": suggested_subcategory,
+        "source": "rules",
     }
 
 
@@ -193,6 +209,13 @@ def create_expense(
 
     db.commit()
     db.refresh(expense)
+
+    # Learn from this save for future suggestions
+    if expense.description and expense.category:
+        from app.services.learning import save_learning
+        save_learning(db, expense.description, expense.category, expense.sub_category)
+        db.commit()
+
     return expense
 
 
@@ -234,6 +257,13 @@ def update_expense(
 
     db.commit()
     db.refresh(expense)
+
+    # Learn from this save for future suggestions
+    if expense.description and expense.category:
+        from app.services.learning import save_learning
+        save_learning(db, expense.description, expense.category, expense.sub_category)
+        db.commit()
+
     return expense
 
 

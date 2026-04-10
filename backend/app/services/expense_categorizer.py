@@ -32,8 +32,8 @@ CATEGORY_RULES = {
         r"\bcoconut\b", r"\bmilkshake\b", r"\bshake\b", r"\blassi\b",
         r"\bchaas\b", r"\bsmoothie\b", r"\bbeverage\b", r"\bdrink\b",
         r"\bsoda\b", r"\bcold\s*drink\b", r"\bsherbet\b", r"\bsharbat\b",
-        r"\bnimbu\s*pani\b", r"\blemonade\b",
         # Indian & common food items
+        r"\bnimbu\s*pani\b", r"\blemonade\b",
         r"\bnoodles\b", r"\bpasta\b", r"\bchowmein\b", r"\bfried\s*rice\b",
         r"\bthali\b", r"\bdosa\b", r"\bidli\b", r"\bvada\b", r"\bpav\b",
         r"\bsamosa\b", r"\bchaat\b", r"\bpani\s*puri\b", r"\bgupchup\b",

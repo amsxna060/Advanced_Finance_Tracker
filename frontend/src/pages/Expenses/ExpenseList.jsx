@@ -83,6 +83,8 @@ function ExpenseList() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [autoFilled, setAutoFilled] = useState(false);
 
   const { data: expenseData, isLoading } = useQuery({
     queryKey: ["expenses", filters, page],
@@ -107,6 +109,30 @@ function ExpenseList() {
       return response.data;
     },
   });
+
+  const handleSuggest = async () => {
+    if (!form.description || form.description.trim().length < 3) return;
+    setIsSuggesting(true);
+    try {
+      const res = await api.post("/api/expenses/suggest-category", {
+        description: form.description,
+      });
+      const cat = res.data?.suggested_category;
+      const sub = res.data?.suggested_subcategory;
+      if (cat) {
+        setForm((prev) => ({
+          ...prev,
+          category: cat,
+          sub_category: sub || "",
+        }));
+        setAutoFilled(true);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
 
   const submitExpense = async (event) => {
     event.preventDefault();
@@ -205,6 +231,7 @@ function ExpenseList() {
     setEditingExpense(null);
     setForm(defaultForm);
     setErrorMessage("");
+    setAutoFilled(false);
     setShowModal(true);
   };
 
@@ -223,6 +250,7 @@ function ExpenseList() {
       account_id: expense.account_id ? expense.account_id.toString() : "",
     });
     setErrorMessage("");
+    setAutoFilled(false);
     setShowModal(true);
   };
 
@@ -637,18 +665,36 @@ function ExpenseList() {
                   </option>
                 ))}
               </select>
-              <textarea
-                rows="4"
-                placeholder="Description (AI will suggest category on save)"
-                value={form.description}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    description: event.target.value,
-                  }))
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
+              <div className="space-y-2">
+                <textarea
+                  rows="3"
+                  placeholder="Type description, then click ✨ to auto-fill category"
+                  value={form.description}
+                  onChange={(event) => {
+                    setAutoFilled(false);
+                    setForm((prev) => ({
+                      ...prev,
+                      description: event.target.value,
+                    }));
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSuggest}
+                    disabled={isSuggesting || !form.description || form.description.trim().length < 3}
+                    className="px-4 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isSuggesting ? "Thinking…" : "✨ Auto-fill Category"}
+                  </button>
+                  {autoFilled && (
+                    <span className="text-xs text-purple-600 font-medium">
+                      ✓ Category auto-filled — review &amp; adjust if needed
+                    </span>
+                  )}
+                </div>
+              </div>
               {errorMessage && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {errorMessage}
@@ -662,6 +708,7 @@ function ExpenseList() {
                     setEditingExpense(null);
                     setForm(defaultForm);
                     setErrorMessage("");
+                    setAutoFilled(false);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
                 >
