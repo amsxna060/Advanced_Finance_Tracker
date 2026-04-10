@@ -189,13 +189,10 @@ function LoanDetail() {
     },
   });
 
-  // Mark as Closed
+  // Mark as Closed — calls force-close to fix any wrong allocations before closing
   const markClosedMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.put(`/api/loans/${id}`, {
-        status: "closed",
-        actual_end_date: new Date().toISOString().split("T")[0],
-      });
+      const response = await api.post(`/api/loans/${id}/force-close`, {});
       return response.data;
     },
     onSuccess: () => {

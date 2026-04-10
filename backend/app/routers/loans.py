@@ -398,6 +398,64 @@ def record_payment(
     return new_payment
 
 
+@router.post("/{loan_id}/force-close", response_model=dict)
+def force_close_loan(
+    loan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Admin: Fix payment allocations and force-close a fully-paid loan.
+    Handles cases where the old buggy code stored allocated_to_principal=0.
+    """
+    loan = db.query(Loan).filter(
+        Loan.id == loan_id,
+        Loan.is_deleted == False
+    ).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    all_pmts = db.query(LoanPayment).filter(
+        LoanPayment.loan_id == loan_id
+    ).order_by(LoanPayment.payment_date.asc()).all()
+
+    principal_amount = Decimal(str(loan.principal_amount))
+    total_paid = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
+    total_principal_allocated = sum(Decimal(str(p.allocated_to_principal or 0)) for p in all_pmts)
+
+    healed = False
+    if total_paid >= principal_amount and total_principal_allocated < principal_amount - Decimal("1"):
+        # Fix each payment: excess above interest goes to principal
+        remaining_principal = principal_amount
+        for p in all_pmts:
+            interest_paid = (
+                Decimal(str(p.allocated_to_current_interest or 0))
+                + Decimal(str(p.allocated_to_overdue_interest or 0))
+            )
+            excess = max(Decimal(str(p.amount_paid or 0)) - interest_paid, Decimal("0"))
+            if remaining_principal > Decimal("0") and excess > Decimal("0"):
+                new_principal = min(excess, remaining_principal)
+                p.allocated_to_principal = new_principal
+                remaining_principal -= new_principal
+        db.flush()
+        healed = True
+
+    # Close the loan regardless (admin force-close)
+    last_payment = all_pmts[-1] if all_pmts else None
+    loan.status = "closed"
+    loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
+    db.commit()
+
+    outstanding = calculate_outstanding(loan_id, date.today(), db)
+    return {
+        "loan_id": loan_id,
+        "status": "closed",
+        "allocation_healed": healed,
+        "principal_outstanding": float(outstanding["principal_outstanding"]),
+        "interest_outstanding": float(outstanding["interest_outstanding"]),
+    }
+
+
 @router.get("/{loan_id}/payments", response_model=List[LoanPaymentOut])
 def get_loan_payments(
     loan_id: int,
