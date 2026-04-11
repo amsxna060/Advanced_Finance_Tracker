@@ -201,6 +201,14 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
             unpaid_carried = Decimal("0")
             month_count = 0
 
+    # Apply any remaining principal repayments that fell inside or at the end of the last period
+    # (their payment_date > last p_start so the inner while loop never consumed them).
+    # This fixes the case where payment_date == as_of_date: the repayment is correctly
+    # reflected in principal_outstanding for capitalization-enabled loans.
+    while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= as_of_date:
+        calc_principal = max(calc_principal - principal_repayment_events[pr_idx][1], Decimal("0"))
+        pr_idx += 1
+
     interest_outstanding = max(interest_accrued - interest_paid_total, Decimal("0")).quantize(Decimal("0.01"))
 
     # For auto-cap loans: principal_outstanding reflects compounded principal
