@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.beesi import Beesi, BeesiInstallment
+from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
+from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.collateral import Collateral
 from app.models.expense import Expense
 from app.models.loan import Loan, LoanPayment
+from app.models.obligation import MoneyObligation
 from app.models.partnership import Partnership, PartnershipTransaction
 from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.user import User
@@ -538,3 +540,376 @@ def get_payment_behavior(
     order = {"Bad": 0, "Irregular": 1, "Good": 2}
     rows.sort(key=lambda r: (order.get(r["score"], 3), -(r["days_since_payment"] or 0)))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# V2 — Consolidated dashboard endpoint (single call)
+# ---------------------------------------------------------------------------
+
+@router.get("/v2", response_model=dict)
+def get_dashboard_v2(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    # Last month range
+    if today.month == 1:
+        last_month_start = date(today.year - 1, 12, 1)
+    else:
+        last_month_start = date(today.year, today.month - 1, 1)
+    last_month_end = month_start - timedelta(days=1)
+
+    _f = float  # shorthand Decimal → float
+
+    # ── All loans ────────────────────────────────────────────────────────
+    all_loans = db.query(Loan).filter(Loan.is_deleted == False).all()
+    loans_given = [l for l in all_loans if l.loan_direction == "given"]
+    loans_taken = [l for l in all_loans if l.loan_direction == "taken"]
+
+    # Pre-compute outstanding for every *active* loan (cache to avoid dup work)
+    outstanding_cache: Dict[int, dict] = {}
+    for loan in all_loans:
+        if loan.status == "active":
+            try:
+                outstanding_cache[loan.id] = calculate_outstanding(loan.id, today, db)
+            except Exception:
+                pass
+
+    # ── LENDING (all-time: active + closed) ──────────────────────────────
+    total_lent_all_time = Decimal("0")
+    total_outstanding_receivable = Decimal("0")
+    total_interest_earned = Decimal("0")
+    total_principal_recovered = Decimal("0")
+
+    by_type: Dict[str, dict] = {}
+    for lt in ("interest_only", "emi", "short_term"):
+        by_type[lt] = {
+            "active_count": 0, "closed_count": 0,
+            "total_principal": Decimal("0"),
+            "total_outstanding": Decimal("0"),
+            "total_interest_earned": Decimal("0"),
+            "loans": [],
+        }
+
+    for loan in loans_given:
+        principal = _decimal(loan.principal_amount)
+        total_lent_all_time += principal
+
+        out_amount = Decimal("0")
+        if loan.id in outstanding_cache:
+            out_amount = _decimal(outstanding_cache[loan.id]["total_outstanding"])
+        total_outstanding_receivable += out_amount
+
+        loan_interest = sum(
+            _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+            for p in loan.payments
+        )
+        loan_principal_rec = sum(_decimal(p.allocated_to_principal) for p in loan.payments)
+        total_interest_earned += loan_interest
+        total_principal_recovered += loan_principal_rec
+
+        lt = loan.loan_type if loan.loan_type in by_type else "short_term"
+        by_type[lt]["total_principal"] += principal
+        by_type[lt]["total_outstanding"] += out_amount
+        by_type[lt]["total_interest_earned"] += loan_interest
+        if loan.status == "active":
+            by_type[lt]["active_count"] += 1
+        elif loan.status == "closed":
+            by_type[lt]["closed_count"] += 1
+
+        by_type[lt]["loans"].append({
+            "id": loan.id,
+            "contact_name": loan.contact.name if loan.contact else f"#{loan.contact_id}",
+            "principal": _f(principal),
+            "outstanding": _f(out_amount),
+            "interest_earned": _f(loan_interest),
+            "status": loan.status,
+            "loan_type": lt,
+            "disbursed_date": loan.disbursed_date.isoformat() if loan.disbursed_date else None,
+        })
+
+    # ── BORROWING ────────────────────────────────────────────────────────
+    total_borrowed = Decimal("0")
+    total_outstanding_payable = Decimal("0")
+    total_interest_paid = Decimal("0")
+    borrowing_loans: List[dict] = []
+
+    for loan in loans_taken:
+        principal = _decimal(loan.principal_amount)
+        total_borrowed += principal
+        out_amount = Decimal("0")
+        if loan.id in outstanding_cache:
+            out_amount = _decimal(outstanding_cache[loan.id]["total_outstanding"])
+        total_outstanding_payable += out_amount
+
+        lip = sum(
+            _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+            for p in loan.payments
+        )
+        total_interest_paid += lip
+
+        if loan.status == "active":
+            borrowing_loans.append({
+                "id": loan.id,
+                "contact_name": loan.contact.name if loan.contact else None,
+                "institution_name": loan.institution_name,
+                "principal": _f(principal),
+                "outstanding": _f(out_amount),
+                "interest_paid": _f(lip),
+                "status": loan.status,
+                "loan_type": loan.loan_type,
+            })
+
+    # ── OBLIGATIONS ──────────────────────────────────────────────────────
+    active_obligations = (
+        db.query(MoneyObligation)
+        .filter(MoneyObligation.is_deleted == False, MoneyObligation.status.in_(["pending", "partial"]))
+        .all()
+    )
+    recv_total = recv_pending = pay_total = pay_pending = Decimal("0")
+    obligation_items: List[dict] = []
+
+    for ob in active_obligations:
+        amt = _decimal(ob.amount)
+        settled = _decimal(ob.amount_settled)
+        pend = amt - settled
+        if ob.obligation_type == "receivable":
+            recv_total += amt; recv_pending += pend
+        else:
+            pay_total += amt; pay_pending += pend
+        obligation_items.append({
+            "id": ob.id, "type": ob.obligation_type,
+            "contact_name": ob.contact.name if ob.contact else None,
+            "reason": ob.reason, "amount": _f(amt),
+            "settled": _f(settled), "pending": _f(pend),
+            "due_date": ob.due_date.isoformat() if ob.due_date else None,
+            "status": ob.status,
+        })
+
+    # ── EXPENSES ─────────────────────────────────────────────────────────
+    this_month_expenses = (
+        db.query(Expense)
+        .filter(Expense.expense_date >= month_start, Expense.expense_date <= today)
+        .all()
+    )
+    last_month_expenses = (
+        db.query(Expense)
+        .filter(Expense.expense_date >= last_month_start, Expense.expense_date <= last_month_end)
+        .all()
+    )
+    this_m_total = sum(_decimal(e.amount) for e in this_month_expenses)
+    last_m_total = sum(_decimal(e.amount) for e in last_month_expenses)
+
+    cat_totals: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for e in this_month_expenses:
+        cat_totals[e.category or "Other"] += _decimal(e.amount)
+    top_cats = sorted(
+        [{"name": k, "amount": _f(v)} for k, v in cat_totals.items()],
+        key=lambda x: x["amount"], reverse=True,
+    )[:5]
+
+    trend_pct = float(((this_m_total - last_m_total) / last_m_total) * 100) if last_m_total > 0 else 0.0
+
+    # ── INVESTMENTS ──────────────────────────────────────────────────────
+    properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled").all()
+    partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
+    all_beesis = db.query(Beesi).filter(Beesi.is_deleted == False).all()
+
+    prop_invested = sum(
+        _decimal(p.my_investment) if p.my_investment else _decimal(p.purchase_price) if p.purchase_price else Decimal("0")
+        for p in properties
+    )
+    prop_profit = sum(_decimal(p.net_profit) for p in properties if p.net_profit)
+
+    part_invested = sum(_decimal(p.our_investment) for p in partnerships)
+    part_received = sum(_decimal(p.total_received) for p in partnerships)
+
+    beesi_paid = beesi_received = Decimal("0")
+    for b in all_beesis:
+        beesi_paid += sum(_decimal(i.actual_paid) for i in b.installments)
+        beesi_received += sum(_decimal(w.net_received) for w in b.withdrawals)
+
+    # ── NET WORTH ────────────────────────────────────────────────────────
+    cash_accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+    total_cash = Decimal("0")
+    for acc in cash_accounts:
+        bal = _decimal(acc.opening_balance)
+        for txn in acc.transactions:
+            bal += _decimal(txn.amount) if txn.txn_type == "credit" else -_decimal(txn.amount)
+        total_cash += bal
+
+    total_assets = total_cash + total_outstanding_receivable + prop_invested + part_invested + recv_pending
+    total_liabilities = total_outstanding_payable + pay_pending
+
+    # ── ALERTS (priority: EMI > Collateral 75 % > Interest overdue) ──────
+    alerts: List[dict] = []
+    for loan in loans_given:
+        if loan.status != "active":
+            continue
+        cached = outstanding_cache.get(loan.id)
+        if not cached:
+            continue
+        interest_due = _decimal(cached["interest_outstanding"])
+        total_out = _decimal(cached["total_outstanding"])
+        cname = loan.contact.name if loan.contact else f"#{loan.contact_id}"
+
+        # EMI overdue
+        if loan.loan_type == "emi" and interest_due > 0:
+            alerts.append({
+                "type": "emi_overdue", "priority": 1, "loan_id": loan.id,
+                "contact_name": cname,
+                "title": f"{cname} — EMI overdue",
+                "description": f"Outstanding \u20b9{total_out:,.0f} \u00b7 Interest due \u20b9{interest_due:,.0f}",
+            })
+
+        # Collateral risk (>75 %)
+        for col in db.query(Collateral).filter(Collateral.loan_id == loan.id).all():
+            est = _decimal(col.estimated_value)
+            if est > 0 and total_out > est * Decimal("0.75"):
+                pct = total_out / est * 100
+                alerts.append({
+                    "type": "collateral", "priority": 2, "loan_id": loan.id,
+                    "contact_name": cname,
+                    "title": f"{cname} — Collateral risk",
+                    "description": f"Outstanding \u20b9{total_out:,.0f} vs Collateral \u20b9{est:,.0f} ({pct:.0f}%)",
+                })
+
+        # Interest overdue (non-EMI, >30 days old)
+        if loan.loan_type != "emi" and interest_due > 0:
+            if loan.disbursed_date and loan.disbursed_date <= today - timedelta(days=30):
+                alerts.append({
+                    "type": "interest_overdue", "priority": 3, "loan_id": loan.id,
+                    "contact_name": cname,
+                    "title": f"{cname} — Interest overdue",
+                    "description": f"Interest due \u20b9{interest_due:,.0f} \u00b7 {loan.loan_type.replace('_', ' ').title()}",
+                })
+
+    alerts.sort(key=lambda a: a["priority"])
+
+    # ── THIS MONTH COLLECTIONS ───────────────────────────────────────────
+    tm_payments = (
+        db.query(LoanPayment)
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= month_start, LoanPayment.payment_date <= today)
+        .all()
+    )
+    coll_total = sum(_decimal(p.amount_paid) for p in tm_payments)
+    coll_principal = sum(_decimal(p.allocated_to_principal) for p in tm_payments)
+    coll_interest = sum(
+        _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+        for p in tm_payments
+    )
+    expected_this = Decimal("0")
+    for loan in loans_given:
+        if loan.status == "active":
+            expected_this += _loan_monthly_expected(loan)
+    coll_rate = float(coll_total / expected_this * 100) if expected_this > 0 else 0
+
+    # ── CASHFLOW (6 months) ──────────────────────────────────────────────
+    month_buckets = _generate_months(6)
+    inflow_map: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    outflow_map: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+
+    for pay in db.query(LoanPayment).all():
+        key = _month_key(pay.payment_date)
+        loan_obj = pay.loan
+        if not loan_obj:
+            continue
+        amt = _decimal(pay.amount_paid)
+        if loan_obj.loan_direction == "given":
+            inflow_map[key] += amt
+        else:
+            outflow_map[key] += amt
+
+    for txn in db.query(PropertyTransaction).all():
+        key = _month_key(txn.txn_date)
+        amt = _decimal(txn.amount)
+        if txn.txn_type in INFLOW_PROPERTY_TXN_TYPES:
+            inflow_map[key] += amt
+        elif txn.txn_type in OUTFLOW_PROPERTY_TXN_TYPES:
+            outflow_map[key] += amt
+
+    for txn in db.query(PartnershipTransaction).all():
+        key = _month_key(txn.txn_date)
+        amt = _decimal(txn.amount)
+        if txn.txn_type in INFLOW_PARTNERSHIP_TXN_TYPES:
+            inflow_map[key] += amt
+        elif txn.txn_type in OUTFLOW_PARTNERSHIP_TXN_TYPES:
+            outflow_map[key] += amt
+
+    for exp in db.query(Expense).all():
+        outflow_map[_month_key(exp.expense_date)] += _decimal(exp.amount)
+
+    cashflow = []
+    for m in month_buckets:
+        key = _month_key(m)
+        cashflow.append({
+            "month": m.strftime("%b"),
+            "inflow": _f(inflow_map[key]),
+            "outflow": _f(outflow_map[key]),
+        })
+
+    # ── BUILD RESPONSE ───────────────────────────────────────────────────
+    return {
+        "net_worth": {
+            "total_assets": _f(total_assets),
+            "total_liabilities": _f(total_liabilities),
+            "net_worth": _f(total_assets - total_liabilities),
+            "cash_balance": _f(total_cash),
+        },
+        "lending": {
+            "total_lent_all_time": _f(total_lent_all_time),
+            "total_outstanding": _f(total_outstanding_receivable),
+            "total_interest_earned": _f(total_interest_earned),
+            "total_principal_recovered": _f(total_principal_recovered),
+            "active_count": sum(1 for l in loans_given if l.status == "active"),
+            "by_type": {
+                lt: {
+                    "active_count": d["active_count"],
+                    "closed_count": d["closed_count"],
+                    "total_principal": _f(d["total_principal"]),
+                    "total_outstanding": _f(d["total_outstanding"]),
+                    "total_interest_earned": _f(d["total_interest_earned"]),
+                    "loans": d["loans"],
+                }
+                for lt, d in by_type.items()
+            },
+        },
+        "borrowing": {
+            "total_borrowed": _f(total_borrowed),
+            "total_outstanding": _f(total_outstanding_payable),
+            "total_interest_paid": _f(total_interest_paid),
+            "loans": borrowing_loans,
+        },
+        "obligations": {
+            "receivable_total": _f(recv_total),
+            "receivable_pending": _f(recv_pending),
+            "payable_total": _f(pay_total),
+            "payable_pending": _f(pay_pending),
+            "items": obligation_items,
+        },
+        "expenses": {
+            "this_month_total": _f(this_m_total),
+            "last_month_total": _f(last_m_total),
+            "trend_pct": round(trend_pct, 1),
+            "top_categories": top_cats,
+        },
+        "investments": {
+            "properties": {"count": len(properties), "total_invested": _f(prop_invested), "total_profit": _f(prop_profit)},
+            "partnerships": {"count": len(partnerships), "total_invested": _f(part_invested), "total_received": _f(part_received)},
+            "beesi": {"count": len(all_beesis), "total_paid": _f(beesi_paid), "total_received": _f(beesi_received)},
+        },
+        "alerts": alerts,
+        "this_month": {
+            "month_name": today.strftime("%B %Y"),
+            "total_collected": _f(coll_total),
+            "principal_portion": _f(coll_principal),
+            "interest_portion": _f(coll_interest),
+            "expected": _f(expected_this),
+            "pending": _f(max(expected_this - coll_total, Decimal("0"))),
+            "collection_rate_pct": round(coll_rate, 1),
+        },
+        "cashflow": cashflow,
+    }

@@ -1,12 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bar,
-  BarChart,
+  Area,
+  AreaChart,
   CartesianGrid,
   Cell,
-  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -16,413 +15,402 @@ import {
 } from "recharts";
 import { useAuth } from "../hooks/useAuth";
 import api from "../lib/api";
-import { formatCurrency, formatDate } from "../lib/utils";
+import { formatCurrency } from "../lib/utils";
 
+/* ── helpers ──────────────────────────────────────────────────────────── */
 const fc = (v) => formatCurrency(v ?? 0);
+const fcShort = (v) => {
+  const n = Math.abs(Number(v ?? 0));
+  const sign = Number(v ?? 0) < 0 ? "-" : "";
+  if (n >= 1e7) return `${sign}\u20b9${(n / 1e7).toFixed(2)}Cr`;
+  if (n >= 1e5) return `${sign}\u20b9${(n / 1e5).toFixed(2)}L`;
+  if (n >= 1e3) return `${sign}\u20b9${(n / 1e3).toFixed(1)}K`;
+  return fc(v);
+};
 
-function MetricCard({ label, value, subtitle, color = "blue", icon }) {
-  const gradients = {
-    green: "from-emerald-500 to-green-600",
-    blue: "from-blue-500 to-indigo-600",
-    red: "from-red-500 to-rose-600",
-    orange: "from-orange-500 to-amber-600",
-    purple: "from-purple-500 to-violet-600",
-    emerald: "from-emerald-500 to-teal-600",
-    violet: "from-violet-500 to-purple-600",
-    cyan: "from-cyan-500 to-blue-600",
-    pink: "from-pink-500 to-rose-600",
-  };
+const STATUS_DOT = {
+  active: "bg-emerald-400",
+  closed: "bg-slate-400",
+  defaulted: "bg-rose-400",
+  on_hold: "bg-amber-400",
+};
+
+const TYPE_LABELS = {
+  interest_only: "Interest Only",
+  emi: "EMI",
+  short_term: "Short Term",
+};
+
+const TYPE_COLORS = {
+  interest_only: { ring: "ring-teal-500/30", bg: "bg-teal-50", text: "text-teal-700", bar: "#14b8a6" },
+  emi: { ring: "ring-violet-500/30", bg: "bg-violet-50", text: "text-violet-700", bar: "#8b5cf6" },
+  short_term: { ring: "ring-amber-500/30", bg: "bg-amber-50", text: "text-amber-700", bar: "#f59e0b" },
+};
+
+/* ── small reusable pieces ────────────────────────────────────────────── */
+
+function GlassCard({ label, value, sub }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-5 hover:shadow-md transition-all">
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide truncate">{label}</p>
-          <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1.5 truncate">{value}</p>
-          {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-        </div>
-        {icon && (
-          <div className={`shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br ${gradients[color] || gradients.blue} flex items-center justify-center ml-3 shadow-sm`}>
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">{icon}</svg>
-          </div>
-        )}
-      </div>
+    <div className="bg-white/[0.07] backdrop-blur-xl border border-white/[0.12] rounded-2xl px-5 py-4">
+      <p className="text-indigo-300/80 text-[11px] font-semibold uppercase tracking-widest">{label}</p>
+      <p className="text-white text-xl font-extrabold mt-1 tracking-tight">{value}</p>
+      {sub && <p className="text-indigo-300/60 text-xs mt-0.5">{sub}</p>}
     </div>
   );
 }
 
-function SectionHeader({ title, subtitle, action }) {
+function Stat({ label, value, accent = "emerald" }) {
+  const accents = {
+    emerald: "border-emerald-500",
+    rose: "border-rose-500",
+    violet: "border-violet-500",
+    amber: "border-amber-500",
+    sky: "border-sky-500",
+    indigo: "border-indigo-500",
+    teal: "border-teal-500",
+    slate: "border-slate-400",
+  };
   return (
-    <div className="flex items-end justify-between mb-4">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
-      </div>
-      {action}
+    <div className={`bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-shadow px-5 py-4 border-l-4 ${accents[accent]}`}>
+      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{label}</p>
+      <p className="text-2xl font-extrabold text-slate-800 mt-1 tracking-tight">{value}</p>
     </div>
   );
 }
 
-function ExportButton({ dataset, label }) {
-  const handleExport = async () => {
-    const response = await api.get(`/api/dashboard/export?dataset=${encodeURIComponent(dataset)}`, { responseType: "blob" });
-    const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement("a");
-    const contentDisposition = response.headers["content-disposition"] || "";
-    const match = contentDisposition.match(/filename=([^;]+)/i);
-    const filename = match ? match[1].replaceAll('"', "") : `${dataset}.csv`;
-    link.href = blobUrl;
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(blobUrl);
-  };
+function SectionTitle({ children, count, color = "indigo" }) {
+  const dots = { indigo: "bg-indigo-500", emerald: "bg-emerald-500", rose: "bg-rose-500", amber: "bg-amber-500", violet: "bg-violet-500" };
   return (
-    <button onClick={handleExport} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 hover:border-gray-300 transition-colors">
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    <div className="flex items-center gap-2.5 mb-4 mt-8">
+      <span className={`w-2 h-2 rounded-full ${dots[color]}`} />
+      <h2 className="text-base font-bold text-slate-700 uppercase tracking-wide">{children}</h2>
+      {count != null && (
+        <span className="ml-1 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">{count}</span>
+      )}
+    </div>
+  );
+}
+
+function TrendArrow({ pct }) {
+  if (pct === 0) return <span className="text-slate-400 text-xs font-medium">no change</span>;
+  const up = pct > 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-bold ${up ? "text-rose-500" : "text-emerald-500"}`}>
+      <svg className={`w-3.5 h-3.5 ${up ? "" : "rotate-180"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
       </svg>
+      {Math.abs(pct).toFixed(1)}%
+    </span>
+  );
+}
+
+function ExpandToggle({ expanded, onClick, label }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-500 hover:text-indigo-700 transition-colors"
+    >
       {label}
+      <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+      </svg>
     </button>
   );
 }
 
-const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"];
+function Skeleton() {
+  return (
+    <div className="min-h-screen bg-slate-50 animate-pulse">
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-800 px-6 pt-8 pb-14">
+        <div className="max-w-7xl mx-auto space-y-4">
+          <div className="h-4 w-40 bg-white/10 rounded" />
+          <div className="h-10 w-64 bg-white/10 rounded" />
+          <div className="grid grid-cols-3 gap-3 mt-6">
+            {[1, 2, 3].map((i) => <div key={i} className="h-20 bg-white/[0.07] rounded-2xl" />)}
+          </div>
+        </div>
+      </div>
+      <div className="max-w-7xl mx-auto px-6 -mt-4 space-y-6 pb-16">
+        {[1, 2, 3, 4].map((i) => <div key={i} className="h-32 bg-white rounded-2xl shadow-sm" />)}
+      </div>
+    </div>
+  );
+}
+
+/* ── chart tooltip ────────────────────────────────────────────────────── */
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-slate-800 text-white text-xs rounded-lg px-3 py-2 shadow-xl border border-slate-700">
+      <p className="font-semibold mb-1">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} style={{ color: p.color }}>{p.name}: {fc(p.value)}</p>
+      ))}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/*  MAIN DASHBOARD                                                      */
+/* ══════════════════════════════════════════════════════════════════════ */
 
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ["dashboard-summary"],
-    queryFn: async () => (await api.get("/api/dashboard/summary")).data,
-  });
-  const { data: alerts, isLoading: alertsLoading } = useQuery({
-    queryKey: ["dashboard-alerts"],
-    queryFn: async () => (await api.get("/api/dashboard/alerts")).data,
-  });
-  const { data: cashflowData, isLoading: cashflowLoading } = useQuery({
-    queryKey: ["dashboard-cashflow"],
-    queryFn: async () => (await api.get("/api/dashboard/cashflow", { params: { months: 6 } })).data,
-  });
-  const { data: activityData, isLoading: activityLoading } = useQuery({
-    queryKey: ["dashboard-activity"],
-    queryFn: async () => (await api.get("/api/dashboard/recent-activity", { params: { limit: 10 } })).data,
-  });
-  const { data: thisMonth } = useQuery({
-    queryKey: ["dashboard-this-month"],
-    queryFn: async () => (await api.get("/api/dashboard/this-month")).data,
-  });
-  const { data: paymentBehavior } = useQuery({
-    queryKey: ["dashboard-payment-behavior"],
-    queryFn: async () => (await api.get("/api/dashboard/payment-behavior")).data,
+  const [expandedType, setExpandedType] = useState(null);
+  const [expandBorrowing, setExpandBorrowing] = useState(false);
+  const [expandObligations, setExpandObligations] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["dashboard-v2"],
+    queryFn: () => api.get("/api/dashboard/v2").then((r) => r.data),
   });
 
-  const alertItems = [
-    ...(alerts?.overdue || []).map((item) => ({
-      level: "critical",
-      title: `${item.contact_name} has overdue interest`,
-      description: `Interest due ${fc(item.interest_outstanding)} \u00B7 Total ${fc(item.total_outstanding)}`,
-    })),
-    ...(alerts?.collateral || []).map((item) => ({
-      level: "critical",
-      title: `${item.contact_name} collateral threshold breached`,
-      description: `Outstanding ${fc(item.total_outstanding)} vs value ${fc(item.estimated_value)}`,
-    })),
-    ...(alerts?.capitalization || []).map((item) => ({
-      level: "warning",
-      title: `${item.contact_name} is due for capitalization`,
-      description: `Outstanding interest ${fc(item.outstanding_interest)} \u00B7 ${item.months_since_last_action} month(s) since last action`,
-    })),
-  ];
+  if (isLoading || !data) return <Skeleton />;
 
-  const cashflow = cashflowData?.cashflow || [];
-  const activityItems = activityData?.items || [];
-  const loading = summaryLoading;
+  const { net_worth, lending, borrowing, obligations, expenses, investments, alerts, this_month, cashflow } = data;
 
-  const monthPaymentData = thisMonth
-    ? [
-        { name: "Principal", value: Number(thisMonth.principal_collected || 0) },
-        { name: "Interest", value: Number(thisMonth.interest_collected || 0) },
-      ].filter((d) => d.value > 0)
-    : [];
+  const collectionData = [
+    { name: "Collected", value: this_month.total_collected, color: "#10b981" },
+    { name: "Pending", value: this_month.pending, color: "#e2e8f0" },
+  ].filter((d) => d.value > 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-              Welcome back, {user?.full_name || user?.username}
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">Here&apos;s your financial overview</p>
+    <div className="min-h-screen bg-slate-50">
+      {/* ──────────────────── HERO ──────────────────── */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-800 px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8 pb-12 sm:pb-14">
+        {/* decorative blobs */}
+        <div className="pointer-events-none absolute -top-24 -right-24 w-96 h-96 rounded-full bg-indigo-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-violet-600/10 blur-3xl" />
+
+        <div className="relative max-w-7xl mx-auto">
+          <p className="text-indigo-300/80 text-sm font-medium">
+            Welcome back, <span className="text-indigo-200 font-semibold">{user?.full_name || user?.username}</span>
+          </p>
+
+          <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+            <h1 className="text-white text-3xl sm:text-4xl font-extrabold tracking-tight">{fcShort(net_worth.net_worth)}</h1>
+            <span className="text-indigo-400/70 text-sm font-medium">Net Worth</span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <ExportButton dataset="summary" label="Summary" />
-            <ExportButton dataset="cashflow" label="Cashflow" />
-            <ExportButton dataset="expenses" label="Expenses" />
+
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <GlassCard label="Total Assets" value={fcShort(net_worth.total_assets)} sub="Receivables + Investments + Cash" />
+            <GlassCard label="Total Liabilities" value={fcShort(net_worth.total_liabilities)} sub="Payables + Borrowings" />
+            <GlassCard label="Cash Balance" value={fcShort(net_worth.cash_balance)} sub="Across all accounts" />
           </div>
         </div>
+      </div>
 
-        {/* Lending Overview */}
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Lending Overview
-        </p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-          <MetricCard
-            label="Total Lent Out"
-            value={loading ? "..." : fc(summary?.total_lent_out)}
-            color="green"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />}
-          />
-          <MetricCard
-            label="Outstanding Receivable"
-            value={loading ? "..." : fc(summary?.total_outstanding_receivable)}
-            color="blue"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />}
-          />
-          <MetricCard
-            label="Interest Earned"
-            value={loading ? "..." : fc(summary?.total_interest_earned)}
-            color="emerald"
-            subtitle="All-time from given loans"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />}
-          />
-          <MetricCard
-            label="Principal Recovered"
-            value={loading ? "..." : fc(summary?.total_principal_recovered)}
-            color="cyan"
-            subtitle="All-time from given loans"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />}
-          />
+      {/* ──────────────────── BODY ──────────────────── */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-5 pb-16 relative z-10">
+
+        {/* ── LENDING ─────────────────────────────────── */}
+        <SectionTitle color="emerald" count={lending.active_count}>Lending</SectionTitle>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <Stat label="Total Lent (All-time)" value={fcShort(lending.total_lent_all_time)} accent="emerald" />
+          <Stat label="Outstanding" value={fcShort(lending.total_outstanding)} accent="sky" />
+          <Stat label="Interest Earned" value={fcShort(lending.total_interest_earned)} accent="teal" />
+          <Stat label="Principal Recovered" value={fcShort(lending.total_principal_recovered)} accent="indigo" />
         </div>
 
-        {/* Borrowing & Net Position */}
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Borrowing & Net Position
-        </p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-          <MetricCard
-            label="Total Borrowed"
-            value={loading ? "..." : fc(summary?.total_borrowed)}
-            color="red"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />}
-          />
-          <MetricCard
-            label="Outstanding Payable"
-            value={loading ? "..." : fc(summary?.total_outstanding_payable)}
-            color="orange"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />}
-          />
-          <MetricCard
-            label="Expected This Month"
-            value={loading ? "..." : fc(summary?.expected_this_month)}
-            color="purple"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />}
-          />
-          <MetricCard
-            label="Net Position"
-            value={loading ? "..." : fc(summary?.net_position)}
-            color={Number(summary?.net_position || 0) >= 0 ? "emerald" : "red"}
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />}
-          />
-        </div>
-
-        {/* This Month Collections */}
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          {thisMonth?.month || "This Month"} &mdash; Collections
-        </p>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
-          <MetricCard
-            label="Total Collected"
-            value={thisMonth ? fc(thisMonth.emis_collected) : "..."}
-            color="green"
-            subtitle="All payments received"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />}
-          />
-          <MetricCard
-            label="Principal Portion"
-            value={thisMonth ? fc(thisMonth.principal_collected) : "..."}
-            color="cyan"
-            subtitle="From collections"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />}
-          />
-          <MetricCard
-            label="Interest Portion"
-            value={thisMonth ? fc(thisMonth.interest_collected) : "..."}
-            color="emerald"
-            subtitle="From collections"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />}
-          />
-          <MetricCard
-            label="Pending"
-            value={thisMonth ? fc(thisMonth.emis_pending) : "..."}
-            color="orange"
-            subtitle="EMIs not yet received"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />}
-          />
-          <MetricCard
-            label="Overdue Interest"
-            value={thisMonth ? fc(thisMonth.overdue_interest) : "..."}
-            color="red"
-            subtitle="Outstanding across all"
-            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
-          />
-        </div>
-
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-          {/* Cash Flow */}
-          <div className="bg-white rounded-xl border border-gray-100 p-5 sm:p-6 xl:col-span-2">
-            <SectionHeader
-              title="Cash Flow"
-              subtitle="Last 6 months inflow vs outflow"
-              action={
-                <span className="text-xs font-medium text-gray-500">
-                  Overdue: <span className="text-red-600">{fc(summary?.total_overdue)}</span>
+        {/* Loan-type tabs */}
+        <div className="flex gap-2 flex-wrap">
+          {["interest_only", "emi", "short_term"].map((lt) => {
+            const info = lending.by_type[lt];
+            const tc = TYPE_COLORS[lt];
+            const isOpen = expandedType === lt;
+            return (
+              <button
+                key={lt}
+                onClick={() => setExpandedType(isOpen ? null : lt)}
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ring-2 ${
+                  isOpen
+                    ? `${tc.bg} ${tc.text} ${tc.ring} shadow-md`
+                    : "bg-white text-slate-600 ring-slate-200/80 hover:ring-slate-300 shadow-sm"
+                }`}
+              >
+                {TYPE_LABELS[lt]}{" "}
+                <span className={`ml-1 text-xs ${isOpen ? "opacity-80" : "text-slate-400"}`}>
+                  {info.active_count}A / {info.closed_count}C
                 </span>
-              }
-            />
-            {cashflowLoading ? (
-              <div className="h-72 flex items-center justify-center text-gray-400 animate-pulse">
-                Loading chart...
-              </div>
-            ) : (
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={cashflow} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={(v) =>
-                        v >= 100000
-                          ? `${(v / 100000).toFixed(1)}L`
-                          : v >= 1000
-                          ? `${(v / 1000).toFixed(0)}k`
-                          : v
-                      }
-                    />
-                    <Tooltip
-                      formatter={(value) => fc(value)}
-                      contentStyle={{ borderRadius: "8px", border: "1px solid #e5e7eb", fontSize: "13px" }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "12px" }} />
-                    <Bar dataKey="inflow" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="outflow" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
+              </button>
+            );
+          })}
+        </div>
 
-          {/* Right sidebar: Collection Split + Alerts */}
-          <div className="space-y-6">
-            {monthPaymentData.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-100 p-5">
-                <SectionHeader title="Collection Split" subtitle={thisMonth?.month} />
-                <div className="h-44">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={monthPaymentData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={40}
-                        outerRadius={65}
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        labelLine={false}
-                      >
-                        {monthPaymentData.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => fc(value)} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold text-gray-900">Alerts</h2>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    alertItems.length > 0 ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-                  }`}
-                >
-                  {alertItems.length}
+        {/* Inline expansion */}
+        {expandedType && (
+          <div className="mt-3 bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+            <div className={`px-5 py-3 border-b border-slate-100 flex items-center justify-between ${TYPE_COLORS[expandedType].bg}`}>
+              <div className="flex items-center gap-3">
+                <span className={`text-sm font-bold ${TYPE_COLORS[expandedType].text}`}>{TYPE_LABELS[expandedType]} Loans</span>
+                <span className="text-xs text-slate-500">
+                  Outstanding: <b>{fcShort(lending.by_type[expandedType].total_outstanding)}</b>
+                  {" \u00b7 "}
+                  Earned: <b>{fcShort(lending.by_type[expandedType].total_interest_earned)}</b>
                 </span>
               </div>
-              {alertsLoading ? (
-                <div className="text-sm text-gray-400 animate-pulse">Loading...</div>
-              ) : alertItems.length === 0 ? (
-                <div className="text-center py-6">
-                  <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-2">
-                    <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <p className="text-sm text-gray-500">All clear!</p>
-                </div>
+            </div>
+            <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
+              {lending.by_type[expandedType].loans.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">No loans in this category</p>
               ) : (
-                <div className="space-y-2 max-h-52 overflow-auto pr-1">
-                  {alertItems.map((alert, i) => (
-                    <div
-                      key={i}
-                      className={`rounded-lg border px-3 py-2.5 ${
-                        alert.level === "critical"
-                          ? "border-red-200 bg-red-50/50"
-                          : "border-amber-200 bg-amber-50/50"
-                      }`}
-                    >
-                      <div
-                        className={`text-xs font-medium ${
-                          alert.level === "critical" ? "text-red-800" : "text-amber-800"
-                        }`}
-                      >
-                        {alert.title}
-                      </div>
-                      <div
-                        className={`text-xs mt-0.5 ${
-                          alert.level === "critical" ? "text-red-600" : "text-amber-600"
-                        }`}
-                      >
-                        {alert.description}
+                lending.by_type[expandedType].loans.map((loan) => (
+                  <div
+                    key={loan.id}
+                    onClick={() => navigate(`/loans/${loan.id}`)}
+                    className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[loan.status] || "bg-slate-300"}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{loan.contact_name}</p>
+                        <p className="text-[11px] text-slate-400">{loan.disbursed_date || "\u2014"} &middot; {loan.status}</p>
                       </div>
                     </div>
-                  ))}
-                </div>
+                    <div className="text-right shrink-0 ml-4">
+                      <p className="text-sm font-bold text-slate-800">{fcShort(loan.principal)}</p>
+                      <p className="text-[11px] text-slate-400">
+                        Out: {fcShort(loan.outstanding)} &middot; Earned: {fcShort(loan.interest_earned)}
+                      </p>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
+        )}
+
+        {/* ── THIS MONTH + CHART ROW ─────────────────── */}
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 mt-8">
+          {/* This month collections */}
+          <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-700">{this_month.month_name}</h3>
+                <p className="text-[11px] text-slate-400">Collections this month</p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold">
+                {this_month.collection_rate_pct}%
+              </span>
+            </div>
+
+            <div className="flex items-center gap-5 mb-1">
+              <div className="w-28 h-28 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={collectionData.length > 0 ? collectionData : [{ name: "None", value: 1, color: "#e2e8f0" }]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={28}
+                      outerRadius={44}
+                      dataKey="value"
+                      strokeWidth={0}
+                    >
+                      {(collectionData.length > 0 ? collectionData : [{ color: "#e2e8f0" }]).map((d, i) => (
+                        <Cell key={i} fill={d.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-2 flex-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Collected</span>
+                  <span className="font-bold text-slate-800">{fc(this_month.total_collected)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Principal</span>
+                  <span className="font-semibold text-indigo-600">{fc(this_month.principal_portion)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Interest</span>
+                  <span className="font-semibold text-teal-600">{fc(this_month.interest_portion)}</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-100 pt-1.5">
+                  <span className="text-slate-500">Pending</span>
+                  <span className="font-bold text-amber-600">{fc(this_month.pending)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Cashflow area chart */}
+          <div className="xl:col-span-3 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
+            <h3 className="text-sm font-bold text-slate-700 mb-1">Cash Flow</h3>
+            <p className="text-[11px] text-slate-400 mb-4">6-month inflow vs outflow</p>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={cashflow} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gInflow" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gOutflow" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.2} />
+                      <stop offset="100%" stopColor="#f43f5e" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: "#94a3b8" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => (v >= 1e5 ? `${(v / 1e5).toFixed(1)}L` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : v)}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Area type="monotone" dataKey="inflow" stroke="#10b981" strokeWidth={2} fill="url(#gInflow)" name="Inflow" />
+                  <Area type="monotone" dataKey="outflow" stroke="#f43f5e" strokeWidth={2} fill="url(#gOutflow)" name="Outflow" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </div>
 
-        {/* Activity + Portfolio */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-          <div className="bg-white rounded-xl border border-gray-100 p-5 sm:p-6 xl:col-span-2">
-            <SectionHeader title="Recent Activity" subtitle="Last 10 entries" />
-            {activityLoading ? (
-              <div className="text-sm text-gray-400 animate-pulse">Loading...</div>
-            ) : activityItems.length === 0 ? (
-              <div className="text-sm text-gray-400 py-8 text-center">No activity recorded yet.</div>
-            ) : (
-              <div className="space-y-1.5">
-                {activityItems.map((item, i) => (
+        {/* ── LIABILITIES ─────────────────────────────── */}
+        <SectionTitle color="rose">Liabilities</SectionTitle>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Borrowing */}
+          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-slate-700">Borrowing</h3>
+              {borrowing.loans.length > 0 && (
+                <ExpandToggle expanded={expandBorrowing} onClick={() => setExpandBorrowing(!expandBorrowing)} label={`${borrowing.loans.length} active`} />
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Total Borrowed</p>
+                <p className="text-lg font-extrabold text-slate-800">{fcShort(borrowing.total_borrowed)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Outstanding</p>
+                <p className="text-lg font-extrabold text-rose-600">{fcShort(borrowing.total_outstanding)}</p>
+              </div>
+            </div>
+
+            {expandBorrowing && (
+              <div className="border-t border-slate-100 pt-2 mt-2 space-y-1 max-h-48 overflow-y-auto">
+                {borrowing.loans.map((l) => (
                   <div
-                    key={i}
-                    className="flex items-start justify-between gap-3 rounded-lg border border-gray-50 px-3 py-2.5 hover:bg-gray-50/50 transition-colors"
+                    key={l.id}
+                    onClick={() => navigate(`/loans/${l.id}`)}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-gray-900 truncate">{item.title}</div>
-                      <div className="text-xs text-gray-400 mt-0.5 truncate">{item.description}</div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-700 truncate">{l.institution_name || l.contact_name || `Loan #${l.id}`}</p>
+                      <p className="text-[11px] text-slate-400">{(l.loan_type || "").replace("_", " ")}</p>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-sm font-semibold text-gray-900">{fc(item.amount)}</div>
-                      <div className="text-xs text-gray-400">{formatDate(item.date)}</div>
+                    <div className="text-right shrink-0 ml-3">
+                      <p className="text-sm font-bold text-slate-800">{fcShort(l.outstanding)}</p>
+                      <p className="text-[11px] text-slate-400">of {fcShort(l.principal)}</p>
                     </div>
                   </div>
                 ))}
@@ -430,116 +418,192 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">Beesi / Chit Fund</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Active Beesis</span>
-                  <span className="font-semibold text-gray-700">{summary?.active_beesis || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Total Invested</span>
-                  <span className="font-semibold text-gray-700">{fc(summary?.beesi_total_invested)}</span>
-                </div>
+          {/* Obligations */}
+          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-slate-700">Obligations</h3>
+              {obligations.items.length > 0 && (
+                <ExpandToggle expanded={expandObligations} onClick={() => setExpandObligations(!expandObligations)} label={`${obligations.items.length} open`} />
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Receivable</p>
+                <p className="text-lg font-extrabold text-emerald-600">{fcShort(obligations.receivable_pending)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Payable</p>
+                <p className="text-lg font-extrabold text-rose-600">{fcShort(obligations.payable_pending)}</p>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">Portfolio</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Properties</span>
-                  <span className="font-semibold text-gray-700">{summary?.active_property_deals || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Partnerships</span>
-                  <span className="font-semibold text-gray-700">{summary?.active_partnerships || 0}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Invested</span>
-                  <span className="font-semibold text-gray-700">{fc(summary?.total_partnership_invested)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Received</span>
-                  <span className="font-semibold text-gray-700">{fc(summary?.total_partnership_received)}</span>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">Quick Links</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: "Loans", route: "/loans" },
-                  { label: "Expenses", route: "/expenses" },
-                  { label: "Properties", route: "/properties" },
-                  { label: "Analytics", route: "/analytics" },
-                  { label: "Expense Analytics", route: "/expense-analytics" },
-                  { label: "Accounts", route: "/accounts" },
-                ].map((link) => (
-                  <button
-                    key={link.route}
-                    onClick={() => navigate(link.route)}
-                    className="px-3 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
+
+            {expandObligations && (
+              <div className="border-t border-slate-100 pt-2 mt-2 space-y-1 max-h-48 overflow-y-auto">
+                {obligations.items.map((ob) => (
+                  <div
+                    key={ob.id}
+                    onClick={() => navigate("/obligations")}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
                   >
-                    {link.label}
-                  </button>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-1.5 h-1.5 rounded-full ${ob.type === "receivable" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 truncate">{ob.contact_name || ob.reason || `#${ob.id}`}</p>
+                        <p className="text-[11px] text-slate-400">{ob.type} &middot; {ob.status}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 ml-3">
+                      <p className={`text-sm font-bold ${ob.type === "receivable" ? "text-emerald-700" : "text-rose-700"}`}>{fcShort(ob.pending)}</p>
+                      <p className="text-[11px] text-slate-400">of {fcShort(ob.amount)}</p>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Payment Behavior */}
-        {paymentBehavior && paymentBehavior.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-100 p-5 sm:p-6">
-            <SectionHeader title="Payment Behavior" subtitle="Scoring based on repayment consistency" />
-            <div className="overflow-x-auto -mx-5 sm:-mx-6 px-5 sm:px-6">
-              <table className="w-full text-sm min-w-[640px]">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left">
-                    <th className="pb-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
-                    <th className="pb-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Loans</th>
-                    <th className="pb-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Principal</th>
-                    <th className="pb-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Payments</th>
-                    <th className="pb-3 pr-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Rate</th>
-                    <th className="pb-3 pl-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Last Payment</th>
-                    <th className="pb-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paymentBehavior.map((row) => (
-                    <tr
-                      key={row.contact_id}
-                      className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => navigate(`/contacts/${row.contact_id}`)}
-                    >
-                      <td className="py-2.5 text-gray-800 font-semibold">{row.contact_name}</td>
-                      <td className="py-2.5 text-right text-gray-500">{row.active_loans}</td>
-                      <td className="py-2.5 text-right text-gray-800">{fc(row.total_principal)}</td>
-                      <td className="py-2.5 text-right text-gray-500">{row.total_payments_made}</td>
-                      <td className="py-2.5 pr-4 text-right text-gray-500">{row.avg_payment_rate_pct}%</td>
-                      <td className="py-2.5 pl-4 text-gray-500">
-                        {row.last_payment_date ? formatDate(row.last_payment_date) : "Never"}
-                      </td>
-                      <td className="py-2.5 text-center">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                            row.score_color === "green"
-                              ? "bg-green-100 text-green-700"
-                              : row.score_color === "red"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
-                        >
-                          {row.score}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* ── INVESTMENTS & EXPENSES ──────────────────── */}
+        <SectionTitle color="violet">Investments &amp; Expenses</SectionTitle>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Properties */}
+          <div
+            onClick={() => navigate("/properties")}
+            className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 hover:shadow-md cursor-pointer transition-all group"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </span>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-violet-700 transition-colors">Properties</h4>
+            </div>
+            <p className="text-xl font-extrabold text-slate-800">{investments.properties.count}</p>
+            <div className="text-[11px] text-slate-400 mt-1 space-y-0.5">
+              <p>Invested: {fcShort(investments.properties.total_invested)}</p>
+              <p>Profit: <span className={investments.properties.total_profit >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>{fcShort(investments.properties.total_profit)}</span></p>
             </div>
           </div>
+
+          {/* Partnerships */}
+          <div
+            onClick={() => navigate("/partnerships")}
+            className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 hover:shadow-md cursor-pointer transition-all group"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-sm">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </span>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-indigo-700 transition-colors">Partnerships</h4>
+            </div>
+            <p className="text-xl font-extrabold text-slate-800">{investments.partnerships.count}</p>
+            <div className="text-[11px] text-slate-400 mt-1 space-y-0.5">
+              <p>Invested: {fcShort(investments.partnerships.total_invested)}</p>
+              <p>Received: <span className="text-emerald-600 font-semibold">{fcShort(investments.partnerships.total_received)}</span></p>
+            </div>
+          </div>
+
+          {/* Beesi */}
+          <div
+            onClick={() => navigate("/beesi")}
+            className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 hover:shadow-md cursor-pointer transition-all group"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-sm">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </span>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-amber-700 transition-colors">Beesi</h4>
+            </div>
+            <p className="text-xl font-extrabold text-slate-800">{investments.beesi.count}</p>
+            <div className="text-[11px] text-slate-400 mt-1 space-y-0.5">
+              <p>Paid: {fcShort(investments.beesi.total_paid)}</p>
+              <p>Received: <span className="text-emerald-600 font-semibold">{fcShort(investments.beesi.total_received)}</span></p>
+            </div>
+          </div>
+
+          {/* Expenses */}
+          <div
+            onClick={() => navigate("/expenses")}
+            className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 hover:shadow-md cursor-pointer transition-all group"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center shadow-sm">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                </svg>
+              </span>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-rose-700 transition-colors">Expenses</h4>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <p className="text-xl font-extrabold text-slate-800">{fcShort(expenses.this_month_total)}</p>
+              <TrendArrow pct={expenses.trend_pct} />
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">Last month: {fcShort(expenses.last_month_total)}</p>
+            {expenses.top_categories.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {expenses.top_categories.slice(0, 3).map((c) => (
+                  <div key={c.name} className="flex justify-between text-[11px]">
+                    <span className="text-slate-500 truncate">{c.name}</span>
+                    <span className="text-slate-700 font-semibold">{fcShort(c.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── ALERTS ──────────────────────────────────── */}
+        {alerts.length > 0 && (
+          <>
+            <SectionTitle color="amber" count={alerts.length}>Alerts</SectionTitle>
+            <div className="space-y-2">
+              {alerts.map((a, i) => {
+                const colors = {
+                  emi_overdue: { border: "border-l-rose-500", bg: "bg-rose-50/60", title: "text-rose-800", desc: "text-rose-600", badge: "bg-rose-100 text-rose-700" },
+                  collateral: { border: "border-l-amber-500", bg: "bg-amber-50/60", title: "text-amber-800", desc: "text-amber-600", badge: "bg-amber-100 text-amber-700" },
+                  interest_overdue: { border: "border-l-slate-400", bg: "bg-slate-50/60", title: "text-slate-700", desc: "text-slate-500", badge: "bg-slate-100 text-slate-600" },
+                };
+                const c = colors[a.type] || colors.interest_overdue;
+                return (
+                  <div
+                    key={i}
+                    onClick={() => navigate(`/loans/${a.loan_id}`)}
+                    className={`flex items-center justify-between px-5 py-3 rounded-2xl border border-l-4 ${c.border} ${c.bg} hover:shadow-sm cursor-pointer transition-all`}
+                  >
+                    <div className="min-w-0">
+                      <p className={`text-sm font-semibold ${c.title}`}>{a.title}</p>
+                      <p className={`text-xs ${c.desc} mt-0.5`}>{a.description}</p>
+                    </div>
+                    <span className={`shrink-0 ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.badge}`}>
+                      {a.type === "emi_overdue" ? "EMI" : a.type === "collateral" ? "Collateral" : "Interest"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* If no alerts */}
+        {alerts.length === 0 && (
+          <>
+            <SectionTitle color="amber">Alerts</SectionTitle>
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm py-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-slate-600">All clear!</p>
+              <p className="text-xs text-slate-400 mt-0.5">No overdue EMIs or risky collateral</p>
+            </div>
+          </>
         )}
       </div>
     </div>

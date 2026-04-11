@@ -101,4 +101,4 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "version": "v2.1-interest-fix"}
+    return {"status": "healthy", "version": "v2.2-dashboard-redesign"}
