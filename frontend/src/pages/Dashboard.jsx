@@ -161,6 +161,7 @@ export default function Dashboard() {
   const [expandedType, setExpandedType] = useState(null);
   const [expandBorrowing, setExpandBorrowing] = useState(false);
   const [expandObligations, setExpandObligations] = useState(false);
+  const [expandInterestAlerts, setExpandInterestAlerts] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-v2"],
@@ -169,11 +170,13 @@ export default function Dashboard() {
 
   if (isLoading || !data) return <Skeleton />;
 
-  const { net_worth, lending, borrowing, obligations, expenses, investments, alerts, this_month, cashflow } = data;
+  const { net_worth, lending, borrowing, obligations, expenses, investments, alerts, interest_only_alerts = [], this_month, cashflow } = data;
 
   const collectionData = [
-    { name: "Collected", value: this_month.total_collected, color: "#10b981" },
-    { name: "Pending", value: this_month.pending, color: "#e2e8f0" },
+    { name: "EMI", value: this_month.emi_collected, color: "#8b5cf6" },
+    { name: "Short Term", value: this_month.short_term_collected, color: "#f59e0b" },
+    { name: "Interest Only", value: this_month.interest_only_collected, color: "#14b8a6" },
+    { name: "Obligations", value: this_month.obligation_collected, color: "#6366f1" },
   ].filter((d) => d.value > 0);
 
   return (
@@ -292,9 +295,11 @@ export default function Dashboard() {
                 <h3 className="text-sm font-bold text-slate-700">{this_month.month_name}</h3>
                 <p className="text-[11px] text-slate-400">Collections this month</p>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold">
-                {this_month.collection_rate_pct}%
-              </span>
+              <div className="text-right">
+                <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold">
+                  {this_month.returns_pct}% returns
+                </span>
+              </div>
             </div>
 
             <div className="flex items-center gap-5 mb-1">
@@ -320,20 +325,36 @@ export default function Dashboard() {
               </div>
               <div className="space-y-2 flex-1 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Collected</span>
+                  <span className="text-slate-500">Total Collected</span>
                   <span className="font-bold text-slate-800">{fc(this_month.total_collected)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Principal</span>
-                  <span className="font-semibold text-indigo-600">{fc(this_month.principal_portion)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Interest</span>
-                  <span className="font-semibold text-teal-600">{fc(this_month.interest_portion)}</span>
-                </div>
+                {this_month.emi_collected > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-violet-500">EMI Loans</span>
+                    <span className="font-semibold text-violet-600">{fc(this_month.emi_collected)}</span>
+                  </div>
+                )}
+                {this_month.short_term_collected > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-amber-500">Short Term</span>
+                    <span className="font-semibold text-amber-600">{fc(this_month.short_term_collected)}</span>
+                  </div>
+                )}
+                {this_month.interest_only_collected > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-teal-500">Interest Only</span>
+                    <span className="font-semibold text-teal-600">{fc(this_month.interest_only_collected)}</span>
+                  </div>
+                )}
+                {this_month.obligation_collected > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-indigo-500">Obligations</span>
+                    <span className="font-semibold text-indigo-600">{fc(this_month.obligation_collected)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t border-slate-100 pt-1.5">
-                  <span className="text-slate-500">Pending</span>
-                  <span className="font-bold text-amber-600">{fc(this_month.pending)}</span>
+                  <span className="text-slate-500">All-time Returns</span>
+                  <span className="font-bold text-emerald-600">{fc(this_month.all_time_returns)}</span>
                 </div>
               </div>
             </div>
@@ -559,39 +580,87 @@ export default function Dashboard() {
         </div>
 
         {/* ── ALERTS ──────────────────────────────────── */}
-        {alerts.length > 0 && (
+        {(alerts.length > 0 || interest_only_alerts.length > 0) && (
           <>
-            <SectionTitle color="amber" count={alerts.length}>Alerts</SectionTitle>
+            <SectionTitle color="amber" count={alerts.length + interest_only_alerts.length}>Alerts</SectionTitle>
             <div className="space-y-2">
               {alerts.map((a, i) => {
                 const colors = {
-                  emi_overdue: { border: "border-l-rose-500", bg: "bg-rose-50/60", title: "text-rose-800", desc: "text-rose-600", badge: "bg-rose-100 text-rose-700" },
-                  collateral: { border: "border-l-amber-500", bg: "bg-amber-50/60", title: "text-amber-800", desc: "text-amber-600", badge: "bg-amber-100 text-amber-700" },
-                  interest_overdue: { border: "border-l-slate-400", bg: "bg-slate-50/60", title: "text-slate-700", desc: "text-slate-500", badge: "bg-slate-100 text-slate-600" },
+                  emi_overdue: { border: "border-l-rose-500", bg: "bg-rose-50/60", title: "text-rose-800", desc: "text-rose-600", badge: "bg-rose-100 text-rose-700", label: "EMI" },
+                  emi_upcoming: { border: "border-l-orange-400", bg: "bg-orange-50/60", title: "text-orange-800", desc: "text-orange-600", badge: "bg-orange-100 text-orange-700", label: "EMI" },
+                  short_term_overdue: { border: "border-l-amber-500", bg: "bg-amber-50/60", title: "text-amber-800", desc: "text-amber-600", badge: "bg-amber-100 text-amber-700", label: "Short Term" },
+                  short_term_upcoming: { border: "border-l-yellow-400", bg: "bg-yellow-50/60", title: "text-yellow-800", desc: "text-yellow-600", badge: "bg-yellow-100 text-yellow-700", label: "Short Term" },
+                  collateral: { border: "border-l-purple-500", bg: "bg-purple-50/60", title: "text-purple-800", desc: "text-purple-600", badge: "bg-purple-100 text-purple-700", label: "Collateral" },
+                  obligation: { border: "border-l-indigo-400", bg: "bg-indigo-50/60", title: "text-indigo-800", desc: "text-indigo-600", badge: "bg-indigo-100 text-indigo-700", label: "Obligation" },
                 };
-                const c = colors[a.type] || colors.interest_overdue;
+                const c = colors[a.type] || colors.collateral;
                 return (
                   <div
                     key={i}
-                    onClick={() => navigate(`/loans/${a.loan_id}`)}
+                    onClick={() => a.loan_id ? navigate(`/loans/${a.loan_id}`) : a.obligation_id ? navigate(`/obligations`) : null}
                     className={`flex items-center justify-between px-5 py-3 rounded-2xl border border-l-4 ${c.border} ${c.bg} hover:shadow-sm cursor-pointer transition-all`}
                   >
                     <div className="min-w-0">
                       <p className={`text-sm font-semibold ${c.title}`}>{a.title}</p>
                       <p className={`text-xs ${c.desc} mt-0.5`}>{a.description}</p>
+                      {a.days_overdue != null && (
+                        <p className="text-[10px] font-bold text-rose-500 mt-0.5">{a.days_overdue} days overdue</p>
+                      )}
                     </div>
                     <span className={`shrink-0 ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.badge}`}>
-                      {a.type === "emi_overdue" ? "EMI" : a.type === "collateral" ? "Collateral" : "Interest"}
+                      {c.label}
                     </span>
                   </div>
                 );
               })}
+
+              {/* Interest-only alerts — collapsible */}
+              {interest_only_alerts.length > 0 && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => setExpandInterestAlerts(!expandInterestAlerts)}
+                    className="w-full flex items-center justify-between px-5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200/60 hover:bg-slate-100 transition-colors"
+                  >
+                    <span className="text-xs font-semibold text-slate-500">
+                      Interest Only ({interest_only_alerts.length})
+                    </span>
+                    <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expandInterestAlerts ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {expandInterestAlerts && (
+                    <div className="space-y-2 mt-2 animate-slideDown">
+                      {interest_only_alerts.map((a, i) => (
+                        <div
+                          key={`io-${i}`}
+                          onClick={() => navigate(`/loans/${a.loan_id}`)}
+                          className="flex items-center justify-between px-5 py-3 rounded-2xl border border-l-4 border-l-slate-300 bg-slate-50/60 hover:shadow-sm cursor-pointer transition-all"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-700">{a.title}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{a.description}</p>
+                            {a.last_payment_date && (
+                              <p className="text-[10px] text-slate-400 mt-0.5">Last paid: {new Date(a.last_payment_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            )}
+                            {!a.last_payment_date && (
+                              <p className="text-[10px] text-rose-400 mt-0.5">Never paid</p>
+                            )}
+                          </div>
+                          <span className="shrink-0 ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-500">
+                            Interest
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
 
         {/* If no alerts */}
-        {alerts.length === 0 && (
+        {alerts.length === 0 && interest_only_alerts.length === 0 && (
           <>
             <SectionTitle color="amber">Alerts</SectionTitle>
             <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm py-8 text-center">

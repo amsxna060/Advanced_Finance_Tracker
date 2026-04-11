@@ -16,11 +16,11 @@ from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.collateral import Collateral
 from app.models.expense import Expense
 from app.models.loan import Loan, LoanPayment
-from app.models.obligation import MoneyObligation
 from app.models.partnership import Partnership, PartnershipTransaction
 from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.user import User
-from app.services.interest import calculate_outstanding, check_capitalization_due, _days_in_year, _calc_period_interest
+from app.models.obligation import MoneyObligation, ObligationSettlement
+from app.services.interest import calculate_outstanding, check_capitalization_due, _days_in_year, _calc_period_interest, get_emi_schedule_with_payments
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -743,8 +743,10 @@ def get_dashboard_v2(
     total_assets = total_cash + total_outstanding_receivable + prop_invested + part_invested + recv_pending
     total_liabilities = total_outstanding_payable + pay_pending
 
-    # ── ALERTS (priority: EMI > Collateral 75 % > Interest overdue) ──────
+    # ── ALERTS ────────────────────────────────────────────────────────────
     alerts: List[dict] = []
+    interest_only_alerts: List[dict] = []
+
     for loan in loans_given:
         if loan.status != "active":
             continue
@@ -755,38 +757,116 @@ def get_dashboard_v2(
         total_out = _decimal(cached["total_outstanding"])
         cname = loan.contact.name if loan.contact else f"#{loan.contact_id}"
 
-        # EMI overdue
-        if loan.loan_type == "emi" and interest_due > 0:
-            alerts.append({
-                "type": "emi_overdue", "priority": 1, "loan_id": loan.id,
-                "contact_name": cname,
-                "title": f"{cname} — EMI overdue",
-                "description": f"Outstanding \u20b9{total_out:,.0f} \u00b7 Interest due \u20b9{interest_due:,.0f}",
-            })
+        # 1) EMI alerts — check actual schedule, not just interest_due
+        if loan.loan_type == "emi":
+            schedule = get_emi_schedule_with_payments(loan, db)
+            has_overdue = False
+            for entry in schedule:
+                if entry["status"] in ("unpaid", "partial") and entry["due_date"] < today:
+                    days_overdue = (today - entry["due_date"]).days
+                    alerts.append({
+                        "type": "emi_overdue", "priority": 1, "loan_id": loan.id,
+                        "contact_name": cname,
+                        "title": f"{cname} — EMI overdue",
+                        "description": f"\u20b9{entry['due_amount']:,.0f} due on {entry['due_date'].strftime('%d %b %Y')}",
+                        "emi_amount": entry["due_amount"],
+                        "due_date": entry["due_date"].isoformat(),
+                        "days_overdue": days_overdue,
+                    })
+                    has_overdue = True
+                    break  # oldest unpaid EMI only
+            # Upcoming EMI within 5 days (only if no overdue)
+            if not has_overdue:
+                for entry in schedule:
+                    if entry["status"] == "future" and entry["due_date"] >= today:
+                        days_until = (entry["due_date"] - today).days
+                        if days_until <= 5:
+                            alerts.append({
+                                "type": "emi_upcoming", "priority": 1, "loan_id": loan.id,
+                                "contact_name": cname,
+                                "title": f"{cname} — EMI due in {days_until} day{'s' if days_until != 1 else ''}",
+                                "description": f"\u20b9{entry['due_amount']:,.0f} on {entry['due_date'].strftime('%d %b %Y')}",
+                                "emi_amount": entry["due_amount"],
+                                "due_date": entry["due_date"].isoformat(),
+                                "days_until": days_until,
+                            })
+                        break  # only the next upcoming
 
-        # Collateral risk (>75 %)
+        # 2) Short-term — due within 7 days or already overdue
+        if loan.loan_type == "short_term":
+            end_date = loan.expected_end_date or loan.interest_free_till
+            if end_date:
+                days_diff = (end_date - today).days
+                if days_diff < 0:
+                    alerts.append({
+                        "type": "short_term_overdue", "priority": 2, "loan_id": loan.id,
+                        "contact_name": cname,
+                        "title": f"{cname} — Overdue by {abs(days_diff)} days",
+                        "description": f"\u20b9{total_out:,.0f} outstanding \u00b7 Was due {end_date.strftime('%d %b %Y')}",
+                        "due_date": end_date.isoformat(),
+                        "days_overdue": abs(days_diff),
+                    })
+                elif days_diff <= 7:
+                    alerts.append({
+                        "type": "short_term_upcoming", "priority": 2, "loan_id": loan.id,
+                        "contact_name": cname,
+                        "title": f"{cname} — Due in {days_diff} day{'s' if days_diff != 1 else ''}",
+                        "description": f"\u20b9{total_out:,.0f} outstanding \u00b7 Due {end_date.strftime('%d %b %Y')}",
+                        "due_date": end_date.isoformat(),
+                        "days_until": days_diff,
+                    })
+
+        # 3) Collateral risk (>75%)
         for col in db.query(Collateral).filter(Collateral.loan_id == loan.id).all():
             est = _decimal(col.estimated_value)
             if est > 0 and total_out > est * Decimal("0.75"):
                 pct = total_out / est * 100
                 alerts.append({
-                    "type": "collateral", "priority": 2, "loan_id": loan.id,
+                    "type": "collateral", "priority": 3, "loan_id": loan.id,
                     "contact_name": cname,
                     "title": f"{cname} — Collateral risk",
                     "description": f"Outstanding \u20b9{total_out:,.0f} vs Collateral \u20b9{est:,.0f} ({pct:.0f}%)",
                 })
 
-        # Interest overdue (non-EMI, >30 days old)
-        if loan.loan_type != "emi" and interest_due > 0:
-            if loan.disbursed_date and loan.disbursed_date <= today - timedelta(days=30):
+        # 4) Interest-only — separate list, sorted by last payment
+        if loan.loan_type == "interest_only" and interest_due > 0:
+            last_pay = None
+            if loan.payments:
+                last_pay = max(p.payment_date for p in loan.payments)
+            interest_only_alerts.append({
+                "type": "interest_overdue", "priority": 5, "loan_id": loan.id,
+                "contact_name": cname,
+                "title": f"{cname} — Interest due",
+                "description": f"Interest due \u20b9{interest_due:,.0f} \u00b7 Outstanding \u20b9{total_out:,.0f}",
+                "expandable": True,
+                "last_payment_date": last_pay.isoformat() if last_pay else None,
+            })
+
+    # 5) Obligation alerts (receivable, pending/partial)
+    for ob in active_obligations:
+        if ob.obligation_type == "receivable":
+            pend = _decimal(ob.amount) - _decimal(ob.amount_settled)
+            if pend > 0:
+                ob_cname = ob.contact.name if ob.contact else "Unknown"
+                days_info = ""
+                if ob.due_date:
+                    dd = (ob.due_date - today).days
+                    if dd < 0:
+                        days_info = f" \u00b7 Overdue by {abs(dd)} days"
+                    elif dd <= 30:
+                        days_info = f" \u00b7 Due in {dd} day{'s' if dd != 1 else ''}"
                 alerts.append({
-                    "type": "interest_overdue", "priority": 3, "loan_id": loan.id,
-                    "contact_name": cname,
-                    "title": f"{cname} — Interest overdue",
-                    "description": f"Interest due \u20b9{interest_due:,.0f} \u00b7 {loan.loan_type.replace('_', ' ').title()}",
+                    "type": "obligation", "priority": 4,
+                    "loan_id": None, "obligation_id": ob.id,
+                    "contact_name": ob_cname,
+                    "title": f"{ob_cname} — Obligation pending",
+                    "description": f"\u20b9{pend:,.0f} pending{days_info}" + (f" \u00b7 {ob.reason}" if ob.reason else ""),
+                    "due_date": ob.due_date.isoformat() if ob.due_date else None,
                 })
 
     alerts.sort(key=lambda a: a["priority"])
+    # Interest-only: never paid first, then oldest payment first (most urgent at top)
+    interest_only_alerts.sort(key=lambda a: a["last_payment_date"] or "0000-00-00")
 
     # ── THIS MONTH COLLECTIONS ───────────────────────────────────────────
     tm_payments = (
@@ -795,17 +875,44 @@ def get_dashboard_v2(
         .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= month_start, LoanPayment.payment_date <= today)
         .all()
     )
-    coll_total = sum(_decimal(p.amount_paid) for p in tm_payments)
-    coll_principal = sum(_decimal(p.allocated_to_principal) for p in tm_payments)
-    coll_interest = sum(
-        _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
-        for p in tm_payments
+    coll_total = Decimal("0")
+    coll_by_type: Dict[str, Decimal] = {"emi": Decimal("0"), "short_term": Decimal("0"), "interest_only": Decimal("0")}
+    coll_interest_total = Decimal("0")
+    coll_principal_total = Decimal("0")
+    for p in tm_payments:
+        amt = _decimal(p.amount_paid)
+        coll_total += amt
+        lt = p.loan.loan_type if p.loan else "other"
+        if lt in coll_by_type:
+            coll_by_type[lt] += amt
+        coll_interest_total += _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+        coll_principal_total += _decimal(p.allocated_to_principal)
+
+    # Obligation settlements this month (receivable only)
+    tm_settlements = (
+        db.query(ObligationSettlement)
+        .join(MoneyObligation, MoneyObligation.id == ObligationSettlement.obligation_id)
+        .filter(
+            MoneyObligation.obligation_type == "receivable",
+            ObligationSettlement.settlement_date >= month_start,
+            ObligationSettlement.settlement_date <= today,
+        )
+        .all()
     )
-    expected_this = Decimal("0")
-    for loan in loans_given:
-        if loan.status == "active":
-            expected_this += _loan_monthly_expected(loan)
-    coll_rate = float(coll_total / expected_this * 100) if expected_this > 0 else 0
+    obligation_collected = sum(_decimal(s.amount) for s in tm_settlements)
+    coll_total += obligation_collected
+
+    # Returns: everything received above initial principal = profit
+    all_given_payments = sum(_decimal(p.amount_paid) for loan in loans_given for p in loan.payments)
+    all_obligation_recv = sum(
+        _decimal(s.amount)
+        for s in db.query(ObligationSettlement)
+        .join(MoneyObligation, MoneyObligation.id == ObligationSettlement.obligation_id)
+        .filter(MoneyObligation.obligation_type == "receivable").all()
+    )
+    total_received_all = all_given_payments + all_obligation_recv
+    returns_amount = total_received_all - total_lent_all_time
+    returns_pct = float(returns_amount / total_lent_all_time * 100) if total_lent_all_time > 0 else 0
 
     # ── CASHFLOW (6 months) ──────────────────────────────────────────────
     month_buckets = _generate_months(6)
@@ -902,14 +1009,18 @@ def get_dashboard_v2(
             "beesi": {"count": len(all_beesis), "total_paid": _f(beesi_paid), "total_received": _f(beesi_received)},
         },
         "alerts": alerts,
+        "interest_only_alerts": interest_only_alerts,
         "this_month": {
             "month_name": today.strftime("%B %Y"),
             "total_collected": _f(coll_total),
-            "principal_portion": _f(coll_principal),
-            "interest_portion": _f(coll_interest),
-            "expected": _f(expected_this),
-            "pending": _f(max(expected_this - coll_total, Decimal("0"))),
-            "collection_rate_pct": round(coll_rate, 1),
+            "emi_collected": _f(coll_by_type["emi"]),
+            "short_term_collected": _f(coll_by_type["short_term"]),
+            "interest_only_collected": _f(coll_by_type["interest_only"]),
+            "obligation_collected": _f(obligation_collected),
+            "principal_portion": _f(coll_principal_total),
+            "interest_portion": _f(coll_interest_total),
+            "all_time_returns": _f(returns_amount),
+            "returns_pct": round(returns_pct, 1),
         },
         "cashflow": cashflow,
     }
