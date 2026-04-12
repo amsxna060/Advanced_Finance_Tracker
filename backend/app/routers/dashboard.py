@@ -876,17 +876,33 @@ def get_dashboard_v2(
         .all()
     )
     coll_total = Decimal("0")
-    coll_by_type: Dict[str, Decimal] = {"emi": Decimal("0"), "short_term": Decimal("0"), "interest_only": Decimal("0")}
     coll_interest_total = Decimal("0")
-    coll_principal_total = Decimal("0")
+
+    # Pre-compute total all-time payments per loan for EMI return logic
+    loan_total_paid: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    for loan in loans_given:
+        for p in loan.payments:
+            loan_total_paid[loan.id] += _decimal(p.amount_paid)
+
+    # Pre-compute principal per loan
+    loan_principal: Dict[int, Decimal] = {}
+    for loan in loans_given:
+        loan_principal[loan.id] = _decimal(loan.principal_amount)
+
     for p in tm_payments:
         amt = _decimal(p.amount_paid)
         coll_total += amt
+        interest_part = _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
         lt = p.loan.loan_type if p.loan else "other"
-        if lt in coll_by_type:
-            coll_by_type[lt] += amt
-        coll_interest_total += _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
-        coll_principal_total += _decimal(p.allocated_to_principal)
+        if lt == "emi":
+            # For EMI: only count interest as return if total received > principal
+            total_recv = loan_total_paid.get(p.loan_id, Decimal("0"))
+            princ = loan_principal.get(p.loan_id, Decimal("0"))
+            if total_recv > princ:
+                coll_interest_total += interest_part
+        else:
+            # For interest-only, short-term: interest is always a return
+            coll_interest_total += interest_part
 
     # Obligation settlements this month (receivable only)
     tm_settlements = (
@@ -902,17 +918,20 @@ def get_dashboard_v2(
     obligation_collected = sum(_decimal(s.amount) for s in tm_settlements)
     coll_total += obligation_collected
 
-    # Returns: everything received above initial principal = profit
-    all_given_payments = sum(_decimal(p.amount_paid) for loan in loans_given for p in loan.payments)
-    all_obligation_recv = sum(
-        _decimal(s.amount)
-        for s in db.query(ObligationSettlement)
-        .join(MoneyObligation, MoneyObligation.id == ObligationSettlement.obligation_id)
-        .filter(MoneyObligation.obligation_type == "receivable").all()
-    )
-    total_received_all = all_given_payments + all_obligation_recv
-    returns_amount = total_received_all - total_lent_all_time
-    returns_pct = float(returns_amount / total_lent_all_time * 100) if total_lent_all_time > 0 else 0
+    # Profit from loans CLOSED this month (settled only)
+    closed_this_month = [
+        loan for loan in loans_given
+        if loan.status == "closed" and loan.actual_end_date
+        and loan.actual_end_date >= month_start and loan.actual_end_date <= today
+    ]
+    closed_profit = Decimal("0")
+    closed_principal = Decimal("0")
+    for loan in closed_this_month:
+        princ = _decimal(loan.principal_amount)
+        total_recv = sum(_decimal(p.amount_paid) for p in loan.payments)
+        closed_principal += princ
+        closed_profit += total_recv - princ
+    closed_profit_pct = float(closed_profit / closed_principal * 100) if closed_principal > 0 else 0
 
     # ── CASHFLOW (6 months) ──────────────────────────────────────────────
     month_buckets = _generate_months(6)
@@ -970,6 +989,7 @@ def get_dashboard_v2(
             "total_lent_all_time": _f(total_lent_all_time),
             "total_outstanding": _f(total_outstanding_receivable),
             "total_interest_earned": _f(total_interest_earned),
+            "interest_earned_pct": round(float(total_interest_earned / total_lent_all_time * 100), 1) if total_lent_all_time > 0 else 0,
             "total_principal_recovered": _f(total_principal_recovered),
             "active_count": sum(1 for l in loans_given if l.status == "active"),
             "by_type": {
@@ -1013,14 +1033,10 @@ def get_dashboard_v2(
         "this_month": {
             "month_name": today.strftime("%B %Y"),
             "total_collected": _f(coll_total),
-            "emi_collected": _f(coll_by_type["emi"]),
-            "short_term_collected": _f(coll_by_type["short_term"]),
-            "interest_only_collected": _f(coll_by_type["interest_only"]),
-            "obligation_collected": _f(obligation_collected),
-            "principal_portion": _f(coll_principal_total),
-            "interest_portion": _f(coll_interest_total),
-            "all_time_returns": _f(returns_amount),
-            "returns_pct": round(returns_pct, 1),
+            "total_returns": _f(coll_interest_total),
+            "closed_loan_profit": _f(closed_profit),
+            "closed_loan_profit_pct": round(closed_profit_pct, 1),
+            "closed_loan_count": len(closed_this_month),
         },
         "cashflow": cashflow,
     }

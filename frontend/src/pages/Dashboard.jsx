@@ -173,10 +173,8 @@ export default function Dashboard() {
   const { net_worth, lending, borrowing, obligations, expenses, investments, alerts, interest_only_alerts = [], this_month, cashflow } = data;
 
   const collectionData = [
-    { name: "EMI", value: this_month.emi_collected, color: "#8b5cf6" },
-    { name: "Short Term", value: this_month.short_term_collected, color: "#f59e0b" },
-    { name: "Interest Only", value: this_month.interest_only_collected, color: "#14b8a6" },
-    { name: "Obligations", value: this_month.obligation_collected, color: "#6366f1" },
+    { name: "Collected", value: this_month.total_collected, color: "#10b981" },
+    { name: "Returns", value: this_month.total_returns, color: "#14b8a6" },
   ].filter((d) => d.value > 0);
 
   return (
@@ -214,7 +212,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Stat label="Total Lent (All-time)" value={fcShort(lending.total_lent_all_time)} accent="emerald" />
           <Stat label="Outstanding" value={fcShort(lending.total_outstanding)} accent="sky" />
-          <Stat label="Interest Earned" value={fcShort(lending.total_interest_earned)} accent="teal" />
+          <Stat label="Interest Earned" value={`${fcShort(lending.total_interest_earned)} (${lending.interest_earned_pct}%)`} accent="teal" />
           <Stat label="Principal Recovered" value={fcShort(lending.total_principal_recovered)} accent="indigo" />
         </div>
 
@@ -295,11 +293,6 @@ export default function Dashboard() {
                 <h3 className="text-sm font-bold text-slate-700">{this_month.month_name}</h3>
                 <p className="text-[11px] text-slate-400">Collections this month</p>
               </div>
-              <div className="text-right">
-                <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold">
-                  {this_month.returns_pct}% returns
-                </span>
-              </div>
             </div>
 
             <div className="flex items-center gap-5 mb-1">
@@ -328,34 +321,22 @@ export default function Dashboard() {
                   <span className="text-slate-500">Total Collected</span>
                   <span className="font-bold text-slate-800">{fc(this_month.total_collected)}</span>
                 </div>
-                {this_month.emi_collected > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-violet-500">EMI Loans</span>
-                    <span className="font-semibold text-violet-600">{fc(this_month.emi_collected)}</span>
-                  </div>
-                )}
-                {this_month.short_term_collected > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-amber-500">Short Term</span>
-                    <span className="font-semibold text-amber-600">{fc(this_month.short_term_collected)}</span>
-                  </div>
-                )}
-                {this_month.interest_only_collected > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-teal-500">Interest Only</span>
-                    <span className="font-semibold text-teal-600">{fc(this_month.interest_only_collected)}</span>
-                  </div>
-                )}
-                {this_month.obligation_collected > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-indigo-500">Obligations</span>
-                    <span className="font-semibold text-indigo-600">{fc(this_month.obligation_collected)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-slate-100 pt-1.5">
-                  <span className="text-slate-500">All-time Returns</span>
-                  <span className="font-bold text-emerald-600">{fc(this_month.all_time_returns)}</span>
+                <div className="flex justify-between">
+                  <span className="text-teal-500">Returns (Interest)</span>
+                  <span className="font-semibold text-teal-600">{fc(this_month.total_returns)}</span>
                 </div>
+                <div className="flex justify-between border-t border-slate-100 pt-1.5">
+                  <span className="text-slate-500">Closed Loan Profit</span>
+                  <span className="font-bold text-emerald-600">
+                    {fc(this_month.closed_loan_profit)}
+                    {this_month.closed_loan_profit_pct !== 0 && (
+                      <span className="text-[10px] ml-1">({this_month.closed_loan_profit_pct}%)</span>
+                    )}
+                  </span>
+                </div>
+                {this_month.closed_loan_count > 0 && (
+                  <p className="text-[10px] text-slate-400">{this_month.closed_loan_count} loan{this_month.closed_loan_count > 1 ? 's' : ''} settled this month</p>
+                )}
               </div>
             </div>
           </div>
