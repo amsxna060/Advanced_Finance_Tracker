@@ -63,6 +63,20 @@ function LoanDetail() {
   const emiSchedule = loanData?.emi_schedule || [];
   const emiInterestSummary = loanData?.emi_interest_summary || null;
 
+  // Computed stats from actual payment data
+  const totalCollected = payments.reduce(
+    (s, p) => s + parseFloat(p.amount_paid || 0),
+    0,
+  );
+  const interestEarned = payments.reduce(
+    (s, p) =>
+      s +
+      parseFloat(p.allocated_to_current_interest || 0) +
+      parseFloat(p.allocated_to_overdue_interest || 0),
+    0,
+  );
+  const outstandingAmount = outstanding?.total_outstanding || 0;
+
   // Monthly interest schedule (lazy-loaded)
   const [showMonthlySchedule, setShowMonthlySchedule] = useState(false);
   const { data: monthlyScheduleData, isLoading: monthlyScheduleLoading } =
@@ -344,17 +358,17 @@ function LoanDetail() {
           />
           <HeroStat
             label="Outstanding"
-            value={formatCurrency(loan.outstanding_amount)}
-            accent={loan.outstanding_amount > 0 ? "rose" : "emerald"}
+            value={formatCurrency(outstandingAmount)}
+            accent={outstandingAmount > 0 ? "rose" : "emerald"}
           />
           <HeroStat
             label="Interest Earned"
-            value={formatCurrency(loan.total_interest_earned || 0)}
+            value={formatCurrency(interestEarned)}
             accent="teal"
           />
           <HeroStat
             label="Total Collected"
-            value={formatCurrency(loan.total_collected || 0)}
+            value={formatCurrency(totalCollected)}
             accent="emerald"
           />
         </div>

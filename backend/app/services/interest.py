@@ -12,31 +12,40 @@ def _days_in_year(year: int) -> int:
     return 366 if calendar.isleap(year) else 365
 
 
-def _build_calendar_periods(start_date: date, end_date: date) -> List[Tuple[date, date]]:
+def _build_monthly_periods(start_date: date, end_date: date) -> List[Tuple[date, date, int]]:
     """
-    Build calendar-month-aligned periods from start_date to end_date (inclusive).
-    Returns list of (period_start, period_end_exclusive) tuples.
-    First period: start_date -> 1st of next month
-    Middle periods: 1st -> 1st of next month
-    Last period: 1st -> end_date + 1 day (may be partial)
+    Build disbursement-date-anchored monthly periods from start_date to end_date (inclusive).
+    Each period runs: start_date + n months → start_date + (n+1) months (exclusive).
+    E.g. loan on 23 Jan: Period 1 = 23 Jan–22 Feb, Period 2 = 23 Feb–22 Mar, etc.
+    Returns list of (period_start, period_end_exclusive_actual, full_month_days) tuples.
+    full_month_days = days in the complete monthly period (for prorating the partial last period).
     """
     periods = []
-    cur = start_date
-    while cur <= end_date:
-        next_1st = cur.replace(day=1) + relativedelta(months=1)
-        p_end = min(next_1st, end_date + timedelta(days=1))
-        days = (p_end - cur).days
+    n = 0
+    while True:
+        p_start = start_date + relativedelta(months=n)
+        if p_start > end_date:
+            break
+        p_end_excl_full = start_date + relativedelta(months=n + 1)
+        full_month_days = (p_end_excl_full - p_start).days
+        actual_end_excl = min(p_end_excl_full, end_date + timedelta(days=1))
+        days = (actual_end_excl - p_start).days
         if days > 0:
-            periods.append((cur, p_end))
-        cur = p_end
+            periods.append((p_start, actual_end_excl, full_month_days))
+        n += 1
     return periods
 
 
-def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start: date, days: int) -> Decimal:
-    """Calculate interest for a period using daily rate based on period start year."""
-    year_days = _days_in_year(period_start.year)
-    daily_rate = annual_rate / Decimal("100") / Decimal(str(year_days))
-    return principal * daily_rate * Decimal(str(days))
+def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start: date, days: int, full_period_days: int = 0) -> Decimal:
+    """
+    Calculate interest using flat monthly rate (annual_rate / 12 / 100).
+    Full period (days == full_period_days or full_period_days == 0): exact monthly amount.
+    Partial period (days < full_period_days): prorated by days / full_period_days.
+    """
+    monthly_rate = annual_rate / Decimal("1200")
+    if full_period_days > 0 and days < full_period_days:
+        return principal * monthly_rate * Decimal(str(days)) / Decimal(str(full_period_days))
+    return principal * monthly_rate
 
 
 def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[str, Decimal]:
@@ -166,9 +175,9 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     )
     pr_idx = 0
 
-    # Build calendar-month-aligned periods and iterate
-    periods = _build_calendar_periods(interest_start_calc, as_of_date)
-    for p_start, p_end in periods:
+    # Build disbursement-date-anchored monthly periods and iterate
+    periods = _build_monthly_periods(interest_start_calc, as_of_date)
+    for p_start, p_end, full_days in periods:
         # Apply any principal repayments whose date falls at or before the start of this period
         while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
             calc_principal = max(calc_principal - principal_repayment_events[pr_idx][1], Decimal("0"))
@@ -180,7 +189,7 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
 
         month_count += 1
         days = (p_end - p_start).days
-        mi = _calc_period_interest(calc_principal, calc_rate, p_start, days)
+        mi = _calc_period_interest(calc_principal, calc_rate, p_start, days, full_days)
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
 
         interest_accrued += mi
@@ -466,9 +475,9 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         )
         st_pr_idx = 0
 
-        # Build calendar-month-aligned periods
-        periods = _build_calendar_periods(start_month, today)
-        for p_start, p_end in periods:
+        # Build disbursement-date-anchored monthly periods
+        periods = _build_monthly_periods(start_month, today)
+        for p_start, p_end, full_days in periods:
             # Apply principal reductions at period boundaries
             while st_pr_idx < len(short_term_pr_events) and short_term_pr_events[st_pr_idx][0] <= p_start:
                 principal = max(principal - short_term_pr_events[st_pr_idx][1], Decimal("0"))
@@ -479,7 +488,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 break
 
             days = (p_end - p_start).days
-            monthly_interest = _calc_period_interest(principal, rate, p_start, days)
+            monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
 
             if interest_paid_remaining >= monthly_interest:
                 paid = monthly_interest
@@ -494,10 +503,9 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 status = "unpaid"
 
             outstanding = monthly_interest - paid
-            is_current = p_end > today
-            period_last_day = (p_end - timedelta(days=1))
-            period_end_label = period_last_day.strftime("%d %b %Y")
-            month_label = f"{p_start.strftime('%d %b')} – {period_end_label}"
+            is_current = days < full_days
+            full_end_incl = p_start + relativedelta(months=1) - timedelta(days=1)
+            month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
 
             entries.append({
                 "month": p_start.strftime("%Y-%m-%d"),
@@ -543,9 +551,9 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     )
     pr_idx = 0
 
-    # Build calendar-month-aligned periods
-    periods = _build_calendar_periods(interest_start, today)
-    for p_start, p_end in periods:
+    # Build disbursement-date-anchored monthly periods
+    periods = _build_monthly_periods(interest_start, today)
+    for p_start, p_end, full_days in periods:
         # Apply principal reductions that took effect by or before this period start
         while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
             principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
@@ -557,7 +565,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
 
         month_count += 1
         days = (p_end - p_start).days
-        monthly_interest = _calc_period_interest(principal, rate, p_start, days)
+        monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
 
         if interest_paid_remaining >= monthly_interest:
@@ -576,10 +584,9 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             unpaid_interest_carried += monthly_interest
 
         outstanding = monthly_interest - paid
-        is_current = p_end > today
-        period_last_day = (p_end - timedelta(days=1))
-        period_end_label = period_last_day.strftime("%d %b %Y")
-        month_label = f"{p_start.strftime('%d %b')} – {period_end_label}"
+        is_current = days < full_days
+        full_end_incl = p_start + relativedelta(months=1) - timedelta(days=1)
+        month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
 
         entry = {
             "month": p_start.strftime("%Y-%m-%d"),
