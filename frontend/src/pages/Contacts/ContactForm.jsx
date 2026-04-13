@@ -203,11 +203,12 @@ function ContactForm() {
               >
                 <option value="borrower">Borrower</option>
                 <option value="lender">Lender</option>
+                <option value="bank">Bank</option>
                 <option value="partner">Partner</option>
-                <option value="agent">Agent</option>
-                <option value="buyer">Buyer</option>
                 <option value="seller">Seller</option>
-                <option value="mixed">Mixed</option>
+                <option value="buyer">Buyer</option>
+                <option value="family">Family</option>
+                <option value="friend">Friend</option>
               </Select>
 
               <Input

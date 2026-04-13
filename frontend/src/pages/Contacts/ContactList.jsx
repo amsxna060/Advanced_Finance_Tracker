@@ -20,6 +20,7 @@ import {
 export default function ContactList() {
   const [search, setSearch] = useState("");
   const [contactType, setContactType] = useState("");
+  const [relType, setRelType] = useState("");
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -39,6 +40,8 @@ export default function ContactList() {
     let result = allContacts;
     if (contactType)
       result = result.filter((c) => c.contact_type === contactType);
+    if (relType)
+      result = result.filter((c) => c.relationship_type === relType);
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -49,18 +52,21 @@ export default function ContactList() {
       );
     }
     return result;
-  }, [allContacts, search, contactType]);
+  }, [allContacts, search, contactType, relType]);
 
-  const individualCount = useMemo(
-    () => allContacts.filter((c) => c.contact_type === "individual").length,
+  const borrowerCount = useMemo(
+    () => allContacts.filter((c) => c.relationship_type === "borrower").length,
     [allContacts],
   );
-  const institutionCount = useMemo(
-    () => allContacts.filter((c) => c.contact_type === "institution").length,
+  const partnerCount = useMemo(
+    () => allContacts.filter((c) => c.relationship_type === "partner").length,
     [allContacts],
   );
-  const handshakeCount = useMemo(
-    () => allContacts.filter((c) => c.is_handshake).length,
+  const familyFriendCount = useMemo(
+    () =>
+      allContacts.filter(
+        (c) => c.relationship_type === "family" || c.relationship_type === "friend",
+      ).length,
     [allContacts],
   );
 
@@ -90,18 +96,18 @@ export default function ContactList() {
             accent="indigo"
           />
           <HeroStat
-            label="Individuals"
-            value={individualCount}
+            label="Borrowers"
+            value={borrowerCount}
             accent="emerald"
           />
           <HeroStat
-            label="Institutions"
-            value={institutionCount}
+            label="Partners"
+            value={partnerCount}
             accent="violet"
           />
           <HeroStat
-            label="Handshake Deals"
-            value={handshakeCount}
+            label="Family & Friends"
+            value={familyFriendCount}
             accent="amber"
           />
         </div>
@@ -118,6 +124,21 @@ export default function ContactList() {
               className="flex-1"
             />
             <Select
+              value={relType}
+              onChange={(e) => setRelType(e.target.value)}
+              className="sm:w-48"
+            >
+              <option value="">All Relations</option>
+              <option value="borrower">Borrower</option>
+              <option value="lender">Lender</option>
+              <option value="bank">Bank</option>
+              <option value="partner">Partner</option>
+              <option value="seller">Seller</option>
+              <option value="buyer">Buyer</option>
+              <option value="family">Family</option>
+              <option value="friend">Friend</option>
+            </Select>
+            <Select
               value={contactType}
               onChange={(e) => setContactType(e.target.value)}
               className="sm:w-48"
@@ -130,7 +151,7 @@ export default function ContactList() {
         </Card>
 
         {/* Results count */}
-        {(search || contactType) && contacts.length !== allContacts.length && (
+        {(search || contactType || relType) && contacts.length !== allContacts.length && (
           <p className="text-sm text-slate-500 mb-4">
             {contacts.length} result(s) found
           </p>

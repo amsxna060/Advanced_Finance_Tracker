@@ -14,7 +14,7 @@ class Contact(Base):
     city = Column(String(100))
     contact_type = Column(String(20), default="individual")  # individual | institution
     relationship_type = Column(String(30), default="borrower")
-    # borrower | lender | partner | agent | buyer | seller | mixed
+    # borrower | lender | bank | partner | seller | buyer | family | friend
     is_handshake = Column(Boolean, default=False)
     notes = Column(Text)
     is_deleted = Column(Boolean, default=False)

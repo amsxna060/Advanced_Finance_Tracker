@@ -21,11 +21,20 @@ export function PageContainer({ children, className }) {
 
 export function PageHeader({ title, subtitle, backTo, children }) {
   const navigate = useNavigate();
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else if (typeof backTo === "string") {
+      navigate(backTo);
+    } else {
+      navigate("/dashboard");
+    }
+  };
   return (
     <div className="mb-6 sm:mb-8">
       {backTo && (
         <button
-          onClick={() => navigate(backTo)}
+          onClick={handleBack}
           className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 transition-colors mb-3"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -130,6 +139,15 @@ export function PageHero({
   children,
 }) {
   const navigate = useNavigate();
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else if (typeof backTo === "string") {
+      navigate(backTo);
+    } else {
+      navigate("/dashboard");
+    }
+  };
   return (
     <div
       className={cn(
@@ -142,7 +160,7 @@ export function PageHero({
       <div className="relative max-w-7xl mx-auto">
         {backTo && (
           <button
-            onClick={() => navigate(backTo)}
+            onClick={handleBack}
             className="inline-flex items-center gap-1 text-sm text-indigo-300/60 hover:text-indigo-200 transition-colors mb-2"
           >
             <ChevronLeft className="w-4 h-4" /> Back
