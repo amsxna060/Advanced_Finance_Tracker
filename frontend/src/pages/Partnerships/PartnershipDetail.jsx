@@ -3,19 +3,20 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
+import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
 
 const STATUS_COLORS = {
-  active: "bg-blue-100 text-blue-800",
-  settled: "bg-green-100 text-green-800",
-  cancelled: "bg-red-100 text-red-800",
+  active: "bg-indigo-100 text-indigo-800",
+  settled: "bg-emerald-100 text-emerald-800",
+  cancelled: "bg-rose-100 text-rose-800",
 };
 
 function InfoRow({ label, value }) {
   if (!value && value !== 0) return null;
   return (
-    <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-900 text-right max-w-[60%]">
+    <div className="flex justify-between py-2 border-b border-slate-100 last:border-0">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className="text-sm font-medium text-slate-900 text-right max-w-[60%]">
         {value}
       </span>
     </div>
@@ -383,20 +384,20 @@ export default function PartnershipDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-indigo-200 border-t-indigo-600"></div>
       </div>
     );
   }
 
   if (isError || !data?.partnership) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Partnership not found.</p>
+          <p className="text-slate-500 mb-4">Partnership not found.</p>
           <button
             onClick={() => navigate("/partnerships")}
-            className="text-blue-600 hover:underline"
+            className="text-indigo-600 hover:underline"
           >
             ← Back to Partnerships
           </button>
@@ -442,77 +443,57 @@ export default function PartnershipDetail() {
   const settleAdvancePool = totalAdvance;
   const settleProfit = settleTotal - settleAdvancePool;
 
+  const selfMember = members.find((m) => m.member?.is_self);
+  const selfShare = selfMember ? parseFloat(selfMember.member?.share_percentage || 0) : 0;
+
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4">
-      <div className="max-w-4xl mx-auto space-y-5">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/partnerships")}
-              className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200"
-            >
-              ←
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                {partnership.title}
-              </h1>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[partnership.status] || "bg-gray-100 text-gray-700"}`}
-                >
-                  {partnership.status}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {members.length} partner{members.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        title={partnership.title}
+        subtitle={`${partnership.status.charAt(0).toUpperCase() + partnership.status.slice(1)} · ${members.length} partner${members.length !== 1 ? "s" : ""}`}
+        backTo="/partnerships"
+        actions={
           <div className="flex gap-2">
-            <button
-              onClick={() => navigate(`/partnerships/${id}/edit`)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm("Delete this partnership?"))
-                  deletePartnershipMutation.mutate();
-              }}
-              className="px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
-            >
-              Delete
-            </button>
+            <Button variant="white" onClick={() => navigate(`/partnerships/${id}/edit`)}>Edit</Button>
+            <Button variant="danger" size="sm" onClick={() => { if (window.confirm("Delete this partnership?")) deletePartnershipMutation.mutate(); }}>Delete</Button>
           </div>
+        }
+      >
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+          <HeroStat label="Total Investment" value={formatCurrency(totalAdvance)} accent="indigo" />
+          <HeroStat label="Received from Buyer" value={formatCurrency(buyerPaymentsTotal)} accent="emerald" />
+          <HeroStat label="Net Profit" value={formatCurrency(netProfit)} accent={netProfit >= 0 ? "teal" : "rose"} />
+          <HeroStat label="Your Share" value={`${selfShare}%`} accent="violet" />
         </div>
+      </PageHero>
+
+      <PageBody>
+        <div className="space-y-5">
 
         {/* Linked property notice */}
         {isLinkedToProperty && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-            <span className="text-blue-500 text-xl">🏘</span>
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-start gap-3">
+            <span className="text-indigo-500 text-xl">🏘</span>
             <div>
-              <p className="text-sm font-semibold text-blue-800">
+              <p className="text-sm font-semibold text-indigo-800">
                 This partnership is linked to a property deal.
               </p>
               {linkedProperty ? (
                 <Link
                   to={`/properties/${partnership.linked_property_deal_id}`}
-                  className="text-sm text-blue-600 hover:underline"
+                  className="text-sm text-indigo-600 hover:underline"
                 >
                   View Property: {linkedProperty.title} →
                 </Link>
               ) : (
                 <Link
                   to={`/properties/${partnership.linked_property_deal_id}`}
-                  className="text-sm text-blue-600 hover:underline"
+                  className="text-sm text-indigo-600 hover:underline"
                 >
                   View Linked Property Deal →
                 </Link>
               )}
-              <p className="text-xs text-blue-600 mt-1">
+              <p className="text-xs text-indigo-600 mt-1">
                 Settlement is managed from the linked Property Deal page.
               </p>
             </div>
@@ -522,56 +503,17 @@ export default function PartnershipDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Main content */}
           <div className="lg:col-span-2 space-y-5">
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-                <div className="text-xs text-gray-400 mb-1">Total Advance</div>
-                <div className="text-lg font-bold text-gray-900">
-                  {formatCurrency(totalAdvance)}
-                </div>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-                <div className="text-xs text-gray-400 mb-1">
-                  Received from Buyer
-                </div>
-                <div className="text-lg font-bold text-green-700">
-                  {formatCurrency(buyerPaymentsTotal)}
-                </div>
-              </div>
-              {otherExpenseTotal > 0 && (
-                <div className="bg-white rounded-xl border border-orange-200 p-4 text-center">
-                  <div className="text-xs text-orange-500 mb-1">Other Expenses</div>
-                  <div className="text-lg font-bold text-orange-700">
-                    {formatCurrency(otherExpenseTotal)}
-                  </div>
-                </div>
-              )}
-              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-                <div className="text-xs text-gray-400 mb-1">Net Profit</div>
-                <div
-                  className={`text-lg font-bold ${netProfit >= 0 ? "text-green-700" : "text-red-600"}`}
-                >
-                  {formatCurrency(netProfit)}
-                </div>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-                <div className="text-xs text-gray-400 mb-1">Partners</div>
-                <div className="text-lg font-bold text-gray-900">
-                  {members.length}
-                </div>
-              </div>
-            </div>
 
             {/* Partners table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-800">
+                <h2 className="text-base font-bold text-slate-800">
                   Partner Distribution
                 </h2>
                 {isActive && (
                   <button
                     onClick={() => setShowAddMemberModal(true)}
-                    className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm hover:bg-blue-100"
+                    className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm hover:bg-indigo-100"
                   >
                     + Add Partner
                   </button>
@@ -579,28 +521,28 @@ export default function PartnershipDetail() {
               </div>
 
               {members.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
+                <p className="text-sm text-slate-400 text-center py-6">
                   No partners added yet.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-2 text-gray-500 font-medium">
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 text-slate-500 font-medium">
                           Partner
                         </th>
-                        <th className="text-right py-2 text-gray-500 font-medium">
+                        <th className="text-right py-2 text-slate-500 font-medium">
                           Share %
                         </th>
-                        <th className="text-right py-2 text-gray-500 font-medium">
+                        <th className="text-right py-2 text-slate-500 font-medium">
                           Advance
                         </th>
-                        <th className="text-right py-2 text-gray-500 font-medium">
+                        <th className="text-right py-2 text-slate-500 font-medium">
                           Total Received
                         </th>
                         {isActive && (
-                          <th className="text-right py-2 text-gray-500 font-medium">
+                          <th className="text-right py-2 text-slate-500 font-medium">
                             Actions
                           </th>
                         )}
@@ -621,12 +563,12 @@ export default function PartnershipDetail() {
                         return (
                           <tr
                             key={i}
-                            className={`border-b border-gray-100 ${isFullyReceived ? "bg-green-50" : ""}`}
+                            className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${isFullyReceived ? "bg-emerald-50" : ""}`}
                           >
                             <td className="py-2 font-medium">
                               {name}
                               {m.member?.is_self && (
-                                <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full">
+                                <span className="ml-1 text-xs bg-indigo-100 text-indigo-700 px-1.5 rounded-full">
                                   you
                                 </span>
                               )}
@@ -638,7 +580,7 @@ export default function PartnershipDetail() {
                               {formatCurrency(advance)}
                             </td>
                             <td
-                              className={`text-right py-2 font-semibold ${isFullyReceived ? "text-green-700" : "text-gray-400"}`}
+                              className={`text-right py-2 font-semibold ${isFullyReceived ? "text-emerald-700" : "text-slate-400"}`}
                             >
                               {isFullyReceived ? formatCurrency(received) : "—"}
                             </td>
@@ -646,7 +588,7 @@ export default function PartnershipDetail() {
                               <td className="text-right py-2 space-x-1">
                                 <button
                                   onClick={() => openEditMember(m)}
-                                  className="text-xs text-blue-600 hover:underline"
+                                  className="text-xs text-indigo-600 hover:underline"
                                 >
                                   Edit
                                 </button>
@@ -659,7 +601,7 @@ export default function PartnershipDetail() {
                                     )
                                       deleteMemberMutation.mutate(m.member?.id);
                                   }}
-                                  className="text-xs text-red-600 hover:underline"
+                                  className="text-xs text-rose-600 hover:underline"
                                 >
                                   Delete
                                 </button>
@@ -668,7 +610,7 @@ export default function PartnershipDetail() {
                           </tr>
                         );
                       })}
-                      <tr className="border-t border-gray-300 font-semibold">
+                      <tr className="border-t border-slate-300 font-semibold">
                         <td className="py-2">Total</td>
                         <td className="text-right py-2">
                           {members
@@ -695,26 +637,26 @@ export default function PartnershipDetail() {
             </div>
 
             {/* Transactions */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-800">
+                <h2 className="text-base font-bold text-slate-800">
                   Transactions
                 </h2>
                 <button
                   onClick={() => {
                     setShowTxnForm(!showTxnForm);
                   }}
-                  className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-sm hover:bg-blue-100"
+                  className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm hover:bg-indigo-100"
                 >
                   + Add Transaction
                 </button>
               </div>
 
               {showTxnForm && (
-                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200/60 space-y-3">
                   {/* Transaction Type Selector */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Transaction Type
                     </label>
                     <select
@@ -729,7 +671,7 @@ export default function PartnershipDetail() {
                           received_by: "self",
                         }));
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     >
                       <option value="advance_given">Advance</option>
                       <option value="buyer_payment_received">
@@ -741,7 +683,7 @@ export default function PartnershipDetail() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Amount (₹)
                       </label>
                       <input
@@ -750,13 +692,13 @@ export default function PartnershipDetail() {
                         onChange={(e) =>
                           setTxnForm((p) => ({ ...p, amount: e.target.value }))
                         }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         placeholder="0"
                         min="0"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Date
                       </label>
                       <input
@@ -768,7 +710,7 @@ export default function PartnershipDetail() {
                             txn_date: e.target.value,
                           }))
                         }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       />
                     </div>
                   </div>
@@ -777,7 +719,7 @@ export default function PartnershipDetail() {
                   {txnFormType === "advance_given" && (
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
                           Given by
                         </label>
                         <select
@@ -788,7 +730,7 @@ export default function PartnershipDetail() {
                               given_by: e.target.value,
                             }))
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         >
                           <option value="self">Self (Me)</option>
                           {members
@@ -805,7 +747,7 @@ export default function PartnershipDetail() {
                       </div>
                       {txnForm.given_by === "self" ? (
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
                             From Account
                           </label>
                           <select
@@ -816,7 +758,7 @@ export default function PartnershipDetail() {
                                 account_id: e.target.value,
                               }))
                             }
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           >
                             <option value="">— Select Account —</option>
                             {accounts.map((a) => (
@@ -836,7 +778,7 @@ export default function PartnershipDetail() {
                   {txnFormType === "buyer_payment_received" && (
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
                           Received by
                         </label>
                         <select
@@ -847,7 +789,7 @@ export default function PartnershipDetail() {
                               received_by: e.target.value,
                             }))
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         >
                           <option value="self">Self (Me)</option>
                           {members
@@ -864,7 +806,7 @@ export default function PartnershipDetail() {
                       </div>
                       {txnForm.received_by === "self" ? (
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
                             Deposit to Account
                           </label>
                           <select
@@ -875,7 +817,7 @@ export default function PartnershipDetail() {
                                 account_id: e.target.value,
                               }))
                             }
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           >
                             <option value="">— Select Account —</option>
                             {accounts.map((a) => (
@@ -895,7 +837,7 @@ export default function PartnershipDetail() {
                   {txnFormType === "other_expense" && (
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
                           Given by
                         </label>
                         <select
@@ -906,7 +848,7 @@ export default function PartnershipDetail() {
                               given_by: e.target.value,
                             }))
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         >
                           <option value="self">Self (Me)</option>
                           {members
@@ -923,7 +865,7 @@ export default function PartnershipDetail() {
                       </div>
                       {txnForm.given_by === "self" ? (
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
                             From Account
                           </label>
                           <select
@@ -934,7 +876,7 @@ export default function PartnershipDetail() {
                                 account_id: e.target.value,
                               }))
                             }
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           >
                             <option value="">— Select Account —</option>
                             {accounts.map((a) => (
@@ -951,7 +893,7 @@ export default function PartnershipDetail() {
                   )}
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Description
                     </label>
                     <input
@@ -963,21 +905,21 @@ export default function PartnershipDetail() {
                           description: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="Optional"
                     />
                   </div>
                   <div className="flex gap-2 justify-end">
                     <button
                       onClick={() => setShowTxnForm(false)}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600"
+                      className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleAddTxn}
                       disabled={!txnForm.amount || addTxnMutation.isPending}
-                      className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                      className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
                     >
                       {addTxnMutation.isPending ? "Saving..." : "Save"}
                     </button>
@@ -990,14 +932,14 @@ export default function PartnershipDetail() {
                   {data.transactions.map((txn) => (
                     <div
                       key={txn.id}
-                      className="py-2 border-b border-gray-100 last:border-0"
+                      className="py-2 border-b border-slate-100 last:border-0"
                     >
                       {editingTxnId === txn.id && editTxnForm ? (
                         /* ── Inline Edit Form ── */
-                        <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 space-y-2">
+                        <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
                           <div className="grid grid-cols-3 gap-2">
                             <div>
-                              <label className="block text-xs text-gray-500 mb-0.5">
+                              <label className="block text-xs text-slate-500 mb-0.5">
                                 Amount
                               </label>
                               <input
@@ -1009,11 +951,11 @@ export default function PartnershipDetail() {
                                     amount: e.target.value,
                                   }))
                                 }
-                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-gray-500 mb-0.5">
+                              <label className="block text-xs text-slate-500 mb-0.5">
                                 Date
                               </label>
                               <input
@@ -1025,11 +967,11 @@ export default function PartnershipDetail() {
                                     txn_date: e.target.value,
                                   }))
                                 }
-                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-gray-500 mb-0.5">
+                              <label className="block text-xs text-slate-500 mb-0.5">
                                 Account
                               </label>
                               <select
@@ -1040,7 +982,7 @@ export default function PartnershipDetail() {
                                     account_id: e.target.value,
                                   }))
                                 }
-                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                               >
                                 <option value="">None</option>
                                 {accounts.map((a) => (
@@ -1052,7 +994,7 @@ export default function PartnershipDetail() {
                             </div>
                           </div>
                           <div>
-                            <label className="block text-xs text-gray-500 mb-0.5">
+                            <label className="block text-xs text-slate-500 mb-0.5">
                               Description
                             </label>
                             <input
@@ -1064,7 +1006,7 @@ export default function PartnershipDetail() {
                                   description: e.target.value,
                                 }))
                               }
-                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                              className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                             />
                           </div>
                           <div className="flex gap-2 justify-end">
@@ -1073,14 +1015,14 @@ export default function PartnershipDetail() {
                                 setEditingTxnId(null);
                                 setEditTxnForm(null);
                               }}
-                              className="px-2 py-1 border border-gray-300 rounded text-xs text-gray-600"
+                              className="px-2 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-200"
                             >
                               Cancel
                             </button>
                             <button
                               onClick={handleUpdateTxn}
                               disabled={updateTxnMutation.isPending}
-                              className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                              className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
                             >
                               {updateTxnMutation.isPending
                                 ? "Saving..."
@@ -1092,12 +1034,12 @@ export default function PartnershipDetail() {
                         /* ── Normal Display ── */
                         <div className="flex justify-between items-start">
                           <div>
-                            <p className="text-sm font-medium text-gray-800 capitalize">
+                            <p className="text-sm font-medium text-slate-800 capitalize">
                               {txn.txn_type.replace(/_/g, " ")}
                             </p>
                             {txn.txn_type === "advance_given" &&
                               txn.member_id && (
-                                <p className="text-xs text-blue-600">
+                                <p className="text-xs text-indigo-600">
                                   Given by:{" "}
                                   {members.find(
                                     (m) => m.member?.id === txn.member_id,
@@ -1122,7 +1064,7 @@ export default function PartnershipDetail() {
                               )}
                             {txn.txn_type === "buyer_payment_received" &&
                               !txn.received_by_member_id && (
-                                <p className="text-xs text-green-600">
+                                <p className="text-xs text-emerald-600">
                                   Received by you — see{" "}
                                   <Link to="/obligations" className="underline">
                                     Money Flow
@@ -1136,11 +1078,11 @@ export default function PartnershipDetail() {
                               </p>
                             )}
                             {txn.description && (
-                              <p className="text-xs text-gray-400">
+                              <p className="text-xs text-slate-400">
                                 {txn.description}
                               </p>
                             )}
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-slate-400">
                               {formatDate(txn.txn_date)}
                             </p>
                           </div>
@@ -1150,7 +1092,7 @@ export default function PartnershipDetail() {
                             </span>
                             <button
                               onClick={() => openEditTxn(txn)}
-                              className="text-xs text-blue-600 hover:underline"
+                              className="text-xs text-indigo-600 hover:underline"
                             >
                               Edit
                             </button>
@@ -1163,7 +1105,7 @@ export default function PartnershipDetail() {
                                 )
                                   deleteTxnMutation.mutate(txn.id);
                               }}
-                              className="text-xs text-red-600 hover:underline"
+                              className="text-xs text-rose-600 hover:underline"
                             >
                               Delete
                             </button>
@@ -1174,7 +1116,7 @@ export default function PartnershipDetail() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 text-center py-4">
+                <p className="text-sm text-slate-400 text-center py-4">
                   No transactions yet.
                 </p>
               )}
@@ -1184,8 +1126,8 @@ export default function PartnershipDetail() {
           {/* Sidebar */}
           <div className="space-y-5">
             {/* Details */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-              <h2 className="text-base font-semibold text-gray-800 mb-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+              <h2 className="text-base font-bold text-slate-800 mb-4">
                 Details
               </h2>
               <InfoRow
@@ -1222,13 +1164,13 @@ export default function PartnershipDetail() {
 
             {/* Settle (standalone only) */}
             {!isLinkedToProperty && isActive && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-3">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                <h2 className="text-base font-bold text-slate-800 mb-3">
                   Actions
                 </h2>
                 <button
                   onClick={() => setShowSettleModal(true)}
-                  className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 text-sm"
+                  className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] text-sm"
                 >
                   🤝 Record Settlement
                 </button>
@@ -1247,25 +1189,26 @@ export default function PartnershipDetail() {
 
             {/* Notes */}
             {partnership.notes && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-2">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                <h2 className="text-base font-bold text-slate-800 mb-2">
                   Notes
                 </h2>
-                <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                <p className="text-sm text-slate-600 whitespace-pre-wrap">
                   {partnership.notes}
                 </p>
               </div>
             )}
           </div>
         </div>
-      </div>
+        </div>
+      </PageBody>
 
       {/* Add Member Modal */}
       {showAddMemberModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="p-5 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900">Add Partner</h2>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-md">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Add Partner</h2>
             </div>
             <div className="p-5 space-y-4">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -1281,14 +1224,14 @@ export default function PartnershipDetail() {
                   }
                   className="rounded"
                 />
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-slate-700">
                   This is me (Self)
                 </span>
               </label>
 
               {!memberForm.is_self && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
                     Contact
                   </label>
                   <select
@@ -1299,7 +1242,7 @@ export default function PartnershipDetail() {
                         contact_id: e.target.value,
                       }))
                     }
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   >
                     <option value="">— Select Contact —</option>
                     {contacts.map((c) => (
@@ -1313,7 +1256,7 @@ export default function PartnershipDetail() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Share %
                 </label>
                 <input
@@ -1325,7 +1268,7 @@ export default function PartnershipDetail() {
                       share_percentage: e.target.value,
                     }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="e.g. 40"
                   min="0"
                   max="100"
@@ -1333,7 +1276,7 @@ export default function PartnershipDetail() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Advance Contributed (₹)
                 </label>
                 <input
@@ -1345,7 +1288,7 @@ export default function PartnershipDetail() {
                       advance_contributed: e.target.value,
                     }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="0"
                   min="0"
                 />
@@ -1354,7 +1297,7 @@ export default function PartnershipDetail() {
               {memberForm.is_self &&
                 parseFloat(memberForm.advance_contributed) > 0 && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Debit from Account (for advance)
                     </label>
                     <select
@@ -1365,7 +1308,7 @@ export default function PartnershipDetail() {
                           advance_account_id: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     >
                       {accounts.map((a) => (
                         <option key={a.id} value={a.id}>
@@ -1373,7 +1316,7 @@ export default function PartnershipDetail() {
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-slate-400 mt-1">
                       Advance will be auto-debited from this account and
                       recorded as a transaction.
                     </p>
@@ -1381,7 +1324,7 @@ export default function PartnershipDetail() {
                 )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Notes (optional)
                 </label>
                 <input
@@ -1390,22 +1333,22 @@ export default function PartnershipDetail() {
                   onChange={(e) =>
                     setMemberForm((p) => ({ ...p, notes: e.target.value }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="Optional"
                 />
               </div>
             </div>
-            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button
                 onClick={() => setShowAddMemberModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddMember}
                 disabled={addMemberMutation.isPending}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
               >
                 {addMemberMutation.isPending ? "Adding..." : "Add Partner"}
               </button>
@@ -1416,14 +1359,14 @@ export default function PartnershipDetail() {
 
       {/* Edit Member Modal */}
       {showEditMemberModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="p-5 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900">Edit Partner</h2>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-md">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Edit Partner</h2>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Share %
                 </label>
                 <input
@@ -1435,14 +1378,14 @@ export default function PartnershipDetail() {
                       share_percentage: e.target.value,
                     }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="e.g. 40"
                   min="0"
                   max="100"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Advance Contributed (₹)
                 </label>
                 <input
@@ -1454,13 +1397,13 @@ export default function PartnershipDetail() {
                       advance_contributed: e.target.value,
                     }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="0"
                   min="0"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Notes (optional)
                 </label>
                 <input
@@ -1469,25 +1412,25 @@ export default function PartnershipDetail() {
                   onChange={(e) =>
                     setEditMemberForm((p) => ({ ...p, notes: e.target.value }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="Optional"
                 />
               </div>
             </div>
-            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button
                 onClick={() => {
                   setShowEditMemberModal(false);
                   setEditMemberId(null);
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleEditMember}
                 disabled={editMemberMutation.isPending}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
               >
                 {editMemberMutation.isPending ? "Saving..." : "Save Changes"}
               </button>
@@ -1498,16 +1441,16 @@ export default function PartnershipDetail() {
 
       {/* Standalone Settle Modal */}
       {showSettleModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="p-5 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-md">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">
                 Record Settlement
               </h2>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Total Received (₹)
                 </label>
                 <input
@@ -1519,13 +1462,13 @@ export default function PartnershipDetail() {
                       total_received: e.target.value,
                     }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="Total amount received"
                   min="0"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Settlement Date
                 </label>
                 <input
@@ -1537,11 +1480,11 @@ export default function PartnershipDetail() {
                       actual_end_date: e.target.value,
                     }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Notes (optional)
                 </label>
                 <input
@@ -1550,30 +1493,30 @@ export default function PartnershipDetail() {
                   onChange={(e) =>
                     setSettleForm((p) => ({ ...p, notes: e.target.value }))
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="Optional"
                 />
               </div>
 
               {settleForm.total_received && members.length > 0 && (
-                <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1.5 border border-gray-200">
-                  <div className="font-semibold text-gray-700 mb-2">
+                <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-1.5 border border-slate-200/60">
+                  <div className="font-semibold text-slate-700 mb-2">
                     Settlement Preview
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Total Received:</span>
+                    <span className="text-slate-500">Total Received:</span>
                     <span>{formatCurrency(settleTotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Advance Pool:</span>
+                    <span className="text-slate-500">Advance Pool:</span>
                     <span>{formatCurrency(settleAdvancePool)}</span>
                   </div>
-                  <hr className="border-gray-300" />
+                  <hr className="border-slate-300" />
                   <div className="flex justify-between font-semibold">
                     <span>Net Profit:</span>
                     <span>{formatCurrency(settleProfit)}</span>
                   </div>
-                  <hr className="border-gray-300" />
+                  <hr className="border-slate-300" />
                   {members.map((m, i) => {
                     const sharePct = parseFloat(
                       m.member?.share_percentage || 0,
@@ -1588,7 +1531,7 @@ export default function PartnershipDetail() {
                       : m.contact?.name || "Unknown";
                     return (
                       <div key={i} className="flex justify-between text-xs">
-                        <span className="text-gray-600">
+                        <span className="text-slate-600">
                           {name} ({sharePct}%):
                         </span>
                         <span className="font-medium">
@@ -1600,17 +1543,17 @@ export default function PartnershipDetail() {
                 </div>
               )}
             </div>
-            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button
                 onClick={() => setShowSettleModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSettle}
                 disabled={settleMutation.isPending}
-                className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50"
               >
                 {settleMutation.isPending
                   ? "Settling..."

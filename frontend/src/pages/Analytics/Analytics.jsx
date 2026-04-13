@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { GreyedOut } from "../../components/ui";
 
 const COLORS = [
   "#3b82f6",
@@ -100,6 +101,7 @@ export default function Analytics() {
   const toggle = (key) => setExpandedSection((p) => (p === key ? null : key));
 
   return (
+    <GreyedOut label="Under Review">
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
@@ -736,6 +738,7 @@ export default function Analytics() {
         </div>
       </div>
     </div>
+    </GreyedOut>
   );
 }
 

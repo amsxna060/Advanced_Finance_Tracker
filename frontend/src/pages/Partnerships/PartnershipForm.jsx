@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { PageHero, PageBody, Card } from "../../components/ui";
 
 const SHARE_PERCENTAGE_TOLERANCE = 0.01;
 
@@ -232,54 +233,43 @@ export default function PartnershipForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => navigate(-1)}
-            className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200"
-          >
-            ←
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isEditMode ? "Edit Partnership" : "New Partnership"}
-            </h1>
-            <p className="text-sm text-gray-500">
-              {isEditMode
-                ? "Update partnership details"
-                : "Create a new investment partnership"}
-            </p>
-          </div>
-        </div>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        compact
+        backTo="/partnerships"
+        title={isEditMode ? "Edit Partnership" : "New Partnership"}
+        subtitle={isEditMode ? "Update partnership details" : "Create a new investment partnership"}
+      />
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+      <PageBody>
+        <Card className="p-0">
+        <form onSubmit={handleSubmit} className="space-y-5 p-5 sm:p-6">
           {/* Step 1: Basic Info */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">
+          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+            <h2 className="text-base font-bold text-slate-800 mb-4">
               Basic Info
             </h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Title <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.title}
                   onChange={(e) => set("title", e.target.value)}
-                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.title ? "border-red-400" : "border-gray-300"}`}
+                  className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.title ? "border-rose-400" : "border-slate-200"}`}
                   placeholder="e.g. Shivaji Nagar Plot Partnership"
                 />
                 {errors.title && (
-                  <p className="text-red-500 text-xs mt-1">{errors.title}</p>
+                  <p className="text-rose-500 text-xs mt-1">{errors.title}</p>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Linked Property Deal
-                  <span className="text-xs text-gray-400 ml-2">
+                  <span className="text-xs text-slate-400 ml-2">
                     (Plot deals only)
                   </span>
                 </label>
@@ -288,7 +278,7 @@ export default function PartnershipForm() {
                   onChange={(e) =>
                     set("linked_property_deal_id", e.target.value)
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                   disabled={isEditMode}
                 >
                   <option value="">— No linked property —</option>
@@ -300,7 +290,7 @@ export default function PartnershipForm() {
                   ))}
                 </select>
                 {isEditMode && (
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     Linked property cannot be changed after creation.
                   </p>
                 )}
@@ -308,12 +298,12 @@ export default function PartnershipForm() {
 
               {/* Linked property info box */}
               {linkedProperty && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm space-y-1.5">
-                  <div className="font-semibold text-blue-800 mb-2">
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm space-y-1.5">
+                  <div className="font-semibold text-indigo-800 mb-2">
                     Linked Property Details
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Area:</span>
+                    <span className="text-slate-600">Area:</span>
                     <span className="font-medium">
                       {linkedProperty.total_area_sqft
                         ? `${Number(linkedProperty.total_area_sqft).toLocaleString()} sqft`
@@ -321,7 +311,7 @@ export default function PartnershipForm() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Total Seller Value:</span>
+                    <span className="text-slate-600">Total Seller Value:</span>
                     <span className="font-medium">
                       {linkedProperty.total_seller_value
                         ? formatCurrency(linkedProperty.total_seller_value)
@@ -329,14 +319,14 @@ export default function PartnershipForm() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Advance Paid:</span>
+                    <span className="text-slate-600">Advance Paid:</span>
                     <span className="font-medium">
                       {formatCurrency(linkedProperty.advance_paid || 0)}
                     </span>
                   </div>
                   {linkedProperty.broker_commission > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Broker Commission:</span>
+                      <span className="text-slate-600">Broker Commission:</span>
                       <span className="font-medium">
                         {formatCurrency(linkedProperty.broker_commission)}
                       </span>
@@ -346,27 +336,27 @@ export default function PartnershipForm() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Notes
                 </label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => set("notes", e.target.value)}
                   rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="Any notes..."
                 />
               </div>
 
               {isEditMode && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
                     Status
                   </label>
                   <select
                     value={formData.status}
                     onChange={(e) => set("status", e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   >
                     <option value="active">Active</option>
                     <option value="settled">Settled</option>
@@ -379,21 +369,21 @@ export default function PartnershipForm() {
 
           {/* Step 2: Partners (create mode only) */}
           {!isEditMode && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-800">
+                <h2 className="text-base font-bold text-slate-800">
                   Partners
                 </h2>
                 <div className="flex items-center gap-3 text-sm">
                   <span
-                    className={`font-medium ${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-green-600" : "text-orange-600"}`}
+                    className={`font-medium ${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-emerald-600" : "text-orange-600"}`}
                   >
                     Total: {totalSharePct.toFixed(1)}%
                   </span>
                   <button
                     type="button"
                     onClick={addPartner}
-                    className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100"
+                    className="text-indigo-600 hover:text-indigo-800 font-medium"
                   >
                     + Add Partner
                   </button>
@@ -401,7 +391,7 @@ export default function PartnershipForm() {
               </div>
 
               {errors.partners && (
-                <p className="text-red-500 text-sm mb-3 bg-red-50 border border-red-200 rounded-lg p-2">
+                <p className="text-rose-700 text-sm mb-3 bg-rose-50 border border-rose-200 rounded-xl p-2">
                   ⚠ {errors.partners}
                 </p>
               )}
@@ -410,17 +400,17 @@ export default function PartnershipForm() {
                 {partners.map((partner, idx) => (
                   <div
                     key={idx}
-                    className="border border-gray-200 rounded-lg p-4 relative"
+                    className="border border-slate-200/60 rounded-xl p-4 relative"
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-sm font-medium text-slate-700">
                         Partner {idx + 1}
                       </span>
                       {partners.length > 1 && (
                         <button
                           type="button"
                           onClick={() => removePartner(idx)}
-                          className="text-red-400 hover:text-red-600 text-xs"
+                          className="text-rose-500 hover:text-rose-700 text-xs"
                         >
                           Remove
                         </button>
@@ -438,7 +428,7 @@ export default function PartnershipForm() {
                             }
                             className="rounded"
                           />
-                          <span className="text-sm text-gray-700">
+                          <span className="text-sm text-slate-700">
                             This is me (Self)
                           </span>
                         </label>
@@ -446,7 +436,7 @@ export default function PartnershipForm() {
 
                       {!partner.is_self && (
                         <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
                             Contact
                           </label>
                           <select
@@ -454,7 +444,7 @@ export default function PartnershipForm() {
                             onChange={(e) =>
                               updatePartner(idx, "contact_id", e.target.value)
                             }
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           >
                             <option value="">— Select Contact —</option>
                             {contacts.map((c) => (
@@ -468,8 +458,8 @@ export default function PartnershipForm() {
                       )}
 
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Share % <span className="text-red-500">*</span>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
+                          Share % <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="number"
@@ -481,7 +471,7 @@ export default function PartnershipForm() {
                               e.target.value,
                             )
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           placeholder="e.g. 40"
                           min="0"
                           max="100"
@@ -490,9 +480,9 @@ export default function PartnershipForm() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
                           Advance Contributed (₹){" "}
-                          <span className="text-red-500">*</span>
+                          <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="number"
@@ -504,14 +494,14 @@ export default function PartnershipForm() {
                               e.target.value,
                             )
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           placeholder="0"
                           min="0"
                         />
                       </div>
 
                       <div className="sm:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">
                           Notes (optional)
                         </label>
                         <input
@@ -520,7 +510,7 @@ export default function PartnershipForm() {
                           onChange={(e) =>
                             updatePartner(idx, "notes", e.target.value)
                           }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                           placeholder="Optional note for this partner"
                         />
                       </div>
@@ -530,9 +520,9 @@ export default function PartnershipForm() {
               </div>
 
               {/* Totals summary */}
-              <div className="mt-4 border-t border-gray-200 pt-3 text-sm flex flex-wrap gap-4">
+              <div className="mt-4 border-t border-slate-200 pt-3 text-sm flex flex-wrap gap-4">
                 <div
-                  className={`${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-green-600" : "text-orange-600"}`}
+                    className={`${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-emerald-600" : "text-orange-600"}`}
                 >
                   Share Total: <strong>{totalSharePct.toFixed(2)}%</strong>
                   {Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE
@@ -541,7 +531,7 @@ export default function PartnershipForm() {
                 </div>
                 <div
                   className={
-                    advanceMismatch ? "text-orange-600" : "text-gray-500"
+                    advanceMismatch ? "text-orange-600" : "text-slate-500"
                   }
                 >
                   Advance Total: <strong>{formatCurrency(totalAdvance)}</strong>
@@ -556,14 +546,14 @@ export default function PartnershipForm() {
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium text-sm"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitMutation.isPending}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              className="px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50 transition-all"
             >
               {submitMutation.isPending
                 ? "Saving..."
@@ -573,7 +563,8 @@ export default function PartnershipForm() {
             </button>
           </div>
         </form>
-      </div>
+        </Card>
+      </PageBody>
     </div>
   );
 }

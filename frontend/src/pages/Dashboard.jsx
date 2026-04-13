@@ -173,8 +173,9 @@ export default function Dashboard() {
   const { net_worth, lending, borrowing, obligations, expenses, investments, alerts, interest_only_alerts = [], this_month, cashflow } = data;
 
   const collectionData = [
-    { name: "Collected", value: this_month.total_collected, color: "#10b981" },
-    { name: "Returns", value: this_month.total_returns, color: "#14b8a6" },
+    { name: "EMI", value: this_month.emi_collected, color: "#8b5cf6" },
+    { name: "Interest", value: this_month.interest_collected, color: "#14b8a6" },
+    ...(this_month.short_term_profit > 0 ? [{ name: "ST Profit", value: this_month.short_term_profit, color: "#f59e0b" }] : []),
   ].filter((d) => d.value > 0);
 
   return (
@@ -212,7 +213,19 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Stat label="Total Lent (All-time)" value={fcShort(lending.total_lent_all_time)} accent="emerald" />
           <Stat label="Outstanding" value={fcShort(lending.total_outstanding)} accent="sky" />
-          <Stat label="Interest Earned" value={`${fcShort(lending.total_interest_earned)} (${lending.interest_earned_pct}%)`} accent="teal" />
+          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-shadow px-5 py-4 border-l-4 border-l-teal-500">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">Interest Earned</p>
+            <p className="text-2xl font-extrabold text-slate-800 mt-1 tracking-tight">{fcShort(lending.total_interest_earned)}</p>
+            {lending.avg_lending_rate_pa > 0 && (
+              <div className="flex items-center gap-1 mt-1">
+                <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
+                </svg>
+                <span className="text-emerald-600 text-xs font-bold">{lending.avg_lending_rate_pa.toFixed(2)}% p.a.</span>
+                <span className="text-slate-400 text-[10px] ml-0.5">avg rate</span>
+              </div>
+            )}
+          </div>
           <Stat label="Principal Recovered" value={fcShort(lending.total_principal_recovered)} accent="indigo" />
         </div>
 
@@ -293,6 +306,15 @@ export default function Dashboard() {
                 <h3 className="text-sm font-bold text-slate-700">{this_month.month_name}</h3>
                 <p className="text-[11px] text-slate-400">Collections this month</p>
               </div>
+              <div className="text-right">
+                <div className={`flex items-center gap-0.5 justify-end text-xs font-bold ${this_month.collection_trend_pct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={this_month.collection_trend_pct >= 0 ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                  </svg>
+                  {Math.abs(this_month.collection_trend_pct).toFixed(1)}%
+                </div>
+                <p className="text-[10px] text-slate-400">vs last month</p>
+              </div>
             </div>
 
             <div className="flex items-center gap-5 mb-1">
@@ -322,17 +344,22 @@ export default function Dashboard() {
                   <span className="font-bold text-slate-800">{fc(this_month.total_collected)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-teal-500">Returns (Interest)</span>
-                  <span className="font-semibold text-teal-600">{fc(this_month.total_returns)}</span>
+                  <span className="text-violet-500">EMI Collected</span>
+                  <span className="font-semibold text-violet-600">{fc(this_month.emi_collected)}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-teal-500">Interest (IO)</span>
+                  <span className="font-semibold text-teal-600">{fc(this_month.interest_collected)}</span>
+                </div>
+                {this_month.short_term_profit > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-amber-500">Short-term Profit</span>
+                    <span className="font-semibold text-amber-600">{fc(this_month.short_term_profit)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t border-slate-100 pt-1.5">
-                  <span className="text-slate-500">Closed Loan Profit</span>
-                  <span className="font-bold text-emerald-600">
-                    {fc(this_month.closed_loan_profit)}
-                    {this_month.closed_loan_profit_pct !== 0 && (
-                      <span className="text-[10px] ml-1">({this_month.closed_loan_profit_pct}%)</span>
-                    )}
-                  </span>
+                  <span className="text-slate-400">Last Month</span>
+                  <span className="font-semibold text-slate-600">{fc(this_month.last_month_total)}</span>
                 </div>
                 {this_month.closed_loan_count > 0 && (
                   <p className="text-[10px] text-slate-400">{this_month.closed_loan_count} loan{this_month.closed_loan_count > 1 ? 's' : ''} settled this month</p>

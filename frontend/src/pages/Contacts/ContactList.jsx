@@ -1,15 +1,27 @@
 import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, User, Building } from "lucide-react";
+import { Plus, User, Building } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../hooks/useAuth";
+import {
+  PageHero,
+  HeroStat,
+  PageBody,
+  Card,
+  Button,
+  Badge,
+  SearchInput,
+  EmptyState,
+  PageSkeleton,
+  Select,
+} from "../../components/ui";
 
 export default function ContactList() {
   const [search, setSearch] = useState("");
   const [contactType, setContactType] = useState("");
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const {
     data: allContacts = [],
@@ -38,161 +50,124 @@ export default function ContactList() {
     return result;
   }, [allContacts, search, contactType]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
-            <button onClick={logout} className="px-4 py-2 text-sm text-red-600">
-              Logout
-            </button>
-          </div>
-        </header>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-gray-600">Loading...</div>
-        </div>
-      </div>
-    );
-  }
+  const individualCount = useMemo(() => allContacts.filter(c => c.contact_type === "individual").length, [allContacts]);
+  const institutionCount = useMemo(() => allContacts.filter(c => c.contact_type === "institution").length, [allContacts]);
+  const handshakeCount = useMemo(() => allContacts.filter(c => c.is_handshake).length, [allContacts]);
+
+  if (isLoading) return <PageSkeleton />;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
-            <p className="text-sm text-gray-600">Manage all your contacts</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-            >
-              Dashboard
-            </button>
-            <button onClick={logout} className="px-4 py-2 text-sm text-red-600">
-              Logout
-            </button>
-          </div>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        title="Contacts"
+        subtitle={`${allContacts.length} total contacts in your network`}
+        actions={
+          user?.role === "admin" && (
+            <Button variant="white" icon={Plus} onClick={() => navigate("/contacts/new")}>
+              Add Contact
+            </Button>
+          )
+        }
+      >
+        <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <HeroStat label="Total Contacts" value={allContacts.length} accent="indigo" />
+          <HeroStat label="Individuals" value={individualCount} accent="emerald" />
+          <HeroStat label="Institutions" value={institutionCount} accent="violet" />
+          <HeroStat label="Handshake Deals" value={handshakeCount} accent="amber" />
         </div>
-      </header>
+      </PageHero>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <PageBody>
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search by name, phone, city..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <select
-              value={contactType}
-              onChange={(e) => setContactType(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Types</option>
-              <option value="individual">Individual</option>
-              <option value="institution">Institution</option>
-            </select>
-
-            {user?.role === "admin" && (
-              <button
-                onClick={() => navigate("/contacts/new")}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                <Plus className="w-5 h-5" />
-                Add Contact
-              </button>
-            )}
-          </div>
+      <Card className="p-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search by name, phone, city..."
+            className="flex-1"
+          />
+          <Select
+            value={contactType}
+            onChange={(e) => setContactType(e.target.value)}
+            className="sm:w-48"
+          >
+            <option value="">All Types</option>
+            <option value="individual">Individual</option>
+            <option value="institution">Institution</option>
+          </Select>
         </div>
+      </Card>
 
-        {/* Results count */}
-        <div className="mb-4">
-          <p className="text-sm text-gray-600">
-            {contacts.length} contact(s) found{(search || contactType) && allContacts.length !== contacts.length ? ` of ${allContacts.length}` : ""}
-          </p>
-        </div>
+      {/* Results count */}
+      {(search || contactType) && contacts.length !== allContacts.length && (
+        <p className="text-sm text-slate-500 mb-4">{contacts.length} result(s) found</p>
+      )}
 
-        {/* Contact List */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-4">
-            Failed to load contacts. Please try again.
-          </div>
-        )}
+      {error && (
+        <Card className="p-4 mb-4 border-rose-200 bg-rose-50">
+          <p className="text-sm text-rose-700">Failed to load contacts. Please try again.</p>
+        </Card>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {contacts.map((contact) => (
-            <div
-              key={contact.id}
-              onClick={() => navigate(`/contacts/${contact.id}`)}
-              className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow cursor-pointer"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  {contact.contact_type === "institution" ? (
-                    <Building className="w-10 h-10 text-gray-400" />
-                  ) : (
-                    <User className="w-10 h-10 text-gray-400" />
-                  )}
-                  <div>
-                    <h3 className="font-semibold text-gray-900">
-                      {contact.name}
-                    </h3>
-                    <p className="text-sm text-gray-500 capitalize">
-                      {contact.relationship_type}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-1">
-                {contact.phone && (
-                  <p className="text-sm text-gray-600">📞 {contact.phone}</p>
-                )}
-                {contact.city && (
-                  <p className="text-sm text-gray-600">📍 {contact.city}</p>
-                )}
-                {contact.is_handshake && (
-                  <span className="inline-block px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded">
-                    Handshake Deal
-                  </span>
+      {/* Contact Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {contacts.map((contact) => (
+          <Card
+            key={contact.id}
+            hover
+            onClick={() => navigate(`/contacts/${contact.id}`)}
+            className="p-5 group"
+          >
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                contact.contact_type === "institution"
+                  ? "bg-gradient-to-br from-amber-500 to-orange-600"
+                  : "bg-gradient-to-br from-indigo-500 to-violet-600"
+              }`}>
+                {contact.contact_type === "institution" ? (
+                  <Building className="w-5 h-5 text-white" />
+                ) : (
+                  <User className="w-5 h-5 text-white" />
                 )}
               </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-slate-800 truncate group-hover:text-indigo-600 transition-colors">{contact.name}</h3>
+                <p className="text-xs text-slate-400 capitalize">{contact.relationship_type}</p>
+              </div>
             </div>
-          ))}
-        </div>
 
-        {contacts.length === 0 && !error && (
-          <div className="text-center py-12">
-            <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {search || contactType ? "No contacts match your search" : "No contacts found"}
-            </h3>
-            <p className="text-gray-600 mb-4">
-              {search || contactType ? "Try a different search or filter" : "Get started by adding your first contact"}
-            </p>
-            {user?.role === "admin" && (
-              <button
-                onClick={() => navigate("/contacts/new")}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                <Plus className="w-5 h-5" />
-                Add Contact
-              </button>
+            <div className="mt-3 space-y-1">
+              {contact.phone && (
+                <p className="text-sm text-slate-500">📞 {contact.phone}</p>
+              )}
+              {contact.city && (
+                <p className="text-sm text-slate-500">📍 {contact.city}</p>
+              )}
+            </div>
+
+            {contact.is_handshake && (
+              <Badge variant="warning" className="mt-3">🤝 Handshake</Badge>
             )}
-          </div>
-        )}
-      </main>
+          </Card>
+        ))}
+      </div>
+
+      {contacts.length === 0 && !error && (
+        <EmptyState
+          icon={User}
+          title={search || contactType ? "No contacts match" : "No contacts yet"}
+          description={search || contactType ? "Try a different search or filter" : "Get started by adding your first contact"}
+          action={
+            user?.role === "admin" && (
+              <Button icon={Plus} onClick={() => navigate("/contacts/new")}>
+                Add Contact
+              </Button>
+            )
+          }
+        />
+      )}
+      </PageBody>
     </div>
   );
 }

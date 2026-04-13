@@ -2,6 +2,16 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
+import {
+  PageHero,
+  PageBody,
+  Card,
+  Button,
+  Input,
+  Select,
+  Textarea,
+  PageSkeleton,
+} from "../../components/ui";
 
 function ContactForm() {
   const navigate = useNavigate();
@@ -23,12 +33,10 @@ function ContactForm() {
 
   const [errors, setErrors] = useState({});
 
-  // Fetch contact data if editing
   const { isLoading } = useQuery({
     queryKey: ["contact", id],
     queryFn: async () => {
       const response = await api.get(`/api/contacts/${id}`);
-      // API returns {contact, summary} - extract contact
       const contact = response.data.contact || response.data;
       setFormData({
         name: contact.name || "",
@@ -49,7 +57,6 @@ function ContactForm() {
     refetchOnWindowFocus: false,
   });
 
-  // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data) => {
       const response = await api.post("/api/contacts", data);
@@ -66,14 +73,12 @@ function ContactForm() {
     },
   });
 
-  // Update mutation
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       const response = await api.put(`/api/contacts/${id}`, data);
       return response.data;
     },
     onSuccess: (data) => {
-      // Remove stale cache so detail page does a clean fetch
       queryClient.removeQueries({ queryKey: ["contact", String(id)] });
       queryClient.removeQueries({ queryKey: ["contact", id] });
       queryClient.invalidateQueries({ queryKey: ["contacts"] });
@@ -89,29 +94,19 @@ function ContactForm() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    // Clear error for this field
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: undefined }));
-    }
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: undefined }));
   };
 
   const validate = () => {
     const newErrors = {};
-
-    if (!formData.name.trim()) {
-      newErrors.name = "Name is required";
-    }
-
+    if (!formData.name.trim()) newErrors.name = "Name is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
-    if (!validate()) {
-      return;
-    }
+    if (!validate()) return;
 
     const submitData = {
       name: formData.name.trim(),
@@ -125,278 +120,158 @@ function ContactForm() {
       notes: formData.notes?.trim() || null,
     };
 
-    if (isEditMode) {
-      updateMutation.mutate(submitData);
-    } else {
-      createMutation.mutate(submitData);
-    }
+    if (isEditMode) updateMutation.mutate(submitData);
+    else createMutation.mutate(submitData);
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  if (isLoading) return <PageSkeleton />;
+
+  const labelClass = "text-[11px] font-semibold text-slate-500 uppercase tracking-widest";
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate("/contacts")}
-            className="text-gray-600 hover:text-gray-900 mb-4 flex items-center"
-          >
-            <svg
-              className="w-5 h-5 mr-2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
-            Back to Contacts
-          </button>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        title={isEditMode ? "Edit Contact" : "New Contact"}
+        subtitle={isEditMode ? "Update contact information" : "Add a new contact to your network"}
+        backTo="/contacts"
+        compact
+      />
 
-          <h1 className="text-3xl font-bold text-gray-900">
-            {isEditMode ? "Edit Contact" : "New Contact"}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            {isEditMode
-              ? "Update contact information"
-              : "Add a new contact to your system"}
-          </p>
-        </div>
-
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-lg shadow-sm p-6 space-y-6"
-        >
-          {/* Error Message */}
-          {errors.submit && (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-              {errors.submit}
-            </div>
-          )}
-
-          {/* Name */}
-          <div>
-            <label
-              htmlFor="name"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Name *
-            </label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                errors.name ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="Enter contact name"
-            />
-            {errors.name && (
-              <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+      <PageBody>
+        <Card className="max-w-3xl p-6 sm:p-8">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {errors.submit && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">
+                {errors.submit}
+              </div>
             )}
-          </div>
 
-          {/* Phone */}
-          <div>
-            <label
-              htmlFor="phone"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Phone
-            </label>
-            <input
-              type="tel"
-              id="phone"
-              name="phone"
-              value={formData.phone}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="+91 98765 43210"
-            />
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <Input
+                label="Name *"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                error={errors.name}
+                placeholder="Enter contact name"
+                className="sm:col-span-2"
+                labelClassName={labelClass}
+              />
 
-          {/* Alternate Phone */}
-          <div>
-            <label
-              htmlFor="alternate_phone"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Alternate Phone
-            </label>
-            <input
-              type="tel"
-              id="alternate_phone"
-              name="alternate_phone"
-              value={formData.alternate_phone}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="+91 98765 43210"
-            />
-          </div>
+              <Input
+                label="Phone"
+                name="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={handleChange}
+                placeholder="+91 98765 43210"
+                labelClassName={labelClass}
+              />
 
-          {/* Contact Type */}
-          <div>
-            <label
-              htmlFor="contact_type"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Contact Type
-            </label>
-            <select
-              id="contact_type"
-              name="contact_type"
-              value={formData.contact_type}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="individual">Individual</option>
-              <option value="institution">Institution</option>
-            </select>
-          </div>
+              <Input
+                label="Alternate Phone"
+                name="alternate_phone"
+                type="tel"
+                value={formData.alternate_phone}
+                onChange={handleChange}
+                placeholder="+91 98765 43210"
+                labelClassName={labelClass}
+              />
 
-          {/* Relationship Type */}
-          <div>
-            <label
-              htmlFor="relationship_type"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Relationship Type
-            </label>
-            <select
-              id="relationship_type"
-              name="relationship_type"
-              value={formData.relationship_type}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="borrower">Borrower</option>
-              <option value="lender">Lender</option>
-              <option value="partner">Partner</option>
-              <option value="agent">Agent</option>
-              <option value="buyer">Buyer</option>
-              <option value="seller">Seller</option>
-              <option value="mixed">Mixed</option>
-            </select>
-          </div>
+              <Select
+                label="Contact Type"
+                name="contact_type"
+                value={formData.contact_type}
+                onChange={handleChange}
+                labelClassName={labelClass}
+              >
+                <option value="individual">Individual</option>
+                <option value="institution">Institution</option>
+              </Select>
 
-          {/* Handshake Deal */}
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="is_handshake"
-              name="is_handshake"
-              checked={formData.is_handshake}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  is_handshake: e.target.checked,
-                }))
-              }
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-            />
-            <label
-              htmlFor="is_handshake"
-              className="text-sm font-medium text-gray-700"
-            >
-              Handshake Deal (Trust-based, no formal agreement)
-            </label>
-          </div>
+              <Select
+                label="Relationship Type"
+                name="relationship_type"
+                value={formData.relationship_type}
+                onChange={handleChange}
+                labelClassName={labelClass}
+              >
+                <option value="borrower">Borrower</option>
+                <option value="lender">Lender</option>
+                <option value="partner">Partner</option>
+                <option value="agent">Agent</option>
+                <option value="buyer">Buyer</option>
+                <option value="seller">Seller</option>
+                <option value="mixed">Mixed</option>
+              </Select>
 
-          {/* City */}
-          <div>
-            <label
-              htmlFor="city"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              City
-            </label>
-            <input
-              type="text"
-              id="city"
-              name="city"
-              value={formData.city}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Enter city"
-            />
-          </div>
+              <Input
+                label="City"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                placeholder="Enter city"
+                labelClassName={labelClass}
+              />
 
-          {/* Address */}
-          <div>
-            <label
-              htmlFor="address"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Address
-            </label>
-            <textarea
-              id="address"
+              <div className="flex items-center gap-3 pt-6">
+                <input
+                  type="checkbox"
+                  id="is_handshake"
+                  checked={formData.is_handshake}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, is_handshake: e.target.checked }))}
+                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                />
+                <label htmlFor="is_handshake" className="text-sm font-medium text-slate-700">
+                  Handshake Deal (Trust-based)
+                </label>
+              </div>
+            </div>
+
+            <Textarea
+              label="Address"
               name="address"
               value={formData.address}
               onChange={handleChange}
-              rows="3"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              rows="2"
               placeholder="Enter full address"
+              labelClassName={labelClass}
             />
-          </div>
 
-          {/* Notes */}
-          <div>
-            <label
-              htmlFor="notes"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Notes
-            </label>
-            <textarea
-              id="notes"
+            <Textarea
+              label="Notes"
               name="notes"
               value={formData.notes}
               onChange={handleChange}
-              rows="4"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Add any additional notes about this contact"
+              rows="3"
+              placeholder="Add any additional notes"
+              labelClassName={labelClass}
             />
-          </div>
 
-          {/* Actions */}
-          <div className="flex space-x-4 pt-4">
-            <button
-              type="button"
-              onClick={() => navigate("/contacts")}
-              className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? "Saving..."
-                : isEditMode
-                  ? "Update Contact"
-                  : "Create Contact"}
-            </button>
-          </div>
-        </form>
-      </div>
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => navigate("/contacts")}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createMutation.isPending || updateMutation.isPending}
+                className="flex-1"
+              >
+                {createMutation.isPending || updateMutation.isPending
+                  ? "Saving..."
+                  : isEditMode
+                    ? "Update Contact"
+                    : "Create Contact"}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      </PageBody>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { GreyedOut } from "../../components/ui";
 
 const fc = (v) => formatCurrency(v ?? 0);
 
@@ -65,6 +66,7 @@ export default function MoneyFlowAnalytics() {
   const fmt = (src) => SOURCE_LABELS[src] || src;
 
   return (
+    <GreyedOut label="Under Review">
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
@@ -363,5 +365,6 @@ export default function MoneyFlowAnalytics() {
         )}
       </div>
     </div>
+    </GreyedOut>
   );
 }

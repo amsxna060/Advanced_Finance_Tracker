@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { GreyedOut } from "../../components/ui";
 
 const COLORS = [
   "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6",
@@ -83,6 +84,7 @@ export default function ExpenseAnalytics() {
   }));
 
   return (
+    <GreyedOut label="Under Review">
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
@@ -306,5 +308,6 @@ export default function ExpenseAnalytics() {
         )}
       </div>
     </div>
+    </GreyedOut>
   );
 }

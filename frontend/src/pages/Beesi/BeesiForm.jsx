@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatDate } from "../../lib/utils";
+import { PageHero, PageBody } from "../../components/ui";
 
 const INITIAL = {
   title: "",
@@ -94,21 +95,14 @@ export default function BeesiForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
-        <button
-          onClick={() => navigate("/beesi")}
-          className="text-gray-500 hover:text-gray-900 text-sm mb-4"
-        >
-          ← Back to Beesi List
-        </button>
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">
-            {isEdit ? "Edit Beesi" : "New Beesi"}
-          </h1>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero title={isEdit ? "Edit Beesi" : "New Beesi"} backTo="/beesi" compact />
+      <PageBody>
+        <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+            <div className="mb-4 p-3 border-rose-200 bg-rose-50 text-rose-700 rounded-xl text-sm border">
               {error}
             </div>
           )}
@@ -116,14 +110,14 @@ export default function BeesiForm() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Committee Organiser
                 </label>
                 <select
                   name="contact_id"
                   value={form.contact_id}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 >
                   <option value="">— none —</option>
                   {contacts.map((c) => (
@@ -134,14 +128,14 @@ export default function BeesiForm() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Linked Account
                 </label>
                 <select
                   name="account_id"
                   value={form.account_id}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 >
                   <option value="">— none —</option>
                   {accounts.map((a) => (
@@ -154,8 +148,8 @@ export default function BeesiForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Title *
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                Title <span className="text-rose-500">*</span>
               </label>
               <input
                 name="title"
@@ -163,14 +157,14 @@ export default function BeesiForm() {
                 onChange={handleChange}
                 required
                 placeholder="e.g. Ramesh BC 2024"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Pot Size (₹) *
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Pot Size (₹) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   name="pot_size"
@@ -180,12 +174,12 @@ export default function BeesiForm() {
                   required
                   min="1"
                   placeholder="200000"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Base Installment (₹/month) *
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Base Installment (₹/month) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   name="base_installment"
@@ -195,12 +189,12 @@ export default function BeesiForm() {
                   required
                   min="1"
                   placeholder="10000"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Members *
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Total Members <span className="text-rose-500">*</span>
                 </label>
                 <input
                   name="member_count"
@@ -210,12 +204,12 @@ export default function BeesiForm() {
                   required
                   min="2"
                   placeholder="20"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tenure (months) *
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Tenure (months) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   name="tenure_months"
@@ -225,15 +219,15 @@ export default function BeesiForm() {
                   required
                   min="1"
                   placeholder="20"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Date *
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Start Date <span className="text-rose-500">*</span>
                 </label>
                 <input
                   name="start_date"
@@ -241,18 +235,18 @@ export default function BeesiForm() {
                   value={form.start_date}
                   onChange={handleChange}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Status
                 </label>
                 <select
                   name="status"
                   value={form.status}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                 >
                   <option value="active">Active</option>
                   <option value="completed">Completed</option>
@@ -262,7 +256,7 @@ export default function BeesiForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Description
               </label>
               <textarea
@@ -270,12 +264,12 @@ export default function BeesiForm() {
                 value={form.description}
                 onChange={handleChange}
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Notes
               </label>
               <textarea
@@ -283,7 +277,7 @@ export default function BeesiForm() {
                 value={form.notes}
                 onChange={handleChange}
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
               />
             </div>
 
@@ -291,7 +285,7 @@ export default function BeesiForm() {
               <button
                 type="submit"
                 disabled={mutation.isPending}
-                className="flex-1 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
+                className="flex-1 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] font-medium disabled:opacity-50 transition-all"
               >
                 {mutation.isPending
                   ? "Saving…"
@@ -302,14 +296,15 @@ export default function BeesiForm() {
               <button
                 type="button"
                 onClick={() => navigate("/beesi")}
-                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium transition-colors"
               >
                 Cancel
               </button>
             </div>
           </form>
         </div>
-      </div>
+        </div>
+      </PageBody>
     </div>
   );
 }

@@ -5,9 +5,10 @@ import api from "../../lib/api";
 import {
   formatCurrency,
   formatDate,
-  getLoanStatusColor,
 } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
+import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
+import { Edit } from "lucide-react";
 
 function LoanDetail() {
   const { id } = useParams();
@@ -287,22 +288,22 @@ function LoanDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
   if (!loan || isError) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">
             {isError ? "Failed to load loan" : "Loan Not Found"}
           </h2>
           <button
             onClick={() => navigate("/loans")}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm shadow-indigo-500/20"
           >
             Back to Loans
           </button>
@@ -312,104 +313,57 @@ function LoanDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate("/loans")}
-            className="text-gray-600 hover:text-gray-900 mb-4 flex items-center"
-          >
-            <svg
-              className="w-5 h-5 mr-2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
-            Back to Loans
-          </button>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Loan Details</h1>
-              <p className="text-gray-600 mt-1">
-                {contact?.name} •{" "}
-                {loan.loan_direction === "given" ? "Lent Out" : "Borrowed"}
-              </p>
-            </div>
-            <span
-              className={`px-4 py-2 text-sm font-semibold rounded-full ${getLoanStatusColor(loan.status)}`}
-            >
-              {loan.status}
-            </span>
-          </div>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero 
+        title={loan.contact?.name || "Loan Details"}
+        subtitle={`${loan.loan_direction === "given" ? "Lent" : "Borrowed"} · ${loan.loan_type?.replace("_", " ")} · #${loan.id}`}
+        backTo="/loans"
+        actions={
+          <>
+            {user?.role === "admin" && loan.status === "active" && (
+              <Button variant="white" icon={Edit} onClick={() => navigate(`/loans/${id}/edit`)}>Edit</Button>
+            )}
+            <Button variant="white" size="sm" onClick={() => navigate(`/loans/${id}/statement`)}>
+              Statement
+            </Button>
+          </>
+        }
+      >
+        <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <HeroStat label="Principal" value={formatCurrency(loan.principal_amount)} accent="indigo" />
+          <HeroStat label="Outstanding" value={formatCurrency(loan.outstanding_amount)} accent={loan.outstanding_amount > 0 ? "rose" : "emerald"} />
+          <HeroStat label="Interest Earned" value={formatCurrency(loan.total_interest_earned || 0)} accent="teal" />
+          <HeroStat label="Total Collected" value={formatCurrency(loan.total_collected || 0)} accent="emerald" />
         </div>
-
+      </PageHero>
+      <PageBody>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Outstanding Balance */}
-            {outstanding && (
-              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-lg p-6 text-white">
-                <h2 className="text-lg font-semibold mb-4">
-                  Outstanding Balance
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <div className="text-sm opacity-90">Principal</div>
-                    <div className="text-2xl font-bold">
-                      {formatCurrency(outstanding.principal_outstanding)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm opacity-90">Interest</div>
-                    <div className="text-2xl font-bold">
-                      {formatCurrency(outstanding.interest_outstanding)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm opacity-90">Total Due</div>
-                    <div className="text-3xl font-bold">
-                      {formatCurrency(outstanding.total_outstanding)}
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 text-sm opacity-90">
-                  As of {formatDate(outstanding.as_of_date)}
-                </div>
-              </div>
-            )}
-
             {/* Loan Information */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+              <h2 className="text-base font-bold text-slate-800 mb-4">
                 Loan Information
               </h2>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <div className="text-sm text-gray-600">Principal Amount</div>
-                  <div className="text-lg font-semibold text-gray-900">
+                  <div className="text-xs font-medium text-slate-500">Principal Amount</div>
+                  <div className="text-lg font-semibold text-slate-900">
                     {formatCurrency(loan.principal_amount)}
                   </div>
                 </div>
                 {loan.loan_type !== "short_term" && loan.interest_rate && (
                   <div>
-                    <div className="text-sm text-gray-600">Interest Rate</div>
-                    <div className="text-lg font-semibold text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">Interest Rate</div>
+                    <div className="text-lg font-semibold text-slate-900">
                       {loan.interest_rate}% p.a.
                     </div>
                   </div>
                 )}
                 {loan.loan_type === "short_term" && (
                   <div>
-                    <div className="text-sm text-gray-600">Post-Due Rate</div>
-                    <div className="text-lg font-semibold text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">Post-Due Rate</div>
+                    <div className="text-lg font-semibold text-slate-900">
                       {loan.post_due_interest_rate
                         ? `${loan.post_due_interest_rate}% p.a.`
                         : "—"}
@@ -424,13 +378,13 @@ function LoanDetail() {
                         );
                         if (isActive) {
                           return (
-                            <span className="inline-block mt-1 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">
+                            <span className="inline-block mt-1 px-2 py-1 bg-rose-100 text-rose-700 text-xs font-medium rounded-full">
                               ⚠️ Interest Active
                             </span>
                           );
                         }
                         return (
-                          <span className="inline-block mt-1 px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                          <span className="inline-block mt-1 px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
                             ✅ Interest-Free Period ({daysLeft} days left)
                           </span>
                         );
@@ -438,8 +392,8 @@ function LoanDetail() {
                   </div>
                 )}
                 <div>
-                  <div className="text-sm text-gray-600">Loan Type</div>
-                  <div className="text-lg font-semibold text-gray-900">
+                  <div className="text-xs font-medium text-slate-500">Loan Type</div>
+                  <div className="text-lg font-semibold text-slate-900">
                     {loan.loan_type === "interest_only"
                       ? "Interest Only"
                       : loan.loan_type === "emi"
@@ -448,49 +402,47 @@ function LoanDetail() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-600">Direction</div>
-                  <div className="text-lg font-semibold text-gray-900">
+                  <div className="text-xs font-medium text-slate-500">Direction</div>
+                  <div className="text-lg font-semibold text-slate-900">
                     {loan.loan_direction === "given"
                       ? "↑ Given (Lent Out)"
                       : "↓ Taken (Borrowed)"}
                   </div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-600">Start Date</div>
-                  <div className="text-lg font-semibold text-gray-900">
+                  <div className="text-xs font-medium text-slate-500">Start Date</div>
+                  <div className="text-lg font-semibold text-slate-900">
                     {formatDate(loan.disbursed_date)}
                   </div>
                 </div>
                 {loan.expected_end_date && (
                   <div>
-                    <div className="text-sm text-gray-600">Maturity Date</div>
-                    <div className="text-lg font-semibold text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">Maturity Date</div>
+                    <div className="text-lg font-semibold text-slate-900">
                       {formatDate(loan.expected_end_date)}
                     </div>
                   </div>
                 )}
                 {loan.emi_amount && (
                   <div>
-                    <div className="text-sm text-gray-600">EMI Amount</div>
-                    <div className="text-lg font-semibold text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">EMI Amount</div>
+                    <div className="text-lg font-semibold text-slate-900">
                       {formatCurrency(loan.emi_amount)}
                     </div>
                   </div>
                 )}
                 {loan.tenure_months && (
                   <div>
-                    <div className="text-sm text-gray-600">Tenure</div>
-                    <div className="text-lg font-semibold text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">Tenure</div>
+                    <div className="text-lg font-semibold text-slate-900">
                       {loan.tenure_months} months
                     </div>
                   </div>
                 )}
                 {loan.interest_free_till && (
                   <div>
-                    <div className="text-sm text-gray-600">
-                      Interest Free Till
-                    </div>
-                    <div className="text-lg font-semibold text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">Interest Free Till</div>
+                    <div className="text-lg font-semibold text-slate-900">
                       {formatDate(loan.interest_free_till)}
                     </div>
                   </div>
@@ -498,28 +450,26 @@ function LoanDetail() {
               </div>
               {/* EMI Interest Summary */}
               {loan.loan_type === "emi" && emiInterestSummary && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm font-medium text-gray-700 mb-2">
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  <div className="text-sm font-medium text-slate-700 mb-2">
                     EMI Interest Summary
                   </div>
                   <div className="grid grid-cols-3 gap-3 text-sm">
-                    <div className="bg-blue-50 rounded-lg p-3">
-                      <div className="text-gray-500">Total Repayment</div>
-                      <div className="font-semibold text-gray-900">
+                    <div className="bg-indigo-50 rounded-xl p-3">
+                      <div className="text-slate-500">Total Repayment</div>
+                      <div className="font-semibold text-slate-900">
                         {formatCurrency(emiInterestSummary.total_repayment)}
                       </div>
                     </div>
-                    <div className="bg-orange-50 rounded-lg p-3">
-                      <div className="text-gray-500">Total Interest</div>
-                      <div className="font-semibold text-gray-900">
-                        {formatCurrency(
-                          emiInterestSummary.total_interest_embedded,
-                        )}
+                    <div className="bg-amber-50 rounded-xl p-3">
+                      <div className="text-slate-500">Total Interest</div>
+                      <div className="font-semibold text-slate-900">
+                        {formatCurrency(emiInterestSummary.total_interest_embedded)}
                       </div>
                     </div>
-                    <div className="bg-purple-50 rounded-lg p-3">
-                      <div className="text-gray-500">Effective Rate</div>
-                      <div className="font-semibold text-gray-900">
+                    <div className="bg-violet-50 rounded-xl p-3">
+                      <div className="text-slate-500">Effective Rate</div>
+                      <div className="font-semibold text-slate-900">
                         ~{emiInterestSummary.effective_annual_rate_pct}% p.a.
                       </div>
                     </div>
@@ -527,91 +477,56 @@ function LoanDetail() {
                 </div>
               )}
               {loan.notes && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm text-gray-600">Notes</div>
-                  <div className="text-gray-900 mt-1">{loan.notes}</div>
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  <div className="text-xs font-medium text-slate-500">Notes</div>
+                  <div className="text-slate-900 mt-1">{loan.notes}</div>
                 </div>
               )}
             </div>
 
             {/* EMI Schedule */}
             {loan.loan_type === "emi" && emiSchedule.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+                <h2 className="text-base font-bold text-slate-800 mb-4">
                   EMI Schedule
-                  <span className="ml-2 text-sm font-normal text-gray-500">
+                  <span className="ml-2 text-sm font-normal text-slate-400">
                     {emiSchedule.filter((e) => e.status === "paid").length}/
                     {emiSchedule.length} paid
                   </span>
                 </h2>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                  <table className="min-w-full divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          #
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Due Date
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          EMI Due
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Outstanding
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Status
-                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">#</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Due Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">EMI Due</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Outstanding</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-white divide-y divide-slate-100">
                       {emiSchedule.map((entry) => (
-                        <tr
-                          key={entry.emi_number}
-                          className={
-                            entry.status === "paid"
-                              ? "bg-green-50"
-                              : entry.is_current_month
-                                ? "bg-yellow-50"
-                                : ""
-                          }
-                        >
-                          <td
-                            className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                          >
-                            {entry.emi_number}
-                          </td>
-                          <td
-                            className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                          >
-                            {formatDate(entry.due_date)}
-                          </td>
-                          <td
-                            className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                          >
-                            {formatCurrency(entry.due_amount)}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {entry.outstanding > 0
-                              ? formatCurrency(entry.outstanding)
-                              : "—"}
-                          </td>
+                        <tr key={entry.emi_number} className={entry.status === "paid" ? "bg-emerald-50/50" : entry.is_current_month ? "bg-amber-50/50" : ""}>
+                          <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-900"}`}>{entry.emi_number}</td>
+                          <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-900"}`}>{formatDate(entry.due_date)}</td>
+                          <td className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-900"}`}>{formatCurrency(entry.due_amount)}</td>
+                          <td className="px-4 py-3 text-sm text-slate-600">{entry.outstanding > 0 ? formatCurrency(entry.outstanding) : "—"}</td>
                           <td className="px-4 py-3 text-sm">
                             {entry.status === "paid" ? (
-                              <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                              <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
                                 ✓ Paid
                               </span>
                             ) : entry.status === "partial" ? (
-                              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                              <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
                                 ⚡ Partial
                               </span>
                             ) : entry.status === "future" ? (
-                              <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-medium">
+                              <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-xs font-medium">
                                 Future
                               </span>
                             ) : (
-                              <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                              <span className="px-2 py-1 bg-rose-100 text-rose-700 rounded-full text-xs font-medium">
                                 ✗ Unpaid
                               </span>
                             )}
@@ -625,31 +540,31 @@ function LoanDetail() {
             )}
 
             {/* Payment History */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+              <h2 className="text-base font-bold text-slate-800 mb-4">
                 Payment History
               </h2>
               {payments.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+                  <table className="min-w-full divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Date
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Amount
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Principal
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Interest
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Mode
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Notes
                         </th>
                         {user?.role === "admin" && (
@@ -657,19 +572,19 @@ function LoanDetail() {
                         )}
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-white divide-y divide-slate-100">
                       {payments.map((payment) => (
-                        <tr key={payment.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm text-gray-900">
+                        <tr key={payment.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-4 py-3 text-sm text-slate-900">
                             {formatDate(payment.payment_date)}
                           </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                          <td className="px-4 py-3 text-sm font-semibold text-slate-900">
                             {formatCurrency(payment.amount_paid)}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
+                          <td className="px-4 py-3 text-sm text-slate-600">
                             {formatCurrency(payment.allocated_to_principal)}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
+                          <td className="px-4 py-3 text-sm text-slate-600">
                             {formatCurrency(
                               parseFloat(
                                 payment.allocated_to_current_interest || 0,
@@ -679,17 +594,17 @@ function LoanDetail() {
                                 ),
                             )}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 capitalize">
+                          <td className="px-4 py-3 text-sm text-slate-500 capitalize">
                             {payment.payment_mode || "-"}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">
+                          <td className="px-4 py-3 text-sm text-slate-500">
                             {payment.notes || "-"}
                           </td>
                           {user?.role === "admin" && (
                             <td className="px-4 py-3 text-sm">
                               <button
                                 onClick={() => handleDeletePayment(payment.id)}
-                                className="text-red-500 hover:text-red-700"
+                                className="text-rose-400 hover:text-rose-600 transition-colors"
                                 title="Delete payment"
                               >
                                 🗑️
@@ -702,73 +617,69 @@ function LoanDetail() {
                   </table>
                 </div>
               ) : (
-                <p className="text-gray-500 text-center py-8">
-                  No payments recorded yet
-                </p>
+                <div className="text-center py-10">
+                  <div className="text-3xl mb-2">💸</div>
+                  <p className="text-slate-400 text-sm">No payments recorded yet</p>
+                </div>
               )}
             </div>
 
             {/* Collaterals */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
+                <h2 className="text-base font-bold text-slate-800">
                   Collaterals
                 </h2>
                 {user?.role === "admin" && (
                   <button
                     onClick={() => setShowCollateralModal(true)}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    className="px-3.5 py-1.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm shadow-indigo-500/20 active:scale-[0.97]"
                   >
-                    + Add Collateral
+                    + Add
                   </button>
                 )}
               </div>
               {collaterals.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">
-                  No collaterals recorded
-                </p>
+                <div className="text-center py-8">
+                  <div className="text-3xl mb-2">🔒</div>
+                  <p className="text-slate-400 text-sm">No collaterals recorded</p>
+                </div>
               ) : (
                 <div className="space-y-3">
                   {collaterals.map((collateral) => (
                     <div
                       key={collateral.id}
-                      className="border border-gray-200 rounded-lg p-4"
+                      className="border border-slate-200/60 rounded-xl p-4 hover:border-slate-300 transition-colors bg-slate-50/30"
                     >
                       <div className="flex justify-between items-start">
                         <div>
-                          <div className="font-medium text-gray-900 capitalize">
+                          <div className="font-semibold text-slate-800 capitalize flex items-center gap-2">
+                            <span className="text-lg">{collateral.collateral_type === "gold" ? "🥇" : collateral.collateral_type === "property" ? "🏠" : collateral.collateral_type === "vehicle" ? "🚗" : "📄"}</span>
                             {collateral.collateral_type}
                           </div>
-                          <div className="text-sm text-gray-600 mt-1">
+                          <div className="text-sm text-slate-500 mt-1">
                             {collateral.description}
                           </div>
                           {collateral.collateral_type === "gold" && (
-                            <div className="text-sm text-gray-600 mt-2">
-                              {collateral.gold_weight_grams}g •{" "}
-                              {collateral.gold_carat}K
+                            <div className="text-sm text-slate-500 mt-1.5">
+                              {collateral.gold_weight_grams}g • {collateral.gold_carat}K
                             </div>
                           )}
                           {collateral.notes && (
-                            <div className="text-sm text-gray-500 mt-1">
-                              {collateral.notes}
-                            </div>
+                            <div className="text-xs text-slate-400 mt-1">{collateral.notes}</div>
                           )}
                         </div>
                         <div className="flex items-start gap-3">
                           <div className="text-right">
-                            <div className="text-sm text-gray-600">
-                              Estimated Value
-                            </div>
-                            <div className="text-lg font-semibold text-gray-900">
+                            <div className="text-xs text-slate-500">Value</div>
+                            <div className="text-lg font-bold text-slate-900">
                               {formatCurrency(collateral.estimated_value)}
                             </div>
                           </div>
                           {user?.role === "admin" && (
                             <button
-                              onClick={() =>
-                                handleDeleteCollateral(collateral.id)
-                              }
-                              className="text-red-400 hover:text-red-600 mt-1"
+                              onClick={() => handleDeleteCollateral(collateral.id)}
+                              className="text-rose-400 hover:text-rose-600 mt-1 transition-colors"
                               title="Remove collateral"
                             >
                               🗑️
@@ -783,117 +694,77 @@ function LoanDetail() {
             </div>
 
             {/* Monthly Interest / EMI Schedule */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
+                <h2 className="text-base font-bold text-slate-800">
                   {loan.loan_type === "emi"
                     ? "Monthly EMI Tracking"
                     : "Monthly Interest Schedule"}
                 </h2>
                 <button
                   onClick={() => setShowMonthlySchedule((prev) => !prev)}
-                  className="text-sm text-blue-600 hover:text-blue-800"
+                  className="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
                 >
                   {showMonthlySchedule ? "Hide" : "Show"}
                 </button>
               </div>
               {showMonthlySchedule &&
                 (monthlyScheduleLoading ? (
-                  <div className="text-gray-500 text-center py-4">
-                    Loading schedule...
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                   </div>
                 ) : monthlyScheduleData?.schedule?.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            Month
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 uppercase">Month</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500 uppercase">
+                            {loan.loan_type === "emi" ? "EMI Due" : "Interest Due"}
                           </th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                            {loan.loan_type === "emi"
-                              ? "EMI Due"
-                              : "Interest Due"}
-                          </th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                            Paid
-                          </th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                            Outstanding
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                            Status
-                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500 uppercase">Paid</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-slate-500 uppercase">Outstanding</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-slate-100">
                         {monthlyScheduleData.schedule.map((entry, idx) => (
                           <>
                             <tr
                               key={idx}
-                              className={
-                                entry.status === "paid"
-                                  ? "bg-green-50"
-                                  : entry.is_current_month
-                                    ? "bg-yellow-50"
-                                    : ""
-                              }
+                              className={entry.status === "paid" ? "bg-emerald-50/50" : entry.is_current_month ? "bg-amber-50/50" : ""}
                             >
-                              <td
-                                className={`px-4 py-2 font-medium ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-900"}`}
-                              >
+                              <td className={`px-4 py-2.5 font-medium ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-900"}`}>
                                 {entry.month_label}
                               </td>
-                              <td
-                                className={`px-4 py-2 text-right ${entry.status === "paid" ? "line-through text-gray-400" : "text-gray-700"}`}
-                              >
-                                {entry.interest_due > 0
-                                  ? formatCurrency(entry.interest_due)
-                                  : "—"}
+                              <td className={`px-4 py-2.5 text-right ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-700"}`}>
+                                {entry.interest_due > 0 ? formatCurrency(entry.interest_due) : "—"}
                               </td>
-                              <td className="px-4 py-2 text-right text-gray-700">
-                                {entry.interest_paid > 0
-                                  ? formatCurrency(entry.interest_paid)
-                                  : "—"}
+                              <td className="px-4 py-2.5 text-right text-slate-700">
+                                {entry.interest_paid > 0 ? formatCurrency(entry.interest_paid) : "—"}
                               </td>
-                              <td className="px-4 py-2 text-right text-gray-700">
-                                {entry.interest_outstanding > 0
-                                  ? formatCurrency(entry.interest_outstanding)
-                                  : "—"}
+                              <td className="px-4 py-2.5 text-right text-slate-700">
+                                {entry.interest_outstanding > 0 ? formatCurrency(entry.interest_outstanding) : "—"}
                               </td>
-                              <td className="px-4 py-2">
+                              <td className="px-4 py-2.5">
                                 {entry.status === "paid" ? (
-                                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">
-                                    🟢 Paid
-                                  </span>
+                                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">Paid</span>
                                 ) : entry.status === "partial" ? (
-                                  <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">
-                                    🟡 Partial
-                                  </span>
+                                  <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Partial</span>
                                 ) : entry.status === "future" ? (
-                                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs">
-                                    ⚪ Future
-                                  </span>
+                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-xs font-medium">Future</span>
                                 ) : (
-                                  <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
-                                    🔴 Unpaid
-                                  </span>
+                                  <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded-full text-xs font-medium">Unpaid</span>
                                 )}
                               </td>
                             </tr>
                             {entry.capitalized && (
                               <tr
                                 key={`cap-${idx}`}
-                                className="bg-purple-50 border-t-2 border-purple-300"
+                                className="bg-violet-50 border-t-2 border-violet-300"
                               >
-                                <td
-                                  colSpan={5}
-                                  className="px-4 py-2 text-sm text-purple-700 font-medium"
-                                >
-                                  🔄 Interest Capitalized:{" "}
-                                  {formatCurrency(entry.capitalized_amount)}{" "}
-                                  added to principal → New Principal:{" "}
-                                  {formatCurrency(entry.new_principal_after)}
+                                <td colSpan={5} className="px-4 py-2 text-sm text-violet-700 font-medium">
+                                  🔄 Interest Capitalized: {formatCurrency(entry.capitalized_amount)} added to principal → New Principal: {formatCurrency(entry.new_principal_after)}
                                 </td>
                               </tr>
                             )}
@@ -903,7 +774,7 @@ function LoanDetail() {
                     </table>
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-center py-4">
+                  <p className="text-slate-400 text-center py-8 text-sm">
                     No schedule available yet
                   </p>
                 ))}
@@ -912,101 +783,88 @@ function LoanDetail() {
 
           {/* Right Column */}
           <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Quick Actions
-              </h2>
-              <div className="space-y-3">
+            {/* Quick Actions */}
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
+              <h2 className="text-base font-bold text-slate-800 mb-4">Quick Actions</h2>
+              <div className="space-y-2.5">
                 {loan.status === "active" && (
                   <button
                     onClick={() => {
                       setShowPaymentModal(true);
-                      // Pre-fill interest amount for non-EMI loans
-                      if (
-                        loan.loan_type !== "emi" &&
-                        loanData?.outstanding?.interest_outstanding
-                      ) {
-                        const intAmt = parseFloat(
-                          loanData.outstanding.interest_outstanding,
-                        );
+                      if (loan.loan_type !== "emi" && loanData?.outstanding?.interest_outstanding) {
+                        const intAmt = parseFloat(loanData.outstanding.interest_outstanding);
                         if (intAmt > 0) {
                           setInterestPaymentAmount(intAmt.toFixed(2));
                           fetchPreview(intAmt.toFixed(2), null);
                         }
                       }
                     }}
-                    className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                    className="w-full px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl hover:from-emerald-600 hover:to-emerald-700 font-medium shadow-sm shadow-emerald-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                   >
-                    💵 Record Payment
+                    <span>💵</span> Record Payment
                   </button>
                 )}
                 <button
                   onClick={() => navigate(`/loans/${id}/edit`)}
-                  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                  className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 font-medium shadow-sm shadow-indigo-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                 >
-                  ✏️ Edit Loan
+                  <span>✏️</span> Edit Loan
                 </button>
-
                 <button
                   onClick={() => navigate(`/loans/${id}/statement`)}
-                  className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+                  className="w-full px-4 py-3 bg-gradient-to-r from-violet-500 to-violet-600 text-white rounded-xl hover:from-violet-600 hover:to-violet-700 font-medium shadow-sm shadow-violet-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                 >
-                  📄 Client Statement
+                  <span>📄</span> Client Statement
                 </button>
-
                 <button
                   onClick={() => navigate(`/contacts/${loan.contact_id}`)}
-                  className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+                  className="w-full px-4 py-3 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 font-medium transition-all flex items-center justify-center gap-2"
                 >
-                  👤 View Contact
+                  <span>👤</span> View Contact
                 </button>
                 {user?.role === "admin" && loan.status === "active" && (
                   <button
                     onClick={handleMarkClosed}
                     disabled={markClosedMutation.isPending}
-                    className="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium disabled:opacity-50"
+                    className="w-full px-4 py-3 bg-slate-600 text-white rounded-xl hover:bg-slate-700 font-medium disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                   >
-                    {markClosedMutation.isPending
-                      ? "Closing..."
-                      : "✅ Mark as Closed"}
+                    {markClosedMutation.isPending ? "Closing..." : <><span>✅</span> Mark as Closed</>}
                   </button>
                 )}
                 {user?.role === "admin" && (
                   <button
                     onClick={handleDeleteLoan}
                     disabled={deleteLoanMutation.isPending}
-                    className="w-full px-4 py-3 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 font-medium disabled:opacity-50"
+                    className="w-full px-4 py-2.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl hover:bg-rose-100 font-medium disabled:opacity-50 transition-all text-sm flex items-center justify-center gap-2"
                   >
-                    🗑️ Delete Loan
+                    <span>🗑️</span> Delete Loan
                   </button>
                 )}
               </div>
             </div>
 
             {/* Contact Info */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Contact Details
-              </h2>
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
+              <h2 className="text-base font-bold text-slate-800 mb-4">Contact Details</h2>
               <div className="space-y-3">
                 <div>
-                  <div className="text-sm text-gray-600">Name</div>
-                  <div className="font-medium text-gray-900">
+                  <div className="text-xs font-medium text-slate-500">Name</div>
+                  <div className="font-semibold text-slate-900">
                     {contact?.name || loan.contact?.name}
                   </div>
                 </div>
                 {(contact?.phone || loan.contact?.phone) && (
                   <div>
-                    <div className="text-sm text-gray-600">Phone</div>
-                    <div className="font-medium text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">Phone</div>
+                    <div className="font-semibold text-slate-900">
                       {contact?.phone || loan.contact?.phone}
                     </div>
                   </div>
                 )}
                 {(contact?.city || loan.contact?.city) && (
                   <div>
-                    <div className="text-sm text-gray-600">City</div>
-                    <div className="font-medium text-gray-900">
+                    <div className="text-xs font-medium text-slate-500">City</div>
+                    <div className="font-semibold text-slate-900">
                       {contact?.city || loan.contact?.city}
                     </div>
                   </div>
@@ -1015,175 +873,91 @@ function LoanDetail() {
             </div>
           </div>
         </div>
-      </div>
+      </PageBody>
 
       {/* Payment Modal */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full animate-slideUp border border-slate-200/60">
+            <h2 className="text-xl font-bold text-slate-900 mb-5">
               Record Payment
             </h2>
             <div className="space-y-4">
-              {/* ── EMI: single total amount ── */}
               {loan.loan_type === "emi" ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Payment Amount *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={paymentAmount}
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Payment Amount *</label>
+                  <input type="number" step="0.01" value={paymentAmount}
                     onChange={(e) => handlePaymentAmountChange(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="0.00"
-                  />
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    placeholder="0.00" />
                 </div>
               ) : (
-                /* ── Non-EMI: auto-split toggle + fields ── */
                 <div className="space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={autoSplit}
-                      onChange={(e) => {
-                        setAutoSplit(e.target.checked);
-                        setPaymentAmount("");
-                        setInterestPaymentAmount("");
-                        setPrincipalRepaymentAmount("");
-                        setPaymentPreview(null);
-                      }}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm font-medium text-gray-700">
-                      Auto-split (interest first, rest to principal)
-                    </span>
+                    <input type="checkbox" checked={autoSplit}
+                      onChange={(e) => { setAutoSplit(e.target.checked); setPaymentAmount(""); setInterestPaymentAmount(""); setPrincipalRepaymentAmount(""); setPaymentPreview(null); }}
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                    <span className="text-sm font-medium text-slate-700">Auto-split (interest first, rest to principal)</span>
                   </label>
-
                   {autoSplit ? (
-                    /* ── Auto-split: single amount field ── */
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Payment Amount *
-                      </label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Payment Amount *</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                          ₹
-                        </span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={paymentAmount}
-                          onChange={(e) =>
-                            handlePaymentAmountChange(e.target.value)
-                          }
-                          className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                          placeholder="0.00"
-                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+                        <input type="number" step="0.01" min="0" value={paymentAmount}
+                          onChange={(e) => handlePaymentAmountChange(e.target.value)}
+                          className="w-full pl-7 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                          placeholder="0.00" />
                       </div>
                       {loanData?.outstanding?.interest_outstanding > 0 && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Outstanding interest:{" "}
-                          {formatCurrency(
-                            loanData.outstanding.interest_outstanding,
-                          )}
-                          {" · "}Will be paid first
+                        <p className="text-xs text-slate-400 mt-1">
+                          Outstanding interest: {formatCurrency(loanData.outstanding.interest_outstanding)} · Will be paid first
                         </p>
                       )}
                     </div>
                   ) : (
-                    /* ── Manual mode: separate interest + principal fields ── */
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Interest Payment
-                        </label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Interest Payment</label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                            ₹
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={interestPaymentAmount}
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+                          <input type="number" step="0.01" min="0" value={interestPaymentAmount}
                             onChange={(e) => {
                               setInterestPaymentAmount(e.target.value);
-                              const total =
-                                (parseFloat(e.target.value) || 0) +
-                                (parseFloat(principalRepaymentAmount) || 0);
-                              if (total > 0)
-                                fetchPreview(
-                                  total.toFixed(2),
-                                  parseFloat(principalRepaymentAmount) || null,
-                                );
+                              const total = (parseFloat(e.target.value) || 0) + (parseFloat(principalRepaymentAmount) || 0);
+                              if (total > 0) fetchPreview(total.toFixed(2), parseFloat(principalRepaymentAmount) || null);
                               else setPaymentPreview(null);
                             }}
-                            className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                            placeholder="0.00"
-                          />
+                            className="w-full pl-7 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                            placeholder="0.00" />
                         </div>
                         {loanData?.outstanding?.interest_outstanding > 0 && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Outstanding:{" "}
-                            {formatCurrency(
-                              loanData.outstanding.interest_outstanding,
-                            )}
-                          </p>
+                          <p className="text-xs text-slate-400 mt-1">Outstanding: {formatCurrency(loanData.outstanding.interest_outstanding)}</p>
                         )}
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Principal Repayment
-                          <span className="ml-1 text-gray-400 font-normal">
-                            (optional)
-                          </span>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                          Principal Repayment <span className="text-slate-400 font-normal">(optional)</span>
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                            ₹
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={principalRepaymentAmount}
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+                          <input type="number" step="0.01" min="0" value={principalRepaymentAmount}
                             onChange={(e) => {
                               setPrincipalRepaymentAmount(e.target.value);
-                              const total =
-                                (parseFloat(interestPaymentAmount) || 0) +
-                                (parseFloat(e.target.value) || 0);
-                              if (total > 0)
-                                fetchPreview(
-                                  total.toFixed(2),
-                                  parseFloat(e.target.value) || null,
-                                );
+                              const total = (parseFloat(interestPaymentAmount) || 0) + (parseFloat(e.target.value) || 0);
+                              if (total > 0) fetchPreview(total.toFixed(2), parseFloat(e.target.value) || null);
                               else setPaymentPreview(null);
                             }}
-                            className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                            placeholder="0.00"
-                          />
+                            className="w-full pl-7 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 transition-all"
+                            placeholder="0.00" />
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Interest will stop accruing on returned amount from
-                          this date.
-                        </p>
+                        <p className="text-xs text-slate-400 mt-1">Interest will stop accruing on returned amount from this date.</p>
                       </div>
-                      {/* Total summary row */}
-                      {(parseFloat(interestPaymentAmount) || 0) +
-                        (parseFloat(principalRepaymentAmount) || 0) >
-                        0 && (
-                        <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-2">
-                          <span className="text-sm font-semibold text-gray-700">
-                            Total Payment
-                          </span>
-                          <span className="text-base font-bold text-gray-900">
-                            {formatCurrency(
-                              (parseFloat(interestPaymentAmount) || 0) +
-                                (parseFloat(principalRepaymentAmount) || 0),
-                            )}
+                      {(parseFloat(interestPaymentAmount) || 0) + (parseFloat(principalRepaymentAmount) || 0) > 0 && (
+                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2.5">
+                          <span className="text-sm font-semibold text-slate-700">Total Payment</span>
+                          <span className="text-base font-bold text-slate-900">
+                            {formatCurrency((parseFloat(interestPaymentAmount) || 0) + (parseFloat(principalRepaymentAmount) || 0))}
                           </span>
                         </div>
                       )}
@@ -1192,42 +966,23 @@ function LoanDetail() {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Date *
-                </label>
-                <input
-                  type="date"
-                  value={paymentDate}
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Payment Date *</label>
+                <input type="date" value={paymentDate}
                   onChange={(e) => {
                     setPaymentDate(e.target.value);
-                    if (loan.loan_type === "emi") {
-                      if (paymentAmount) fetchPreview(paymentAmount, null);
-                    } else if (autoSplit) {
-                      if (paymentAmount)
-                        fetchPreview(paymentAmount, null, true);
-                    } else {
-                      const total =
-                        (parseFloat(interestPaymentAmount) || 0) +
-                        (parseFloat(principalRepaymentAmount) || 0);
-                      if (total > 0)
-                        fetchPreview(
-                          total.toFixed(2),
-                          parseFloat(principalRepaymentAmount) || null,
-                        );
+                    if (loan.loan_type === "emi") { if (paymentAmount) fetchPreview(paymentAmount, null); }
+                    else if (autoSplit) { if (paymentAmount) fetchPreview(paymentAmount, null, true); }
+                    else {
+                      const total = (parseFloat(interestPaymentAmount) || 0) + (parseFloat(principalRepaymentAmount) || 0);
+                      if (total > 0) fetchPreview(total.toFixed(2), parseFloat(principalRepaymentAmount) || null);
                     }
                   }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Mode
-                </label>
-                <select
-                  value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                >
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Payment Mode</label>
+                <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                   <option value="cash">Cash</option>
                   <option value="upi">UPI</option>
                   <option value="bank_transfer">Bank Transfer</option>
@@ -1235,113 +990,50 @@ function LoanDetail() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notes (Optional)
-                </label>
-                <textarea
-                  value={paymentNotes}
-                  onChange={(e) => setPaymentNotes(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  rows="2"
-                  placeholder="Notes..."
-                />
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes (Optional)</label>
+                <textarea value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all resize-none"
+                  rows="2" placeholder="Notes..." />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Account
-                </label>
-                <select
-                  value={paymentAccountId}
-                  onChange={(e) => setPaymentAccountId(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                >
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Account</label>
+                <select value={paymentAccountId} onChange={(e) => setPaymentAccountId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                   <option value="">— Select Account —</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
+                  {accounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
                 </select>
               </div>
               {paymentPreview && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-2">
-                    Payment Allocation Preview
-                  </h3>
-                  <div className="space-y-1 text-sm">
+                <div className="bg-indigo-50 border border-indigo-200/60 rounded-xl p-4">
+                  <h3 className="font-semibold text-slate-800 text-sm mb-2">Allocation Preview</h3>
+                  <div className="space-y-1.5 text-sm">
                     {paymentPreview.allocated_to_overdue_interest > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Overdue Interest:</span>
-                        <span className="font-medium">
-                          {formatCurrency(
-                            paymentPreview.allocated_to_overdue_interest,
-                          )}
-                        </span>
-                      </div>
+                      <div className="flex justify-between"><span className="text-slate-600">Overdue Interest:</span><span className="font-medium">{formatCurrency(paymentPreview.allocated_to_overdue_interest)}</span></div>
                     )}
                     {paymentPreview.allocated_to_current_interest > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Current Interest:</span>
-                        <span className="font-medium">
-                          {formatCurrency(
-                            paymentPreview.allocated_to_current_interest,
-                          )}
-                        </span>
-                      </div>
+                      <div className="flex justify-between"><span className="text-slate-600">Current Interest:</span><span className="font-medium">{formatCurrency(paymentPreview.allocated_to_current_interest)}</span></div>
                     )}
                     {paymentPreview.allocated_to_principal > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">
-                          Principal Returned:
-                        </span>
-                        <span className="font-medium text-green-700">
-                          {formatCurrency(
-                            paymentPreview.allocated_to_principal,
-                          )}
-                        </span>
-                      </div>
+                      <div className="flex justify-between"><span className="text-slate-600">Principal Returned:</span><span className="font-medium text-emerald-700">{formatCurrency(paymentPreview.allocated_to_principal)}</span></div>
                     )}
-                    <div className="flex justify-between pt-2 border-t border-blue-300">
+                    <div className="flex justify-between pt-2 border-t border-indigo-200">
                       <span className="font-semibold">Total:</span>
-                      <span className="font-semibold">
-                        {formatCurrency(paymentPreview.amount)}
-                      </span>
+                      <span className="font-semibold">{formatCurrency(paymentPreview.amount)}</span>
                     </div>
                     {paymentPreview.unallocated > 0 && (
-                      <div className="flex justify-between text-orange-600">
-                        <span>Advance Credit:</span>
-                        <span className="font-medium">
-                          {formatCurrency(paymentPreview.unallocated)}
-                        </span>
-                      </div>
+                      <div className="flex justify-between text-amber-600"><span>Advance Credit:</span><span className="font-medium">{formatCurrency(paymentPreview.unallocated)}</span></div>
                     )}
                   </div>
                 </div>
               )}
             </div>
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={resetPaymentModal}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRecordPayment}
-                disabled={
-                  (loan.loan_type === "emi"
-                    ? !paymentAmount || parseFloat(paymentAmount) <= 0
-                    : autoSplit
-                      ? !paymentAmount || parseFloat(paymentAmount) <= 0
-                      : (parseFloat(interestPaymentAmount) || 0) +
-                          (parseFloat(principalRepaymentAmount) || 0) <=
-                        0) || recordPaymentMutation.isPending
-                }
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {recordPaymentMutation.isPending
-                  ? "Recording..."
-                  : "Record Payment"}
+            <div className="flex gap-3 mt-6">
+              <button onClick={resetPaymentModal}
+                className="flex-1 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-medium">Cancel</button>
+              <button onClick={handleRecordPayment}
+                disabled={(loan.loan_type === "emi" ? !paymentAmount || parseFloat(paymentAmount) <= 0 : autoSplit ? !paymentAmount || parseFloat(paymentAmount) <= 0 : (parseFloat(interestPaymentAmount) || 0) + (parseFloat(principalRepaymentAmount) || 0) <= 0) || recordPaymentMutation.isPending}
+                className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-all font-medium shadow-sm shadow-emerald-500/20 active:scale-[0.98]">
+                {recordPaymentMutation.isPending ? "Recording..." : "Record Payment"}
               </button>
             </div>
           </div>
@@ -1350,26 +1042,15 @@ function LoanDetail() {
 
       {/* Add Collateral Modal */}
       {showCollateralModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Add Collateral
-            </h2>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full animate-slideUp border border-slate-200/60">
+            <h2 className="text-xl font-bold text-slate-900 mb-5">Add Collateral</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Type
-                </label>
-                <select
-                  value={collateralForm.collateral_type}
-                  onChange={(e) =>
-                    setCollateralForm((p) => ({
-                      ...p,
-                      collateral_type: e.target.value,
-                    }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                >
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Type</label>
+                <select value={collateralForm.collateral_type}
+                  onChange={(e) => setCollateralForm((p) => ({ ...p, collateral_type: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                   <option value="property">Property</option>
                   <option value="gold">Gold</option>
                   <option value="vehicle">Vehicle</option>
@@ -1379,39 +1060,20 @@ function LoanDetail() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Plot at MG Road, Gold necklace"
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Description</label>
+                <input type="text" placeholder="e.g. Plot at MG Road, Gold necklace"
                   value={collateralForm.description}
-                  onChange={(e) =>
-                    setCollateralForm((p) => ({
-                      ...p,
-                      description: e.target.value,
-                    }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
+                  onChange={(e) => setCollateralForm((p) => ({ ...p, description: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
               </div>
               {collateralForm.collateral_type === "gold" ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Carat (K)
-                      </label>
-                      <select
-                        value={collateralForm.gold_carat}
-                        onChange={(e) =>
-                          setCollateralForm((p) => ({
-                            ...p,
-                            gold_carat: e.target.value,
-                          }))
-                        }
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                      >
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Carat (K)</label>
+                      <select value={collateralForm.gold_carat}
+                        onChange={(e) => setCollateralForm((p) => ({ ...p, gold_carat: e.target.value }))}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                         <option value="">Select</option>
                         <option value="24">24K</option>
                         <option value="22">22K</option>
@@ -1420,93 +1082,44 @@ function LoanDetail() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Weight (grams)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Weight (grams)</label>
+                      <input type="number" step="0.01" placeholder="0.00"
                         value={collateralForm.gold_weight_grams}
-                        onChange={(e) =>
-                          setCollateralForm((p) => ({
-                            ...p,
-                            gold_weight_grams: e.target.value,
-                          }))
-                        }
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                      />
+                        onChange={(e) => setCollateralForm((p) => ({ ...p, gold_weight_grams: e.target.value }))}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Value (₹)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Estimated value"
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Value (₹)</label>
+                    <input type="number" step="0.01" placeholder="Estimated value"
                       value={collateralForm.gold_manual_rate}
-                      onChange={(e) =>
-                        setCollateralForm((p) => ({
-                          ...p,
-                          gold_manual_rate: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
+                      onChange={(e) => setCollateralForm((p) => ({ ...p, gold_manual_rate: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
                   </div>
                 </>
               ) : (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Estimated Value (₹)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Estimated Value (₹)</label>
+                  <input type="number" step="0.01" placeholder="0.00"
                     value={collateralForm.estimated_value}
-                    onChange={(e) =>
-                      setCollateralForm((p) => ({
-                        ...p,
-                        estimated_value: e.target.value,
-                      }))
-                    }
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
+                    onChange={(e) => setCollateralForm((p) => ({ ...p, estimated_value: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes
-                </label>
-                <textarea
-                  rows="2"
-                  placeholder="Notes..."
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes</label>
+                <textarea rows="2" placeholder="Notes..."
                   value={collateralForm.notes}
-                  onChange={(e) =>
-                    setCollateralForm((p) => ({ ...p, notes: e.target.value }))
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
+                  onChange={(e) => setCollateralForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all resize-none" />
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowCollateralModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddCollateral}
-                disabled={addCollateralMutation.isPending}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {addCollateralMutation.isPending
-                  ? "Saving..."
-                  : "Add Collateral"}
+              <button onClick={() => setShowCollateralModal(false)}
+                className="flex-1 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-medium">Cancel</button>
+              <button onClick={handleAddCollateral} disabled={addCollateralMutation.isPending}
+                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all font-medium shadow-sm shadow-indigo-500/20 active:scale-[0.98]">
+                {addCollateralMutation.isPending ? "Saving..." : "Add Collateral"}
               </button>
             </div>
           </div>

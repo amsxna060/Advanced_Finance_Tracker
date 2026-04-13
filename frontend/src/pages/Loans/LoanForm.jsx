@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
+import { PageHero, PageBody, Card } from "../../components/ui";
 
 const normalizeLoanForForm = (loan) => ({
   contact_id: String(loan.contact_id || ""),
@@ -304,354 +305,144 @@ function LoanForm() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate("/loans")}
-            className="text-gray-600 hover:text-gray-900 mb-4 flex items-center"
-          >
-            <svg
-              className="w-5 h-5 mr-2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
-            </svg>
-            Back to Loans
-          </button>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        title={isEditMode ? "Edit Loan" : "New Loan"}
+        subtitle={isEditMode ? "Update loan details" : "Create a new lending record"}
+        backTo="/loans"
+        compact
+      />
 
-          <h1 className="text-3xl font-bold text-gray-900">
-            {isEditMode ? "Edit Loan" : "New Loan"}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            {isEditMode ? "Update loan information" : "Create a new loan"}
-          </p>
-        </div>
-
+      <PageBody>
         {/* Progress Steps */}
         {!isEditMode && (
           <div className="mb-8">
             <div className="flex items-center justify-between">
               {[1, 2, 3].map((s) => (
                 <div key={s} className="flex items-center flex-1">
-                  <div
-                    className={`flex items-center justify-center w-10 h-10 rounded-full ${
-                      step >= s
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-300 text-gray-600"
-                    }`}
-                  >
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-xl text-sm font-bold transition-all ${step >= s ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/20" : "bg-slate-200 text-slate-500"}`}>
                     {s}
                   </div>
-                  <div
-                    className={`flex-1 h-1 mx-2 ${
-                      step > s ? "bg-blue-600" : "bg-gray-300"
-                    } ${s === 3 ? "hidden" : ""}`}
-                  />
+                  <div className={`flex-1 h-1 mx-2 rounded-full ${step > s ? "bg-indigo-600" : "bg-slate-200"} ${s === 3 ? "hidden" : ""}`} />
                 </div>
               ))}
             </div>
-            <div className="flex justify-between mt-2 text-sm">
-              <span
-                className={
-                  step >= 1 ? "text-blue-600 font-medium" : "text-gray-500"
-                }
-              >
-                Direction
-              </span>
-              <span
-                className={
-                  step >= 2 ? "text-blue-600 font-medium" : "text-gray-500"
-                }
-              >
-                Loan Type
-              </span>
-              <span
-                className={
-                  step >= 3 ? "text-blue-600 font-medium" : "text-gray-500"
-                }
-              >
-                Details
-              </span>
+            <div className="flex justify-between mt-2 text-xs">
+              <span className={step >= 1 ? "text-indigo-600 font-medium" : "text-slate-400"}>Direction</span>
+              <span className={step >= 2 ? "text-indigo-600 font-medium" : "text-slate-400"}>Loan Type</span>
+              <span className={step >= 3 ? "text-indigo-600 font-medium" : "text-slate-400"}>Details</span>
             </div>
           </div>
         )}
 
         {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-lg shadow-sm p-6"
-        >
-          {/* Error Message */}
+        <Card className="p-6 sm:p-8">
+        <form onSubmit={handleSubmit}>
           {errors.submit && (
-            <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-              {errors.submit}
-            </div>
+            <div className="mb-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">{errors.submit}</div>
           )}
 
-          {/* Step 1: Direction & Contact */}
+          {/* Step 1 */}
           {step === 1 && (
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                Step 1: Choose Direction
-              </h2>
+              <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-2"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />STEP 1: CHOOSE DIRECTION</h2>
 
-              {/* Contact Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Contact *
-                </label>
-                <select
-                  name="contact_id"
-                  value={formData.contact_id}
-                  onChange={handleChange}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    errors.contact_id ? "border-red-500" : "border-gray-300"
-                  }`}
-                >
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Contact *</label>
+                <select name="contact_id" value={formData.contact_id} onChange={handleChange}
+                  className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.contact_id ? "border-rose-300" : "border-slate-200"}`}>
                   <option value="">Select a contact</option>
-                  {contacts?.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.name} - {contact.phone}
-                    </option>
-                  ))}
+                  {contacts?.map((c) => <option key={c.id} value={c.id}>{c.name} - {c.phone}</option>)}
                 </select>
-                {errors.contact_id && (
-                  <p className="mt-1 text-sm text-red-600">
-                    {errors.contact_id}
-                  </p>
-                )}
+                {errors.contact_id && <p className="mt-1 text-xs text-rose-500">{errors.contact_id}</p>}
               </div>
 
-              {/* Direction Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Direction *
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-3">Direction *</label>
                 <div className="grid grid-cols-2 gap-4">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFormData((prev) => ({ ...prev, direction: "given" }))
-                    }
-                    className={`p-6 border-2 rounded-lg transition-all ${
-                      formData.direction === "given"
-                        ? "border-green-500 bg-green-50"
-                        : "border-gray-300 hover:border-green-300"
-                    }`}
-                  >
+                  <button type="button" onClick={() => setFormData((prev) => ({ ...prev, direction: "given" }))}
+                    className={`p-5 border-2 rounded-2xl transition-all ${formData.direction === "given" ? "border-emerald-500 bg-emerald-50/50 shadow-sm" : "border-slate-200 hover:border-emerald-300"}`}>
                     <div className="text-center">
-                      <div className="text-3xl mb-2">↑</div>
-                      <div className="font-semibold text-gray-900">
-                        Given (Lent Out)
-                      </div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        Money you lent to someone
-                      </div>
+                      <div className="text-2xl mb-1.5">↑</div>
+                      <div className="font-semibold text-slate-800">Given (Lent Out)</div>
+                      <div className="text-xs text-slate-500 mt-1">Money you lent to someone</div>
                     </div>
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFormData((prev) => ({ ...prev, direction: "taken" }))
-                    }
-                    className={`p-6 border-2 rounded-lg transition-all ${
-                      formData.direction === "taken"
-                        ? "border-red-500 bg-red-50"
-                        : "border-gray-300 hover:border-red-300"
-                    }`}
-                  >
+                  <button type="button" onClick={() => setFormData((prev) => ({ ...prev, direction: "taken" }))}
+                    className={`p-5 border-2 rounded-2xl transition-all ${formData.direction === "taken" ? "border-rose-500 bg-rose-50/50 shadow-sm" : "border-slate-200 hover:border-rose-300"}`}>
                     <div className="text-center">
-                      <div className="text-3xl mb-2">↓</div>
-                      <div className="font-semibold text-gray-900">
-                        Taken (Borrowed)
-                      </div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        Money you borrowed from someone
-                      </div>
+                      <div className="text-2xl mb-1.5">↓</div>
+                      <div className="font-semibold text-slate-800">Taken (Borrowed)</div>
+                      <div className="text-xs text-slate-500 mt-1">Money you borrowed from someone</div>
                     </div>
                   </button>
                 </div>
               </div>
 
               <div className="flex justify-end pt-4">
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
+                <button type="button" onClick={handleNext} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm shadow-indigo-500/20 active:scale-[0.98]">
                   Next Step
                 </button>
               </div>
             </div>
           )}
 
-          {/* Step 2: Loan Type */}
+          {/* Step 2 */}
           {step === 2 && (
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                Step 2: Choose Loan Type
-              </h2>
-
+              <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-2"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />STEP 2: CHOOSE LOAN TYPE</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Interest Only */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFormData((prev) => ({ ...prev, type: "interest_only" }))
-                  }
-                  className={`p-6 border-2 rounded-lg text-left transition-all ${
-                    formData.type === "interest_only"
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-300 hover:border-blue-300"
-                  }`}
-                >
-                  <div className="font-semibold text-lg text-gray-900 mb-2">
-                    Interest Only
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Large loan with monthly interest payments. Principal due at
-                    end.
-                  </div>
-                  <div className="mt-3 text-xs text-gray-500">
-                    Best for: Business loans, large amounts
-                  </div>
-                </button>
-
-                {/* EMI */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFormData((prev) => ({ ...prev, type: "emi" }))
-                  }
-                  className={`p-6 border-2 rounded-lg text-left transition-all ${
-                    formData.type === "emi"
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-300 hover:border-blue-300"
-                  }`}
-                >
-                  <div className="font-semibold text-lg text-gray-900 mb-2">
-                    EMI
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Fixed monthly installment covering principal and interest.
-                  </div>
-                  <div className="mt-3 text-xs text-gray-500">
-                    Best for: Structured repayment
-                  </div>
-                </button>
-
-                {/* Short Term */}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFormData((prev) => ({ ...prev, type: "short_term" }))
-                  }
-                  className={`p-6 border-2 rounded-lg text-left transition-all ${
-                    formData.type === "short_term"
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-300 hover:border-blue-300"
-                  }`}
-                >
-                  <div className="font-semibold text-lg text-gray-900 mb-2">
-                    Short Term
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    Quick loan with flexible interest-free period.
-                  </div>
-                  <div className="mt-3 text-xs text-gray-500">
-                    Best for: Emergency loans, friends
-                  </div>
-                </button>
+                {[
+                  { key: "interest_only", title: "Interest Only", desc: "Large loan with monthly interest payments. Principal due at end.", hint: "Business loans, large amounts" },
+                  { key: "emi", title: "EMI", desc: "Fixed monthly installment covering principal and interest.", hint: "Structured repayment" },
+                  { key: "short_term", title: "Short Term", desc: "Quick loan with flexible interest-free period.", hint: "Emergency loans, friends" },
+                ].map((t) => (
+                  <button key={t.key} type="button" onClick={() => setFormData((prev) => ({ ...prev, type: t.key }))}
+                    className={`p-5 border-2 rounded-2xl text-left transition-all ${formData.type === t.key ? "border-indigo-500 bg-indigo-50/50 shadow-sm" : "border-slate-200 hover:border-indigo-300"}`}>
+                    <div className="font-semibold text-slate-800 mb-1.5">{t.title}</div>
+                    <div className="text-sm text-slate-500">{t.desc}</div>
+                    <div className="mt-2 text-xs text-slate-400">Best for: {t.hint}</div>
+                  </button>
+                ))}
               </div>
-
               <div className="flex justify-between pt-4">
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  Next Step
-                </button>
+                <button type="button" onClick={handleBack} className="px-6 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-medium">Back</button>
+                <button type="button" onClick={handleNext} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm shadow-indigo-500/20 active:scale-[0.98]">Next Step</button>
               </div>
             </div>
           )}
 
-          {/* Step 3: Loan Details */}
+          {/* Step 3 */}
           {step === 3 && (
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                {isEditMode ? "Edit Loan" : "Step 3: Loan Details"}
-              </h2>
+              <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-2"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />{isEditMode ? "EDIT LOAN DETAILS" : "STEP 3: LOAN DETAILS"}</h2>
 
-              {/* Edit mode: show contact, direction, type at top */}
               {isEditMode && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pb-6 border-b border-gray-200">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Contact *
-                    </label>
-                    <select
-                      name="contact_id"
-                      value={formData.contact_id}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    >
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-5 border-b border-slate-100">
+                  <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-700">Contact *</label>
+                    <select name="contact_id" value={formData.contact_id} onChange={handleChange} className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                       <option value="">Select a contact</option>
-                      {contacts?.map((contact) => (
-                        <option key={contact.id} value={contact.id}>
-                          {contact.name} - {contact.phone}
-                        </option>
-                      ))}
+                      {contacts?.map((c) => <option key={c.id} value={c.id}>{c.name} - {c.phone}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Direction *
-                    </label>
-                    <select
-                      name="direction"
-                      value={formData.direction}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    >
+                  <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-700">Direction *</label>
+                    <select name="direction" value={formData.direction} onChange={handleChange} className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                       <option value="given">Given (Lent Out)</option>
                       <option value="taken">Taken (Borrowed)</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Loan Type *
-                    </label>
-                    <select
-                      name="type"
-                      value={formData.type}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    >
+                  <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-700">Loan Type *</label>
+                    <select name="type" value={formData.type} onChange={handleChange} className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                       <option value="interest_only">Interest Only</option>
                       <option value="emi">EMI</option>
                       <option value="short_term">Short Term</option>
@@ -661,356 +452,124 @@ function LoanForm() {
               )}
 
               {/* Common Fields */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Principal Amount (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    name="principal_amount"
-                    value={formData.principal_amount}
-                    onChange={handleChange}
-                    step="0.01"
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.principal_amount
-                        ? "border-red-500"
-                        : "border-gray-300"
-                    }`}
-                    placeholder="500000"
-                  />
-                  {errors.principal_amount && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {errors.principal_amount}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Interest Rate (% per annum) *
-                  </label>
-                  <input
-                    type="number"
-                    name="interest_rate"
-                    value={formData.interest_rate}
-                    onChange={handleChange}
-                    step="0.01"
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.interest_rate
-                        ? "border-red-500"
-                        : "border-gray-300"
-                    }`}
-                    placeholder="12.00"
-                  />
-                  {errors.interest_rate && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {errors.interest_rate}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Disbursed Date *
-                  </label>
-                  <input
-                    type="date"
-                    name="start_date"
-                    value={formData.start_date}
-                    onChange={handleChange}
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.start_date ? "border-red-500" : "border-gray-300"
-                    }`}
-                  />
-                  {errors.start_date && (
-                    <p className="mt-1 text-sm text-red-600">
-                      {errors.start_date}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Account (for money flow)
-                  </label>
-                  <select
-                    name="account_id"
-                    value={formData.account_id}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  { name: "principal_amount", label: "Principal Amount (₹) *", type: "number", step: "0.01", placeholder: "500000" },
+                  { name: "interest_rate", label: "Interest Rate (% p.a.) *", type: "number", step: "0.01", placeholder: "12.00" },
+                  { name: "start_date", label: "Disbursed Date *", type: "date" },
+                ].map((f) => (
+                  <div key={f.name} className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-700">{f.label}</label>
+                    <input type={f.type} name={f.name} value={formData[f.name]} onChange={handleChange} step={f.step} placeholder={f.placeholder}
+                      className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors[f.name] ? "border-rose-300" : "border-slate-200"}`} />
+                    {errors[f.name] && <p className="text-xs text-rose-500">{errors[f.name]}</p>}
+                  </div>
+                ))}
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">Account (for money flow)</label>
+                  <select name="account_id" value={formData.account_id} onChange={handleChange} className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
                     <option value="">-- No account --</option>
-                    {(accountsList || []).map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({a.account_type})
-                      </option>
-                    ))}
+                    {(accountsList || []).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.account_type})</option>)}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Link to track debit/credit in your ledger
-                  </p>
+                  <p className="text-xs text-slate-400">Link to track debit/credit in your ledger</p>
                 </div>
               </div>
 
-              {/* Interest Only Specific Fields */}
+              {/* Interest Only */}
               {formData.type === "interest_only" && (
-                <div className="border-t border-gray-200 pt-6 mt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Interest Only Settings
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Interest Start Date *
-                      </label>
-                      <input
-                        type="date"
-                        name="interest_start_date"
-                        value={formData.interest_start_date}
-                        onChange={handleChange}
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.interest_start_date
-                            ? "border-red-500"
-                            : "border-gray-300"
-                        }`}
-                      />
-                      {errors.interest_start_date && (
-                        <p className="mt-1 text-sm text-red-600">
-                          {errors.interest_start_date}
-                        </p>
-                      )}
+                <div className="border-t border-slate-100 pt-5 mt-5">
+                  <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-4"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />INTEREST ONLY SETTINGS</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-sm font-medium text-slate-700">Interest Start Date *</label>
+                      <input type="date" name="interest_start_date" value={formData.interest_start_date} onChange={handleChange}
+                        className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.interest_start_date ? "border-rose-300" : "border-slate-200"}`} />
+                      {errors.interest_start_date && <p className="text-xs text-rose-500">{errors.interest_start_date}</p>}
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Capitalization After (months)
-                      </label>
-                      <input
-                        type="number"
-                        name="capitalization_after_months"
-                        value={formData.capitalization_after_months}
-                        onChange={handleChange}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="12"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Interest will be added to principal after this many
-                        months
-                      </p>
+                    <div className="space-y-1.5">
+                      <label className="block text-sm font-medium text-slate-700">Capitalization After (months)</label>
+                      <input type="number" name="capitalization_after_months" value={formData.capitalization_after_months} onChange={handleChange} placeholder="12"
+                        className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
+                      <p className="text-xs text-slate-400">Interest added to principal after this period</p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* EMI Specific Fields */}
+              {/* EMI */}
               {formData.type === "emi" && (
-                <div className="border-t border-gray-200 pt-6 mt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    EMI Settings
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        EMI Amount (₹) *
-                      </label>
-                      <input
-                        type="number"
-                        name="emi_amount"
-                        value={formData.emi_amount}
-                        onChange={handleChange}
-                        step="0.01"
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.emi_amount
-                            ? "border-red-500"
-                            : "border-gray-300"
-                        }`}
-                        placeholder="45000"
-                      />
-                      {errors.emi_amount && (
-                        <p className="mt-1 text-sm text-red-600">
-                          {errors.emi_amount}
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Tenure (months) *
-                      </label>
-                      <input
-                        type="number"
-                        name="tenure_months"
-                        value={formData.tenure_months}
-                        onChange={handleChange}
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.tenure_months
-                            ? "border-red-500"
-                            : "border-gray-300"
-                        }`}
-                        placeholder="24"
-                      />
-                      {errors.tenure_months && (
-                        <p className="mt-1 text-sm text-red-600">
-                          {errors.tenure_months}
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        EMI Day of Month *
-                      </label>
-                      <input
-                        type="number"
-                        name="emi_day"
-                        value={formData.emi_day}
-                        onChange={handleChange}
-                        min="1"
-                        max="31"
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.emi_day ? "border-red-500" : "border-gray-300"
-                        }`}
-                        placeholder="5"
-                      />
-                      {errors.emi_day && (
-                        <p className="mt-1 text-sm text-red-600">
-                          {errors.emi_day}
-                        </p>
-                      )}
-                    </div>
+                <div className="border-t border-slate-100 pt-5 mt-5">
+                  <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-4"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />EMI SETTINGS</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[
+                      { name: "emi_amount", label: "EMI Amount (₹) *", step: "0.01", placeholder: "45000" },
+                      { name: "tenure_months", label: "Tenure (months) *", placeholder: "24" },
+                      { name: "emi_day", label: "EMI Day of Month *", min: "1", max: "31", placeholder: "5" },
+                    ].map((f) => (
+                      <div key={f.name} className="space-y-1.5">
+                        <label className="block text-sm font-medium text-slate-700">{f.label}</label>
+                        <input type="number" name={f.name} value={formData[f.name]} onChange={handleChange} step={f.step} min={f.min} max={f.max} placeholder={f.placeholder}
+                          className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors[f.name] ? "border-rose-300" : "border-slate-200"}`} />
+                        {errors[f.name] && <p className="text-xs text-rose-500">{errors[f.name]}</p>}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Short Term Specific Fields */}
+              {/* Short Term */}
               {formData.type === "short_term" && (
-                <div className="border-t border-gray-200 pt-6 mt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Short Term Settings
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Expected End Date *
-                      </label>
-                      <input
-                        type="date"
-                        name="maturity_date"
-                        value={formData.maturity_date}
-                        onChange={handleChange}
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.maturity_date
-                            ? "border-red-500"
-                            : "border-gray-300"
-                        }`}
-                      />
-                      {errors.maturity_date && (
-                        <p className="mt-1 text-sm text-red-600">
-                          {errors.maturity_date}
-                        </p>
-                      )}
+                <div className="border-t border-slate-100 pt-5 mt-5">
+                  <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-4"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />SHORT TERM SETTINGS</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-sm font-medium text-slate-700">Expected End Date *</label>
+                      <input type="date" name="maturity_date" value={formData.maturity_date} onChange={handleChange}
+                        className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.maturity_date ? "border-rose-300" : "border-slate-200"}`} />
+                      {errors.maturity_date && <p className="text-xs text-rose-500">{errors.maturity_date}</p>}
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Interest Free Till
-                      </label>
-                      <input
-                        type="date"
-                        name="interest_free_till"
-                        value={formData.interest_free_till}
-                        onChange={handleChange}
-                        className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.interest_free_till
-                            ? "border-red-500"
-                            : "border-gray-300"
-                        }`}
-                      />
-                      {errors.interest_free_till && (
-                        <p className="mt-1 text-sm text-red-600">
-                          {errors.interest_free_till}
-                        </p>
-                      )}
-                      <p className="mt-1 text-xs text-gray-500">
-                        No interest charged till this date
-                      </p>
+                    <div className="space-y-1.5">
+                      <label className="block text-sm font-medium text-slate-700">Interest Free Till</label>
+                      <input type="date" name="interest_free_till" value={formData.interest_free_till} onChange={handleChange}
+                        className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.interest_free_till ? "border-rose-300" : "border-slate-200"}`} />
+                      {errors.interest_free_till && <p className="text-xs text-rose-500">{errors.interest_free_till}</p>}
+                      <p className="text-xs text-slate-400">No interest charged till this date</p>
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Post-Due Interest Rate (%)
-                      </label>
-                      <input
-                        type="number"
-                        name="post_due_interest_rate"
-                        value={formData.post_due_interest_rate}
-                        onChange={handleChange}
-                        step="0.01"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="18.00"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Rate after maturity date
-                      </p>
+                    <div className="space-y-1.5">
+                      <label className="block text-sm font-medium text-slate-700">Post-Due Interest Rate (%)</label>
+                      <input type="number" name="post_due_interest_rate" value={formData.post_due_interest_rate} onChange={handleChange} step="0.01" placeholder="18.00"
+                        className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
+                      <p className="text-xs text-slate-400">Rate after maturity date</p>
                     </div>
                   </div>
                 </div>
               )}
 
               {/* Notes */}
-              <div className="border-t border-gray-200 pt-6 mt-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notes
-                </label>
-                <textarea
-                  name="notes"
-                  value={formData.notes}
-                  onChange={handleChange}
-                  rows="4"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Add any additional notes about this loan"
-                />
+              <div className="border-t border-slate-100 pt-5 mt-5">
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes</label>
+                <textarea name="notes" value={formData.notes} onChange={handleChange} rows="3" placeholder="Add any additional notes"
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all resize-none" />
               </div>
 
               {/* Actions */}
               <div className="flex justify-between pt-4">
                 {!isEditMode && (
-                  <button
-                    type="button"
-                    onClick={handleBack}
-                    className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                  >
-                    Back
-                  </button>
+                  <button type="button" onClick={handleBack} className="px-5 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-medium">Back</button>
                 )}
-                <div className={`flex space-x-4 ${isEditMode ? "w-full" : ""}`}>
-                  <button
-                    type="button"
-                    onClick={() => navigate("/loans")}
-                    className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={
-                      createMutation.isPending || updateMutation.isPending
-                    }
-                    className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
-                  >
-                    {createMutation.isPending || updateMutation.isPending
-                      ? "Saving..."
-                      : isEditMode
-                        ? "Update Loan"
-                        : "Create Loan"}
+                <div className={`flex gap-3 ${isEditMode ? "w-full" : ""}`}>
+                  <button type="button" onClick={() => navigate("/loans")} className="flex-1 px-5 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-medium">Cancel</button>
+                  <button type="submit" disabled={createMutation.isPending || updateMutation.isPending}
+                    className="flex-1 px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium disabled:opacity-50 shadow-sm shadow-indigo-500/20 active:scale-[0.98]">
+                    {createMutation.isPending || updateMutation.isPending ? "Saving..." : isEditMode ? "Update Loan" : "Create Loan"}
                   </button>
                 </div>
               </div>
             </div>
           )}
         </form>
-      </div>
+        </Card>
+      </PageBody>
     </div>
   );
 }

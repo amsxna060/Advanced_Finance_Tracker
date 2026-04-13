@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import api from "../../lib/api";
+import { GreyedOut } from "../../components/ui";
 
 export default function Reports() {
   const { user } = useAuth();
@@ -103,6 +104,7 @@ export default function Reports() {
   };
 
   return (
+    <GreyedOut label="Under Review">
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
@@ -330,5 +332,6 @@ export default function Reports() {
         </div>
       </div>
     </div>
+    </GreyedOut>
   );
 }

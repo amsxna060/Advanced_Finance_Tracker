@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
+import { PageHero, PageBody, Card } from "../../components/ui";
 
 const INITIAL = {
   name: "",
@@ -61,28 +62,25 @@ export default function AccountForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-xl mx-auto">
-        <button
-          onClick={() => navigate("/accounts")}
-          className="text-gray-500 hover:text-gray-900 text-sm mb-4"
-        >
-          ← Back to Accounts
-        </button>
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">
-            {isEdit ? "Edit Account" : "New Account"}
-          </h1>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        title={isEdit ? "Edit Account" : "New Account"}
+        backTo="/accounts"
+        compact
+      />
+
+      <PageBody className="max-w-xl">
+        <Card className="p-6">
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm">
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Account Name *
               </label>
               <input
@@ -91,19 +89,19 @@ export default function AccountForm() {
                 onChange={handleChange}
                 required
                 placeholder="e.g. Cash in Hand, HDFC Savings"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Account Type *
               </label>
               <select
                 name="account_type"
                 value={form.account_type}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               >
                 <option value="cash">Cash</option>
                 <option value="savings">Savings Bank</option>
@@ -115,7 +113,7 @@ export default function AccountForm() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Bank Name
                 </label>
                 <input
@@ -123,11 +121,11 @@ export default function AccountForm() {
                   value={form.bank_name}
                   onChange={handleChange}
                   placeholder="HDFC, SBI, ICICI…"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Account Number
                 </label>
                 <input
@@ -135,13 +133,13 @@ export default function AccountForm() {
                   value={form.account_number}
                   onChange={handleChange}
                   placeholder="Last 4 digits or full"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Opening Balance (₹)
               </label>
               <input
@@ -149,15 +147,15 @@ export default function AccountForm() {
                 type="number"
                 value={form.opening_balance}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               />
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-slate-400 mt-1">
                 Balance at the time of adding this account
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
                 Notes
               </label>
               <textarea
@@ -165,7 +163,7 @@ export default function AccountForm() {
                 value={form.notes}
                 onChange={handleChange}
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               />
             </div>
 
@@ -173,7 +171,7 @@ export default function AccountForm() {
               <button
                 type="submit"
                 disabled={mutation.isPending}
-                className="flex-1 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium disabled:opacity-50"
+                className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-medium disabled:opacity-50 shadow-sm active:scale-[0.98]"
               >
                 {mutation.isPending
                   ? "Saving…"
@@ -184,14 +182,14 @@ export default function AccountForm() {
               <button
                 type="button"
                 onClick={() => navigate("/accounts")}
-                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="px-3.5 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium"
               >
                 Cancel
               </button>
             </div>
           </form>
-        </div>
-      </div>
+        </Card>
+      </PageBody>
     </div>
   );
 }

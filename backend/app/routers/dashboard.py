@@ -630,6 +630,17 @@ def get_dashboard_v2(
             "disbursed_date": loan.disbursed_date.isoformat() if loan.disbursed_date else None,
         })
 
+    # Weighted average per-annum rate: active EMI + Interest-Only loans (given) only
+    _rate_w = Decimal("0")
+    _rate_p = Decimal("0")
+    for loan in loans_given:
+        if loan.status == "active" and loan.loan_type in ("emi", "interest_only") and loan.interest_rate:
+            _pa = _decimal(loan.principal_amount)
+            _ra = _decimal(loan.interest_rate)
+            _rate_w += _pa * _ra
+            _rate_p += _pa
+    avg_lending_rate_pa = float(_rate_w / _rate_p) if _rate_p > 0 else 0.0
+
     # ── BORROWING ────────────────────────────────────────────────────────
     total_borrowed = Decimal("0")
     total_outstanding_payable = Decimal("0")
@@ -868,57 +879,63 @@ def get_dashboard_v2(
     # Interest-only: never paid first, then oldest payment first (most urgent at top)
     interest_only_alerts.sort(key=lambda a: a["last_payment_date"] or "0000-00-00")
 
-    # ── THIS MONTH COLLECTIONS ───────────────────────────────────────────
+    # ── THIS MONTH COLLECTIONS (EMI + Interest-Only + Short-term >60 days profit) ─
+    def _calc_period_collections(pmts, source_loans, period_start, period_end):
+        """Returns (emi_collected, io_interest, st_profit, total).
+        EMI: full payment amount.
+        Interest-Only: interest portion only.
+        Short-term: only closed loans with duration >60 days, only the overpaid profit.
+        Obligations excluded entirely.
+        """
+        emi_c = Decimal("0")
+        io_c = Decimal("0")
+        for p in pmts:
+            loan_obj = p.loan
+            if not loan_obj:
+                continue
+            lt_p = loan_obj.loan_type
+            if lt_p == "emi":
+                emi_c += _decimal(p.amount_paid)
+            elif lt_p == "interest_only":
+                io_c += _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+            # short_term handled via closed loans below
+        # Short-term profit: closed in this period, duration >60 days, only overpaid portion
+        st_p = Decimal("0")
+        for loan in source_loans:
+            if (
+                loan.status == "closed"
+                and loan.loan_type == "short_term"
+                and loan.actual_end_date
+                and period_start <= loan.actual_end_date <= period_end
+            ):
+                start_d = loan.disbursed_date
+                end_d = loan.actual_end_date
+                if start_d and (end_d - start_d).days > 60:
+                    princ_st = _decimal(loan.principal_amount)
+                    recv_st = sum(_decimal(pp.amount_paid) for pp in loan.payments)
+                    profit_st = recv_st - princ_st
+                    if profit_st > 0:
+                        st_p += profit_st
+        return emi_c, io_c, st_p, emi_c + io_c + st_p
+
     tm_payments = (
         db.query(LoanPayment)
         .join(Loan, Loan.id == LoanPayment.loan_id)
         .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= month_start, LoanPayment.payment_date <= today)
         .all()
     )
-    coll_total = Decimal("0")
-    coll_interest_total = Decimal("0")
-
-    # Pre-compute total all-time payments per loan for EMI return logic
-    loan_total_paid: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
-    for loan in loans_given:
-        for p in loan.payments:
-            loan_total_paid[loan.id] += _decimal(p.amount_paid)
-
-    # Pre-compute principal per loan
-    loan_principal: Dict[int, Decimal] = {}
-    for loan in loans_given:
-        loan_principal[loan.id] = _decimal(loan.principal_amount)
-
-    for p in tm_payments:
-        amt = _decimal(p.amount_paid)
-        coll_total += amt
-        interest_part = _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
-        lt = p.loan.loan_type if p.loan else "other"
-        if lt == "emi":
-            # For EMI: only count interest as return if total received > principal
-            total_recv = loan_total_paid.get(p.loan_id, Decimal("0"))
-            princ = loan_principal.get(p.loan_id, Decimal("0"))
-            if total_recv > princ:
-                coll_interest_total += interest_part
-        else:
-            # For interest-only, short-term: interest is always a return
-            coll_interest_total += interest_part
-
-    # Obligation settlements this month (receivable only)
-    tm_settlements = (
-        db.query(ObligationSettlement)
-        .join(MoneyObligation, MoneyObligation.id == ObligationSettlement.obligation_id)
-        .filter(
-            MoneyObligation.obligation_type == "receivable",
-            ObligationSettlement.settlement_date >= month_start,
-            ObligationSettlement.settlement_date <= today,
-        )
+    lm_payments = (
+        db.query(LoanPayment)
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= last_month_start, LoanPayment.payment_date <= last_month_end)
         .all()
     )
-    obligation_collected = sum(_decimal(s.amount) for s in tm_settlements)
-    coll_total += obligation_collected
 
-    # Profit from loans CLOSED this month (settled only)
+    tm_emi, tm_io, tm_st_profit, tm_total_collected = _calc_period_collections(tm_payments, loans_given, month_start, today)
+    lm_emi, lm_io, lm_st, lm_total_collected = _calc_period_collections(lm_payments, loans_given, last_month_start, last_month_end)
+    collection_trend_pct = float((tm_total_collected - lm_total_collected) / lm_total_collected * 100) if lm_total_collected > 0 else 0.0
+
+    # Profit from ALL loans closed this month (for closed_loan_profit display)
     closed_this_month = [
         loan for loan in loans_given
         if loan.status == "closed" and loan.actual_end_date
@@ -990,6 +1007,7 @@ def get_dashboard_v2(
             "total_outstanding": _f(total_outstanding_receivable),
             "total_interest_earned": _f(total_interest_earned),
             "interest_earned_pct": round(float(total_interest_earned / total_lent_all_time * 100), 1) if total_lent_all_time > 0 else 0,
+            "avg_lending_rate_pa": round(avg_lending_rate_pa, 2),
             "total_principal_recovered": _f(total_principal_recovered),
             "active_count": sum(1 for l in loans_given if l.status == "active"),
             "by_type": {
@@ -1032,8 +1050,12 @@ def get_dashboard_v2(
         "interest_only_alerts": interest_only_alerts,
         "this_month": {
             "month_name": today.strftime("%B %Y"),
-            "total_collected": _f(coll_total),
-            "total_returns": _f(coll_interest_total),
+            "total_collected": _f(tm_total_collected),
+            "emi_collected": _f(tm_emi),
+            "interest_collected": _f(tm_io),
+            "short_term_profit": _f(tm_st_profit),
+            "last_month_total": _f(lm_total_collected),
+            "collection_trend_pct": round(collection_trend_pct, 1),
             "closed_loan_profit": _f(closed_profit),
             "closed_loan_profit_pct": round(closed_profit_pct, 1),
             "closed_loan_count": len(closed_this_month),

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { GreyedOut } from "../../components/ui";
 
 const COLORS = {
   cash: "#3b82f6",
@@ -147,6 +148,7 @@ export default function Assets() {
   ].filter((d) => d.value > 0);
 
   return (
+    <GreyedOut label="Under Review">
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b sticky top-0 z-10">
@@ -770,5 +772,6 @@ export default function Assets() {
         </div>
       </div>
     </div>
+    </GreyedOut>
   );
 }

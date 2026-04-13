@@ -52,7 +52,7 @@ export default function GlobalSearch() {
         <select
           value={searchType}
           onChange={(e) => setSearchType(e.target.value)}
-          className="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3.5 py-2.5 border border-slate-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
         >
           <option value="all">All</option>
           <option value="contacts">Contacts</option>
@@ -72,10 +72,10 @@ export default function GlobalSearch() {
             }}
             onFocus={() => searchTerm.length >= 2 && setIsOpen(true)}
             placeholder="Search across all modules..."
-            className="w-full px-4 py-2 pl-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3.5 py-2.5 pl-10 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
           />
           <svg
-            className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
+            className="absolute left-3 top-2.5 h-5 w-5 text-slate-400"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -92,12 +92,12 @@ export default function GlobalSearch() {
 
       {/* Search Results Dropdown */}
       {isOpen && searchTerm.length >= 2 && (
-        <div className="absolute z-50 w-full mt-2 bg-white border rounded-lg shadow-lg max-h-96 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-2 bg-white rounded-xl border border-slate-200 shadow-lg max-h-96 overflow-y-auto">
           <div className="p-4">
-            <div className="text-sm text-gray-500 mb-2">
+            <div className="text-sm text-slate-500 mb-2">
               Advanced search functionality coming soon! This will allow you to:
             </div>
-            <ul className="text-sm text-gray-600 space-y-1 ml-4 list-disc">
+            <ul className="text-sm text-slate-600 space-y-1 ml-4 list-disc">
               <li>
                 Search across all contacts, loans, properties, and partnerships
               </li>
@@ -106,14 +106,14 @@ export default function GlobalSearch() {
               <li>Save frequently used searches</li>
               <li>Export filtered results</li>
             </ul>
-            <div className="mt-3 text-xs text-gray-400">
+            <div className="mt-3 text-xs text-slate-400">
               For now, use the filter options on each module page.
             </div>
           </div>
 
           <button
             onClick={() => setIsOpen(false)}
-            className="w-full px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 border-t"
+            className="w-full px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors border-t"
           >
             Close
           </button>

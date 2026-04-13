@@ -1,17 +1,10 @@
 import { useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Edit, Trash2 } from "lucide-react";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
-
-const STATUS_COLORS = {
-  negotiating: "bg-yellow-100 text-yellow-800",
-  advance_given: "bg-orange-100 text-orange-800",
-  buyer_found: "bg-blue-100 text-blue-800",
-  registry_done: "bg-purple-100 text-purple-800",
-  settled: "bg-green-100 text-green-800",
-  cancelled: "bg-red-100 text-red-800",
-};
+import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
 
 function PlotDiagram({ left, right, top, bottom, area, roads }) {
   const hasAny = left || right || top || bottom;
@@ -169,9 +162,9 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
 function InfoRow({ label, value }) {
   if (!value && value !== 0) return null;
   return (
-    <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-900 text-right max-w-[60%]">
+    <div className="flex justify-between py-2 border-b border-slate-100 last:border-0">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className="text-sm font-medium text-slate-900 text-right max-w-[60%]">
         {value}
       </span>
     </div>
@@ -263,9 +256,9 @@ function SitePlotsSection({ propertyId, plots, accounts, isSettled }) {
   const totalAreaSold = plots.reduce((s, p) => s + parseFloat(p.area_sqft || 0), 0);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-semibold text-gray-800">Plots Sold</h2>
+        <h2 className="text-base font-bold text-slate-800">Plots Sold</h2>
         {!isSettled && (
           <button
             onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyPlot); }}
@@ -277,70 +270,70 @@ function SitePlotsSection({ propertyId, plots, accounts, isSettled }) {
       </div>
 
       {showForm && (
-        <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+        <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200/60 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Plot Number</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Plot Number</label>
               <input type="text" value={form.plot_number} onChange={(e) => set("plot_number", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. A-1" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" placeholder="e.g. A-1" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Area (sqft)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Area (sqft)</label>
               <input type="number" step="0.001" value={form.area_sqft} onChange={(e) => set("area_sqft", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="0" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" placeholder="0" min="0" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Sold Date</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Sold Date</label>
               <input type="date" value={form.sold_date} onChange={(e) => set("sold_date", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">North (ft)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">North (ft)</label>
               <input type="number" step="0.001" value={form.side_north_ft} onChange={(e) => set("side_north_ft", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" min="0" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">South (ft)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">South (ft)</label>
               <input type="number" step="0.001" value={form.side_south_ft} onChange={(e) => set("side_south_ft", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" min="0" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">East (ft)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">East (ft)</label>
               <input type="number" step="0.001" value={form.side_east_ft} onChange={(e) => set("side_east_ft", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" min="0" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">West (ft)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">West (ft)</label>
               <input type="number" step="0.001" value={form.side_west_ft} onChange={(e) => set("side_west_ft", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" min="0" />
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Price / sqft (₹)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Price / sqft (₹)</label>
               <input type="number" step="0.001" value={form.sold_price_per_sqft} onChange={(e) => set("sold_price_per_sqft", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" min="0" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Calculated Price (₹)</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Calculated Price (₹)</label>
               <input type="number" step="0.001" value={form.calculated_price} onChange={(e) => set("calculated_price", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" min="0" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Buyer Name</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Buyer Name</label>
               <input type="text" value={form.buyer_name} onChange={(e) => set("buyer_name", e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Buyer name" />
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" placeholder="Buyer name" />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
             <input type="text" value={form.notes} onChange={(e) => set("notes", e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Optional" />
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" placeholder="Optional" />
           </div>
           <button onClick={handleSave} disabled={saveMutation.isPending}
-            className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            className="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
             {saveMutation.isPending ? "Saving…" : editingId ? "Update Plot" : "Add Plot"}
           </button>
         </div>
@@ -351,39 +344,39 @@ function SitePlotsSection({ propertyId, plots, accounts, isSettled }) {
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-2 text-gray-500 font-medium">Plot</th>
-                  <th className="text-right py-2 text-gray-500 font-medium">Area</th>
-                  <th className="text-right py-2 text-gray-500 font-medium">Rate/sqft</th>
-                  <th className="text-right py-2 text-gray-500 font-medium">Price</th>
-                  <th className="text-left py-2 text-gray-500 font-medium pl-3">Buyer</th>
-                  <th className="text-left py-2 text-gray-500 font-medium pl-3">Date</th>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left py-2 text-slate-500 font-medium">Plot</th>
+                  <th className="text-right py-2 text-slate-500 font-medium">Area</th>
+                  <th className="text-right py-2 text-slate-500 font-medium">Rate/sqft</th>
+                  <th className="text-right py-2 text-slate-500 font-medium">Price</th>
+                  <th className="text-left py-2 text-slate-500 font-medium pl-3">Buyer</th>
+                  <th className="text-left py-2 text-slate-500 font-medium pl-3">Date</th>
                   <th className="py-2 w-20"></th>
                 </tr>
               </thead>
               <tbody>
                 {plots.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-100">
+                  <tr key={p.id} className="border-b border-slate-100">
                     <td className="py-2 font-medium">{p.plot_number || "—"}</td>
                     <td className="text-right py-2">{p.area_sqft ? `${Number(p.area_sqft).toLocaleString()} sqft` : "—"}</td>
                     <td className="text-right py-2">{p.sold_price_per_sqft ? `₹${Number(p.sold_price_per_sqft).toLocaleString()}` : "—"}</td>
-                    <td className="text-right py-2 font-semibold text-green-700">{p.calculated_price ? formatCurrency(p.calculated_price) : "—"}</td>
+                    <td className="text-right py-2 font-semibold text-emerald-700">{p.calculated_price ? formatCurrency(p.calculated_price) : "—"}</td>
                     <td className="py-2 pl-3">{p.buyer_name || "—"}</td>
-                    <td className="py-2 pl-3 text-gray-500">{p.sold_date ? formatDate(p.sold_date) : "—"}</td>
+                    <td className="py-2 pl-3 text-slate-500">{p.sold_date ? formatDate(p.sold_date) : "—"}</td>
                     <td className="py-2">
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => openEdit(p)} className="text-xs text-blue-600 hover:underline">Edit</button>
                         <button onClick={() => { if (window.confirm("Delete this plot?")) deleteMutation.mutate(p.id); }}
-                          className="text-xs text-red-600 hover:underline">Del</button>
+                          className="text-xs text-rose-600 hover:underline">Del</button>
                       </div>
                     </td>
                   </tr>
                 ))}
-                <tr className="border-t border-gray-300 font-semibold">
+                <tr className="border-t border-slate-300 font-semibold">
                   <td className="py-2">Total</td>
                   <td className="text-right py-2">{totalAreaSold.toLocaleString()} sqft</td>
                   <td></td>
-                  <td className="text-right py-2 text-green-700">{formatCurrency(totalRevenue)}</td>
+                  <td className="text-right py-2 text-emerald-700">{formatCurrency(totalRevenue)}</td>
                   <td colSpan={3}></td>
                 </tr>
               </tbody>
@@ -391,7 +384,7 @@ function SitePlotsSection({ propertyId, plots, accounts, isSettled }) {
           </div>
         </>
       ) : (
-        <p className="text-sm text-gray-400 italic text-center py-4">No plots sold yet.</p>
+        <p className="text-sm text-slate-400 italic text-center py-4">No plots sold yet.</p>
       )}
     </div>
   );
@@ -585,17 +578,17 @@ export default function PropertyDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-2 border-indigo-200 border-t-indigo-600"></div>
       </div>
     );
   }
 
   if (isError || !data?.property) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-500 mb-4">Property deal not found.</p>
+          <p className="text-slate-500 mb-4">Property deal not found.</p>
           <button
             onClick={() => navigate("/properties")}
             className="text-blue-600 hover:underline"
@@ -739,83 +732,64 @@ export default function PropertyDetail() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4">
-      <div className="max-w-4xl mx-auto space-y-5">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/properties")}
-              className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200"
-            >
-              ←
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                {property.title}
-              </h1>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[property.status] || "bg-gray-100 text-gray-700"}`}
-                >
-                  {property.status?.replace(/_/g, " ")}
-                </span>
-                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                  {isSite ? "Site" : "Plot"} ·{" "}
-                  {property.deal_type?.replace(/_/g, " ")}
-                </span>
-                {property.location && (
-                  <span className="text-xs text-gray-500">
-                    📍 {property.location}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        title={property.title || "Property Details"}
+        subtitle={`${isSite ? "Site" : "Plot"} · ${property.deal_type?.replace(/_/g, " ")} · ${property.status?.replace(/_/g, " ")}${property.location ? ` · 📍 ${property.location}` : ""}`}
+        backTo="/properties"
+        actions={
           <div className="flex gap-2">
-            <button
-              onClick={() => navigate(`/properties/${id}/edit`)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm("Delete this deal?"))
-                  deletePropertyMutation.mutate();
-              }}
-              className="px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
-            >
-              Delete
-            </button>
+            <Button variant="white" icon={Edit} onClick={() => navigate(`/properties/${id}/edit`)}>Edit</Button>
+            <Button variant="white" icon={Trash2} onClick={() => { if (window.confirm("Delete this deal?")) deletePropertyMutation.mutate(); }}>Delete</Button>
           </div>
+        }
+      >
+        <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {isSite ? (
+            <>
+              <HeroStat label="My Investment" value={formatCurrency(property.my_investment || 0)} accent="indigo" />
+              <HeroStat label="Total Profit Received" value={formatCurrency(property.total_profit_received || 0)} accent="emerald" />
+              <HeroStat label="My Share" value={`${property.my_share_percentage || 0}%`} accent="violet" />
+              <HeroStat label="Status" value={property.status?.replace(/_/g, " ")} accent={isSettled ? "teal" : "amber"} />
+            </>
+          ) : (
+            <>
+              <HeroStat label="Total Seller Value" value={formatCurrency(property.total_seller_value || 0)} accent="indigo" />
+              <HeroStat label="Advance Paid" value={formatCurrency(property.advance_paid || 0)} accent="amber" />
+              <HeroStat label="Net Profit" value={formatCurrency(property.net_profit || 0)} accent={parseFloat(property.net_profit || 0) >= 0 ? "teal" : "rose"} />
+              <HeroStat label="Broker Commission" value={formatCurrency(property.broker_commission || 0)} accent="violet" />
+            </>
+          )}
         </div>
+      </PageHero>
+      <PageBody className="max-w-4xl">
+        <div className="space-y-5">
 
         {/* Settlement Result Banner */}
         {displaySettlementSummary && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-2xl">✅</span>
-              <h3 className="text-lg font-bold text-green-800">
+              <h3 className="text-lg font-bold text-emerald-800">
                 Deal Settled Successfully!
               </h3>
             </div>
             {displaySettlementSummary.deal_type === "site" ? (
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <span className="text-gray-500">My Investment:</span>{" "}
+                  <span className="text-slate-500">My Investment:</span>{" "}
                   <span className="font-semibold">
                     {formatCurrency(displaySettlementSummary.my_investment)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-500">My Profit:</span>{" "}
-                  <span className="font-semibold text-green-700">
+                  <span className="text-slate-500">My Profit:</span>{" "}
+                  <span className="font-semibold text-emerald-700">
                     {formatCurrency(displaySettlementSummary.my_profit)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Total Returned:</span>{" "}
+                  <span className="text-slate-500">Total Returned:</span>{" "}
                   <span className="font-semibold">
                     {formatCurrency(
                       displaySettlementSummary.total_returned_to_me,
@@ -824,7 +798,7 @@ export default function PropertyDetail() {
                 </div>
                 {displaySettlementSummary.roi_per_annum_percent && (
                   <div>
-                    <span className="text-gray-500">ROI p.a.:</span>{" "}
+                    <span className="text-slate-500">ROI p.a.:</span>{" "}
                     <span className="font-semibold text-blue-700">
                       {displaySettlementSummary.roi_per_annum_percent.toFixed(
                         2,
@@ -835,7 +809,7 @@ export default function PropertyDetail() {
                 )}
                 {displaySettlementSummary.duration_months && (
                   <div>
-                    <span className="text-gray-500">Duration:</span>{" "}
+                    <span className="text-slate-500">Duration:</span>{" "}
                     <span className="font-semibold">
                       {displaySettlementSummary.duration_months} months
                     </span>
@@ -846,7 +820,7 @@ export default function PropertyDetail() {
               <>
                 {/* 1. Money from Buyer */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                  <div className="bg-blue-50 rounded-lg p-3">
+                  <div className="bg-blue-50 rounded-xl p-3">
                     <div className="text-xs text-blue-500 font-medium mb-0.5">
                       Money from Buyer
                     </div>
@@ -856,7 +830,7 @@ export default function PropertyDetail() {
                       )}
                     </div>
                   </div>
-                  <div className="bg-amber-50 rounded-lg p-3">
+                  <div className="bg-amber-50 rounded-xl p-3">
                     <div className="text-xs text-amber-600 font-medium mb-0.5">
                       Brokerage{" "}
                       {displaySettlementSummary.broker_name
@@ -870,7 +844,7 @@ export default function PropertyDetail() {
                     </div>
                   </div>
                   {displaySettlementSummary.other_expenses > 0 && (
-                    <div className="bg-orange-50 rounded-lg p-3">
+                    <div className="bg-orange-50 rounded-xl p-3">
                       <div className="text-xs text-orange-600 font-medium mb-0.5">
                         Other Expenses
                       </div>
@@ -881,16 +855,16 @@ export default function PropertyDetail() {
                       </div>
                     </div>
                   )}
-                  <div className="bg-red-50 rounded-lg p-3">
-                    <div className="text-xs text-red-500 font-medium mb-0.5">
+                  <div className="bg-rose-50 rounded-xl p-3">
+                    <div className="text-xs text-rose-500 font-medium mb-0.5">
                       Remaining to Seller
                     </div>
-                    <div className="font-bold text-red-700 text-base">
+                    <div className="font-bold text-rose-700 text-base">
                       {formatCurrency(
                         displaySettlementSummary.seller_remaining,
                       )}
                     </div>
-                    <div className="text-xs text-red-400">
+                    <div className="text-xs text-rose-400">
                       (Total{" "}
                       {formatCurrency(
                         displaySettlementSummary.total_seller_value,
@@ -905,28 +879,28 @@ export default function PropertyDetail() {
                 {/* 2. Partner Shares */}
                 {displaySettlementSummary.partner_settlements?.length > 0 && (
                   <div className="overflow-x-auto">
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                       Partner Distribution
                     </div>
                     <table className="min-w-full text-sm">
                       <thead>
-                        <tr className="border-b border-green-200">
-                          <th className="text-left py-2 text-gray-600 font-medium">
+                        <tr className="border-b border-emerald-200">
+                          <th className="text-left py-2 text-slate-600 font-medium">
                             Partner
                           </th>
-                          <th className="text-right py-2 text-gray-600 font-medium">
+                          <th className="text-right py-2 text-slate-600 font-medium">
                             Share
                           </th>
-                          <th className="text-right py-2 text-gray-600 font-medium">
+                          <th className="text-right py-2 text-slate-600 font-medium">
                             Advance Back
                           </th>
-                          <th className="text-right py-2 text-gray-600 font-medium">
+                          <th className="text-right py-2 text-slate-600 font-medium">
                             Exp. Back
                           </th>
-                          <th className="text-right py-2 text-gray-600 font-medium">
+                          <th className="text-right py-2 text-slate-600 font-medium">
                             Profit Share
                           </th>
-                          <th className="text-right py-2 text-gray-600 font-medium">
+                          <th className="text-right py-2 text-slate-600 font-medium">
                             Total
                           </th>
                         </tr>
@@ -934,7 +908,7 @@ export default function PropertyDetail() {
                       <tbody>
                         {displaySettlementSummary.partner_settlements.map(
                           (ps, i) => (
-                            <tr key={i} className="border-b border-green-100">
+                            <tr key={i} className="border-b border-emerald-100">
                               <td className="py-2 font-medium">
                                 {ps.contact_name}
                                 {ps.is_self && " (You)"}
@@ -953,7 +927,7 @@ export default function PropertyDetail() {
                               <td className="text-right py-2">
                                 {formatCurrency(ps.profit_share)}
                               </td>
-                              <td className="text-right py-2 font-semibold text-green-700">
+                              <td className="text-right py-2 font-semibold text-emerald-700">
                                 {formatCurrency(ps.total_to_receive)}
                               </td>
                             </tr>
@@ -965,16 +939,16 @@ export default function PropertyDetail() {
                 )}
 
                 {/* 3. Summary row */}
-                <div className="mt-3 pt-3 border-t border-green-200 flex flex-wrap gap-4 text-sm">
+                <div className="mt-3 pt-3 border-t border-emerald-200 flex flex-wrap gap-4 text-sm">
                   <div>
-                    <span className="text-gray-500">Net Profit:</span>{" "}
-                    <span className="font-bold text-green-700">
+                    <span className="text-slate-500">Net Profit:</span>{" "}
+                    <span className="font-bold text-emerald-700">
                       {formatCurrency(displaySettlementSummary.net_profit)}
                     </span>
                   </div>
                   {displaySettlementSummary.broker_commission > 0 && (
                     <div>
-                      <span className="text-gray-500">Brokerage paid:</span>{" "}
+                      <span className="text-slate-500">Brokerage paid:</span>{" "}
                       <span className="font-semibold text-amber-700">
                         {formatCurrency(
                           displaySettlementSummary.broker_commission,
@@ -992,8 +966,8 @@ export default function PropertyDetail() {
           {/* Main content */}
           <div className="lg:col-span-2 space-y-5">
             {/* Property Overview */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-              <h2 className="text-base font-semibold text-gray-800 mb-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+              <h2 className="text-base font-bold text-slate-800 mb-4">
                 Property Overview
               </h2>
 
@@ -1016,12 +990,12 @@ export default function PropertyDetail() {
                     }
                   />
                   {/* My Investment with per-account breakdown */}
-                  <div className="py-2 border-b border-gray-100 last:border-0">
+                  <div className="py-2 border-b border-slate-100 last:border-0">
                     <div className="flex justify-between items-start">
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-slate-500">
                         My Investment
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-sm font-semibold text-slate-900">
                         {property.my_investment
                           ? formatCurrency(property.my_investment)
                           : "—"}
@@ -1156,8 +1130,8 @@ export default function PropertyDetail() {
 
             {/* Timeline (plot only) */}
             {!isSite && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-4">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                <h2 className="text-base font-bold text-slate-800 mb-4">
                   Timeline
                 </h2>
                 <InfoRow
@@ -1195,8 +1169,8 @@ export default function PropertyDetail() {
 
             {/* Settled profit details */}
             {isSettled && !isSite && property.net_profit && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-5">
-                <h2 className="text-base font-semibold text-green-800 mb-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
+                <h2 className="text-base font-semibold text-emerald-800 mb-3">
                   Settlement Details
                 </h2>
                 <InfoRow
@@ -1249,9 +1223,9 @@ export default function PropertyDetail() {
 
             {/* Partnership Info */}
             {!isSite && lp && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-base font-semibold text-gray-800">
+                  <h2 className="text-base font-bold text-slate-800">
                     Partnership
                   </h2>
                   <Link
@@ -1261,25 +1235,25 @@ export default function PropertyDetail() {
                     View Partnership →
                   </Link>
                 </div>
-                <p className="text-sm text-blue-700 bg-blue-50 px-3 py-2 rounded-lg mb-3">
+                <p className="text-sm text-blue-700 bg-blue-50 px-3 py-2.5 rounded-xl mb-3">
                   Linked to: <strong>{lp.partnership.title}</strong> (
                   {members.length} partner{members.length !== 1 ? "s" : ""})
                 </p>
                 {members.length > 0 && (
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-2 text-gray-500 font-medium">
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 text-slate-500 font-medium">
                           Partner
                         </th>
-                        <th className="text-right py-2 text-gray-500 font-medium">
+                        <th className="text-right py-2 text-slate-500 font-medium">
                           Share %
                         </th>
-                        <th className="text-right py-2 text-gray-500 font-medium">
+                        <th className="text-right py-2 text-slate-500 font-medium">
                           Advance
                         </th>
                         {isSettled && (
-                          <th className="text-right py-2 text-gray-500 font-medium">
+                          <th className="text-right py-2 text-slate-500 font-medium">
                             Total Received
                           </th>
                         )}
@@ -1287,7 +1261,7 @@ export default function PropertyDetail() {
                     </thead>
                     <tbody>
                       {members.map((m, i) => (
-                        <tr key={i} className="border-b border-gray-100">
+                        <tr key={i} className="border-b border-slate-100">
                           <td className="py-2 font-medium">
                             {m.member.is_self
                               ? "Self (You)"
@@ -1300,13 +1274,13 @@ export default function PropertyDetail() {
                             {formatCurrency(m.member.advance_contributed)}
                           </td>
                           {isSettled && (
-                            <td className="text-right py-2 text-green-700 font-semibold">
+                            <td className="text-right py-2 text-emerald-700 font-semibold">
                               {formatCurrency(m.member.total_received)}
                             </td>
                           )}
                         </tr>
                       ))}
-                      <tr className="border-t border-gray-300 font-semibold">
+                      <tr className="border-t border-slate-300 font-semibold">
                         <td className="py-2">Total</td>
                         <td className="text-right py-2"></td>
                         <td className="text-right py-2">
@@ -1321,9 +1295,9 @@ export default function PropertyDetail() {
             )}
 
             {/* Property Transactions / Advance Payments */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold text-gray-800">
+                <h2 className="text-base font-bold text-slate-800">
                   Advance Payments
                 </h2>
                 {!isSettled && (
@@ -1339,11 +1313,11 @@ export default function PropertyDetail() {
               {showAddAdvance && (
                 <form
                   onSubmit={handleAddAdvance}
-                  className="mb-4 p-3 bg-gray-50 rounded-lg space-y-3"
+                  className="mb-4 p-3 bg-slate-50 rounded-xl space-y-3"
                 >
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Amount (₹) *
                       </label>
                       <input
@@ -1357,12 +1331,12 @@ export default function PropertyDetail() {
                         }
                         required
                         min="1"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         placeholder="50000"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Date *
                       </label>
                       <input
@@ -1375,12 +1349,12 @@ export default function PropertyDetail() {
                           }))
                         }
                         required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       From Account
                     </label>
                     <select
@@ -1391,7 +1365,7 @@ export default function PropertyDetail() {
                           account_id: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     >
                       <option value="">— Select Account —</option>
                       {accounts.map((a) => (
@@ -1402,7 +1376,7 @@ export default function PropertyDetail() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Description
                     </label>
                     <input
@@ -1414,14 +1388,14 @@ export default function PropertyDetail() {
                           description: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="Advance to seller"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={addAdvanceMutation.isPending}
-                    className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                    className="w-full py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
                   >
                     {addAdvanceMutation.isPending
                       ? "Adding…"
@@ -1442,14 +1416,14 @@ export default function PropertyDetail() {
                   <>
                     <table className="min-w-full text-sm">
                       <thead>
-                        <tr className="border-b border-gray-200">
-                          <th className="text-left py-2 text-gray-500 font-medium">
+                        <tr className="border-b border-slate-200">
+                          <th className="text-left py-2 text-slate-500 font-medium">
                             Date
                           </th>
-                          <th className="text-right py-2 text-gray-500 font-medium">
+                          <th className="text-right py-2 text-slate-500 font-medium">
                             Amount
                           </th>
-                          <th className="text-left py-2 text-gray-500 font-medium pl-3">
+                          <th className="text-left py-2 text-slate-500 font-medium pl-3">
                             Account
                           </th>
                           {!isSettled && <th className="py-2 w-20"></th>}
@@ -1477,7 +1451,7 @@ export default function PropertyDetail() {
                                         txn_date: e.target.value,
                                       }))
                                     }
-                                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full border border-slate-200 rounded-xl px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                                   />
                                 </td>
                                 <td className="py-2 pr-2">
@@ -1490,7 +1464,7 @@ export default function PropertyDetail() {
                                         amount: e.target.value,
                                       }))
                                     }
-                                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-right focus:ring-1 focus:ring-blue-500"
+                                    className="w-full border border-slate-200 rounded-xl px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                                     min="1"
                                   />
                                 </td>
@@ -1503,7 +1477,7 @@ export default function PropertyDetail() {
                                         account_id: e.target.value,
                                       }))
                                     }
-                                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
+                                    className="w-full border border-slate-200 rounded-xl px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                                   >
                                     <option value="">— None —</option>
                                     {accounts.map((a) => (
@@ -1518,13 +1492,13 @@ export default function PropertyDetail() {
                                     <button
                                       onClick={() => handleSaveEditTxn(t.id)}
                                       disabled={updateAdvanceMutation.isPending}
-                                      className="px-2 py-1 text-[10px] bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                                      className="px-2 py-1 text-[10px] bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
                                     >
                                       Save
                                     </button>
                                     <button
                                       onClick={() => setEditingTxnId(null)}
-                                      className="px-2 py-1 text-[10px] bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                      className="px-2 py-1 text-[10px] bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200"
                                     >
                                       ✕
                                     </button>
@@ -1534,14 +1508,14 @@ export default function PropertyDetail() {
                             );
                           }
                           return (
-                            <tr key={t.id} className="border-b border-gray-100">
-                              <td className="py-2 text-gray-700">
+                            <tr key={t.id} className="border-b border-slate-100">
+                              <td className="py-2 text-slate-700">
                                 {formatDate(t.txn_date)}
                               </td>
-                              <td className="text-right py-2 font-medium text-gray-900">
+                              <td className="text-right py-2 font-medium text-slate-900">
                                 {formatCurrency(t.amount)}
                               </td>
-                              <td className="py-2 text-gray-600 pl-3">
+                              <td className="py-2 text-slate-600 pl-3">
                                 {acct?.name || "—"}
                               </td>
                               {!isSettled && (
@@ -1549,7 +1523,7 @@ export default function PropertyDetail() {
                                   <div className="flex gap-1 justify-end">
                                     <button
                                       onClick={() => handleStartEditTxn(t)}
-                                      className="px-2 py-0.5 text-[10px] text-blue-600 border border-blue-200 rounded hover:bg-blue-50"
+                                      className="px-2 py-0.5 text-[10px] text-indigo-600 border border-indigo-200 rounded hover:bg-indigo-50"
                                     >
                                       Edit
                                     </button>
@@ -1564,7 +1538,7 @@ export default function PropertyDetail() {
                                         }
                                       }}
                                       disabled={deleteAdvanceMutation.isPending}
-                                      className="px-2 py-0.5 text-[10px] text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                                      className="px-2 py-0.5 text-[10px] text-rose-600 border border-rose-200 rounded hover:bg-rose-50 disabled:opacity-50"
                                     >
                                       Del
                                     </button>
@@ -1574,7 +1548,7 @@ export default function PropertyDetail() {
                             </tr>
                           );
                         })}
-                        <tr className="border-t border-gray-300 font-semibold">
+                        <tr className="border-t border-slate-300 font-semibold">
                           <td className="py-2">Total</td>
                           <td className="text-right py-2 text-blue-700">
                             {formatCurrency(totalAdvance)}
@@ -1586,7 +1560,7 @@ export default function PropertyDetail() {
                     </table>
                   </>
                 ) : (
-                  <p className="text-sm text-gray-400 italic">
+                  <p className="text-sm text-slate-400 italic">
                     No advance payments recorded yet.
                   </p>
                 );
@@ -1594,9 +1568,9 @@ export default function PropertyDetail() {
             </div>
 
             {/* Other Expenses Section */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold text-gray-800">
+                <h2 className="text-base font-bold text-slate-800">
                   Other Expenses
                 </h2>
               </div>
@@ -1605,21 +1579,21 @@ export default function PropertyDetail() {
                 <>
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-2 text-gray-500 font-medium">Date</th>
-                        <th className="text-left py-2 text-gray-500 font-medium pl-2">Description</th>
-                        <th className="text-left py-2 text-gray-500 font-medium pl-2">Paid by</th>
-                        <th className="text-right py-2 text-gray-500 font-medium">Amount</th>
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 text-slate-500 font-medium">Date</th>
+                        <th className="text-left py-2 text-slate-500 font-medium pl-2">Description</th>
+                        <th className="text-left py-2 text-slate-500 font-medium pl-2">Paid by</th>
+                        <th className="text-right py-2 text-slate-500 font-medium">Amount</th>
                         {!isSettled && <th className="py-2 w-16"></th>}
                       </tr>
                     </thead>
                     <tbody>
                       {allOtherExpenses.map((t) => (
-                        <tr key={`${t.source}-${t.id}`} className="border-b border-gray-100">
-                          <td className="py-2 text-gray-700">{formatDate(t.txn_date)}</td>
-                          <td className="py-2 text-gray-600 pl-2">{t.description || "—"}</td>
+                        <tr key={`${t.source}-${t.id}`} className="border-b border-slate-100">
+                          <td className="py-2 text-slate-700">{formatDate(t.txn_date)}</td>
+                          <td className="py-2 text-slate-600 pl-2">{t.description || "—"}</td>
                           <td className="py-2 pl-2">
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${t.source === "partnership" ? "bg-purple-50 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${t.source === "partnership" ? "bg-purple-50 text-purple-700" : "bg-slate-100 text-slate-600"}`}>
                               {t.payer_name || "Self"}
                               {t.source === "partnership" && " (via partnership)"}
                             </span>
@@ -1636,18 +1610,18 @@ export default function PropertyDetail() {
                                       deleteAdvanceMutation.mutate(t.id);
                                   }}
                                   disabled={deleteAdvanceMutation.isPending}
-                                  className="px-2 py-0.5 text-[10px] text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                                  className="px-2 py-0.5 text-[10px] text-rose-600 border border-rose-200 rounded hover:bg-rose-50 disabled:opacity-50"
                                 >
                                   Del
                                 </button>
                               ) : (
-                                <span className="text-[10px] text-gray-400">via P</span>
+                                <span className="text-[10px] text-slate-400">via P</span>
                               )}
                             </td>
                           )}
                         </tr>
                       ))}
-                      <tr className="border-t border-gray-300 font-semibold">
+                      <tr className="border-t border-slate-300 font-semibold">
                         <td className="py-2" colSpan={3}>Total</td>
                         <td className="text-right py-2 text-orange-700">{formatCurrency(totalOtherExpenses)}</td>
                         {!isSettled && <td></td>}
@@ -1659,7 +1633,7 @@ export default function PropertyDetail() {
                   </p>
                 </>
               ) : (
-                <p className="text-sm text-gray-400 italic">No other expenses recorded yet.</p>
+                <p className="text-sm text-slate-400 italic">No other expenses recorded yet.</p>
               )}
             </div>
           </div>
@@ -1668,8 +1642,8 @@ export default function PropertyDetail() {
           <div className="space-y-5">
             {/* Settle button */}
             {!isSettled && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-3">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                <h2 className="text-base font-bold text-slate-800 mb-3">
                   Actions
                 </h2>
                 <button
@@ -1682,7 +1656,7 @@ export default function PropertyDetail() {
                     }));
                     setShowSettleModal(true);
                   }}
-                  className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 text-sm"
+                  className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] text-sm"
                 >
                   🤝 Settle Deal
                 </button>
@@ -1691,11 +1665,11 @@ export default function PropertyDetail() {
 
             {/* Property notes */}
             {property.notes && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <h2 className="text-base font-semibold text-gray-800 mb-2">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                <h2 className="text-base font-bold text-slate-800 mb-2">
                   Notes
                 </h2>
-                <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                <p className="text-sm text-slate-600 whitespace-pre-wrap">
                   {property.notes}
                 </p>
               </div>
@@ -1706,17 +1680,17 @@ export default function PropertyDetail() {
 
       {/* Settle Modal */}
       {showSettleModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="p-5 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900">Settle Deal</h2>
-              <p className="text-sm text-gray-500">{property.title}</p>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Settle Deal</h2>
+              <p className="text-sm text-slate-500">{property.title}</p>
             </div>
             <div className="p-5 space-y-4">
               {isSite ? (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
                       Total Profit Received (₹)
                     </label>
                     <input
@@ -1728,13 +1702,13 @@ export default function PropertyDetail() {
                           total_profit_received: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="Total profit from site deal"
                       min="0"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
                       Deal End Date
                     </label>
                     <input
@@ -1746,23 +1720,23 @@ export default function PropertyDetail() {
                           site_deal_end_date: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     />
                   </div>
                   {/* Site preview */}
                   {settleForm.total_profit_received && (
-                    <div className="bg-blue-50 rounded-lg p-4 text-sm space-y-1.5">
+                    <div className="bg-blue-50 rounded-xl p-4 text-sm space-y-1.5">
                       <div className="font-semibold text-blue-800 mb-2">
                         Settlement Preview
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">My Investment:</span>
+                        <span className="text-slate-600">My Investment:</span>
                         <span className="font-medium">
                           {formatCurrency(property.my_investment)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">
+                        <span className="text-slate-600">
                           Total Profit (project):
                         </span>
                         <span className="font-medium">
@@ -1770,7 +1744,7 @@ export default function PropertyDetail() {
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">My Share %:</span>
+                        <span className="text-slate-600">My Share %:</span>
                         <span className="font-medium">
                           {property.my_share_percentage}%
                         </span>
@@ -1792,7 +1766,7 @@ export default function PropertyDetail() {
               ) : (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
                       Final Registry Date
                     </label>
                     <input
@@ -1804,11 +1778,11 @@ export default function PropertyDetail() {
                           registry_date: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
                       Buyer Rate per sqft (₹)
                     </label>
                     <input
@@ -1820,14 +1794,14 @@ export default function PropertyDetail() {
                           buyer_rate_per_sqft: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="e.g. 800.000"
                       min="0"
                       step="0.001"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
                       Other Expenses (₹)
                     </label>
                     <input
@@ -1839,7 +1813,7 @@ export default function PropertyDetail() {
                           other_expenses: e.target.value,
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="0"
                       min="0"
                     />
@@ -1847,13 +1821,13 @@ export default function PropertyDetail() {
 
                   {/* Live calculation preview */}
                   {liveBuyerTotal !== null && (
-                    <div className="bg-gray-50 rounded-lg p-4 text-sm font-mono space-y-1.5 border border-gray-200">
+                    <div className="bg-slate-50 rounded-xl p-4 text-sm font-mono space-y-1.5 border border-slate-200/60">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Area:</span>
+                        <span className="text-slate-500">Area:</span>
                         <span>{Number(area).toLocaleString()} sqft</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Buyer Rate:</span>
+                        <span className="text-slate-500">Buyer Rate:</span>
                         <span>
                           ₹
                           {Number(
@@ -1862,43 +1836,43 @@ export default function PropertyDetail() {
                           /sqft
                         </span>
                       </div>
-                      <hr className="border-gray-300 my-1" />
+                      <hr className="border-slate-300 my-1" />
                       <div className="flex justify-between font-semibold">
                         <span>Total from Buyer:</span>
                         <span>{formatCurrency(liveBuyerTotal)}</span>
                       </div>
-                      <div className="flex justify-between text-gray-600">
+                      <div className="flex justify-between text-slate-600">
                         <span>Total to Seller:</span>
                         <span>{formatCurrency(sellerTotal)}</span>
                       </div>
-                      <hr className="border-gray-300 my-1" />
+                      <hr className="border-slate-300 my-1" />
                       <div className="flex justify-between font-semibold">
                         <span>Gross Profit:</span>
                         <span>{formatCurrency(liveGross)}</span>
                       </div>
-                      <div className="flex justify-between text-gray-500">
+                      <div className="flex justify-between text-slate-500">
                         <span>Broker Commission:</span>
                         <span>- {formatCurrency(brokerComm)}</span>
                       </div>
-                      <div className="flex justify-between text-gray-500">
+                      <div className="flex justify-between text-slate-500">
                         <span>Other Expenses:</span>
                         <span>
                           - {formatCurrency(isNaN(liveOther) ? 0 : liveOther)}
                         </span>
                       </div>
-                      <hr className="border-gray-300 my-1" />
-                      <div className="flex justify-between font-bold text-green-700 text-base">
+                      <hr className="border-slate-300 my-1" />
+                      <div className="flex justify-between font-bold text-emerald-700 text-base">
                         <span>Net Profit:</span>
                         <span>{formatCurrency(liveNet)}</span>
                       </div>
                       {members.length > 0 && liveNet !== null && (
                         <>
-                          <div className="flex justify-between text-gray-500 mt-1">
+                          <div className="flex justify-between text-slate-500 mt-1">
                             <span>Total Advance Pool:</span>
                             <span>{formatCurrency(totalAdvancePool)}</span>
                           </div>
-                          <hr className="border-gray-300 my-1" />
-                          <div className="font-semibold text-gray-700 mt-1">
+                          <hr className="border-slate-300 my-1" />
+                          <div className="font-semibold text-slate-700 mt-1">
                             Partner Breakdown:
                           </div>
                           {members.map((m, i) => {
@@ -1924,7 +1898,7 @@ export default function PropertyDetail() {
                               ? "Self (You)"
                               : m.contact?.name || "Unknown";
                             return (
-                              <div key={i} className="text-xs text-gray-600">
+                              <div key={i} className="text-xs text-slate-600">
                                 • {name} ({sharePct}%) — Advance:{" "}
                                 {formatCurrency(advance)}
                                 {otherExpBack > 0 && <> · Exp. Back: {formatCurrency(otherExpBack)}</>}
@@ -1941,20 +1915,20 @@ export default function PropertyDetail() {
                 </>
               )}
             </div>
-            <div className="p-5 border-t border-gray-200 flex gap-3 justify-end">
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button
                 onClick={() => {
                   setShowSettleModal(false);
                   setSettleResult(null);
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSettle}
                 disabled={settleMutation.isPending}
-                className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50"
               >
                 {settleMutation.isPending
                   ? "Settling..."
@@ -1964,6 +1938,7 @@ export default function PropertyDetail() {
           </div>
         </div>
       )}
+      </PageBody>
     </div>
   );
 }

@@ -45,13 +45,13 @@ export default function AdvancedFilter({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-4 mb-6">
+    <div className="bg-white rounded-2xl shadow p-4 mb-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h3 className="text-lg font-semibold">Filters</h3>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="text-sm text-blue-600 hover:text-blue-800"
+            className="text-sm text-indigo-600 hover:text-indigo-800"
           >
             {isExpanded ? "▼ Collapse" : "▶ Expand"}
           </button>
@@ -60,13 +60,13 @@ export default function AdvancedFilter({
         <div className="flex gap-2">
           <button
             onClick={() => setShowSaveDialog(true)}
-            className="px-3 py-1 text-sm text-blue-600 border border-blue-600 rounded hover:bg-blue-50"
+            className="px-3 py-1 text-sm text-indigo-600 border border-indigo-600 rounded-xl hover:bg-indigo-50 transition-colors"
           >
             Save Filter
           </button>
           <button
             onClick={onReset}
-            className="px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+            className="px-3 py-1 text-sm text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
           >
             Reset All
           </button>
@@ -79,7 +79,7 @@ export default function AdvancedFilter({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {Object.keys(filters).map((key) => (
               <div key={key}>
-                <label className="block text-sm font-medium text-gray-700 mb-1 capitalize">
+                <label className="block text-sm font-medium text-slate-700 mb-1 capitalize">
                   {key.replace(/_/g, " ")}
                 </label>
                 {typeof filters[key] === "boolean" ? (
@@ -88,7 +88,7 @@ export default function AdvancedFilter({
                     onChange={(e) =>
                       onFilterChange(key, e.target.value === "true")
                     }
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   >
                     <option value="false">No</option>
                     <option value="true">Yes</option>
@@ -98,7 +98,7 @@ export default function AdvancedFilter({
                     type="date"
                     value={filters[key] || ""}
                     onChange={(e) => onFilterChange(key, e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   />
                 ) : key.includes("amount") ||
                   key.includes("min") ||
@@ -108,14 +108,14 @@ export default function AdvancedFilter({
                     value={filters[key] || ""}
                     onChange={(e) => onFilterChange(key, e.target.value)}
                     placeholder="0"
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   />
                 ) : (
                   <input
                     type="text"
                     value={filters[key] || ""}
                     onChange={(e) => onFilterChange(key, e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   />
                 )}
               </div>
@@ -130,17 +130,17 @@ export default function AdvancedFilter({
                 {savedFilters.map((filter, index) => (
                   <div
                     key={index}
-                    className="flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-200 rounded-full"
+                    className="flex items-center gap-2 px-3 py-1 bg-indigo-50 border border-indigo-200 rounded-full"
                   >
                     <button
                       onClick={() => handleLoadFilter(filter)}
-                      className="text-sm text-blue-700 hover:text-blue-900"
+                      className="text-sm text-indigo-700 hover:text-indigo-900"
                     >
                       {filter.name}
                     </button>
                     <button
                       onClick={() => handleDeleteSavedFilter(index)}
-                      className="text-red-500 hover:text-red-700"
+                      className="text-rose-500 hover:text-rose-700"
                     >
                       ×
                     </button>
@@ -155,14 +155,14 @@ export default function AdvancedFilter({
       {/* Save Filter Dialog */}
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold mb-4">Save Current Filter</h3>
             <input
               type="text"
               value={filterName}
               onChange={(e) => setFilterName(e.target.value)}
               placeholder="Enter filter name..."
-              className="w-full px-3 py-2 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               autoFocus
             />
             <div className="flex gap-3 justify-end">
@@ -171,14 +171,14 @@ export default function AdvancedFilter({
                   setShowSaveDialog(false);
                   setFilterName("");
                 }}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                className="px-3.5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveFilter}
                 disabled={!filterName.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3.5 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Save
               </button>

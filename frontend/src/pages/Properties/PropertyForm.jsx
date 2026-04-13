@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { PageHero, PageBody } from "../../components/ui";
 
 const toNullableNumber = (value) => {
   if (value === "" || value === null || value === undefined) return null;
@@ -409,75 +410,61 @@ export default function PropertyForm() {
   const isSite = formData.property_type === "site";
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => navigate(-1)}
-            className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200"
-          >
-            ←
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isEditMode ? "Edit Property Deal" : "New Property Deal"}
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {isSite
-                ? "Site — investment tracking only"
-                : "Plot — middleman deal with partners"}
-            </p>
-          </div>
-        </div>
-
+    <div className="min-h-screen bg-slate-50">
+      <PageHero
+        compact
+        title={isEditMode ? "Edit Property Deal" : "New Property Deal"}
+        subtitle={isSite ? "Site — investment tracking only" : "Plot — middleman deal with partners"}
+        backTo="/properties"
+      />
+      <PageBody className="max-w-4xl">
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* ── Section 1: Basic Info ── */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">
+          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+            <h2 className="text-base font-bold text-slate-800 mb-4">
               Basic Info
             </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* Title */}
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Title <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.title}
                   onChange={(e) => set("title", e.target.value)}
-                  className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.title ? "border-red-400" : "border-gray-300"}`}
+                  className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.title ? "border-rose-400" : "border-slate-200"}`}
                   placeholder="e.g. Shivaji Nagar Plot Deal"
                 />
                 {errors.title && (
-                  <p className="text-red-500 text-xs mt-1">{errors.title}</p>
+                  <p className="text-rose-600 text-xs mt-1">{errors.title}</p>
                 )}
               </div>
 
               {/* Location */}
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Location
                 </label>
                 <input
                   type="text"
                   value={formData.location}
                   onChange={(e) => set("location", e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   placeholder="e.g. Shivaji Nagar, Nagpur"
                 />
               </div>
 
               {/* Deal Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Deal Type
                 </label>
                 <select
                   value={formData.deal_type}
                   onChange={(e) => set("deal_type", e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                 >
                   <option value="middleman">Middleman</option>
                   <option value="purchase_and_hold">Purchase &amp; Hold</option>
@@ -486,20 +473,20 @@ export default function PropertyForm() {
 
               {/* Property Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Property Type
                 </label>
                 <select
                   value={formData.property_type}
                   onChange={(e) => handlePropertyTypeChange(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
                   disabled={isEditMode}
                 >
                   <option value="plot">Plot</option>
                   <option value="site">Site</option>
                 </select>
                 {isEditMode && (
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     Property type cannot be changed after creation.
                   </p>
                 )}
@@ -509,63 +496,63 @@ export default function PropertyForm() {
 
           {/* ── SITE SECTIONS ── */}
           {isSite && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-base font-semibold text-gray-800 mb-4">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+              <h2 className="text-base font-bold text-slate-800 mb-4">
                 Site Details
               </h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
                     Total Area (sqft)
                   </label>
                   <input
                     type="number"
                     value={formData.total_area_sqft}
                     onChange={(e) => set("total_area_sqft", e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     placeholder="e.g. 50000"
                     min="0"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
                     Total Value to Seller (₹)
                   </label>
                   <input
                     type="number"
                     value={formData.total_seller_value}
                     onChange={(e) => set("total_seller_value", e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     placeholder="Total amount paid to seller"
                     min="0"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    My Share % <span className="text-red-500">*</span>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    My Share % <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
                     value={formData.my_share_percentage}
                     onChange={(e) => set("my_share_percentage", e.target.value)}
-                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.my_share_percentage ? "border-red-400" : "border-gray-300"}`}
+                    className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.my_share_percentage ? "border-rose-400" : "border-slate-200"}`}
                     placeholder="e.g. 10"
                     min="0"
                     max="100"
                     step="0.001"
                   />
                   {errors.my_share_percentage && (
-                    <p className="text-red-500 text-xs mt-1">
+                    <p className="text-rose-600 text-xs mt-1">
                       {errors.my_share_percentage}
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Deal Start Date <span className="text-red-500">*</span>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Deal Start Date <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -573,10 +560,10 @@ export default function PropertyForm() {
                     onChange={(e) =>
                       set("site_deal_start_date", e.target.value)
                     }
-                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.site_deal_start_date ? "border-red-400" : "border-gray-300"}`}
+                    className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.site_deal_start_date ? "border-rose-400" : "border-slate-200"}`}
                   />
                   {errors.site_deal_start_date && (
-                    <p className="text-red-500 text-xs mt-1">
+                    <p className="text-rose-600 text-xs mt-1">
                       {errors.site_deal_start_date}
                     </p>
                   )}
@@ -589,79 +576,79 @@ export default function PropertyForm() {
           {!isSite && (
             <>
               {/* Section 2: Plot Dimensions */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-1">
+              <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+                <h2 className="text-base font-bold text-slate-800 mb-1">
                   Plot Dimensions
                 </h2>
-                <p className="text-xs text-gray-400 mb-4">
+                <p className="text-xs text-slate-400 mb-4">
                   Optional — fill in to see a visual diagram.
                 </p>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                   <div className="sm:col-span-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Total Area (sqft)
                     </label>
                     <input
                       type="number"
                       value={formData.total_area_sqft}
                       onChange={(e) => set("total_area_sqft", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="e.g. 1200"
                       min="0"
                       step="0.001"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       West Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_left_ft}
                       onChange={(e) => set("side_left_ft", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="West"
                       min="0"
                       step="0.001"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       East Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_right_ft}
                       onChange={(e) => set("side_right_ft", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="East"
                       min="0"
                       step="0.001"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       North Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_top_ft}
                       onChange={(e) => set("side_top_ft", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="North"
                       min="0"
                       step="0.001"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       South Side (ft)
                     </label>
                     <input
                       type="number"
                       value={formData.side_bottom_ft}
                       onChange={(e) => set("side_bottom_ft", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="South"
                       min="0"
                       step="0.001"
@@ -671,7 +658,7 @@ export default function PropertyForm() {
 
                 {/* Road inputs */}
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
                     Number of Roads
                   </label>
                   <select
@@ -686,7 +673,7 @@ export default function PropertyForm() {
                         set("roads_json", JSON.stringify(existing));
                       } catch { set("roads_json", JSON.stringify(Array.from({ length: count }, () => ({ direction: "north", width_ft: "20" })))); }
                     }}
-                    className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-32 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   >
                     {[0, 1, 2, 3, 4].map((n) => (
                       <option key={n} value={n}>{n}</option>
@@ -700,8 +687,8 @@ export default function PropertyForm() {
                   return (
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {roads.map((rd, idx) => (
-                        <div key={idx} className="flex gap-2 items-center bg-gray-50 rounded-lg p-2 border border-gray-200">
-                          <span className="text-xs font-medium text-gray-500 w-14">Road {idx + 1}</span>
+                        <div key={idx} className="flex gap-2 items-center bg-slate-50 rounded-xl p-2 border border-slate-200">
+                          <span className="text-xs font-medium text-slate-500 w-14">Road {idx + 1}</span>
                           <select
                             value={rd.direction}
                             onChange={(e) => {
@@ -709,7 +696,7 @@ export default function PropertyForm() {
                               copy[idx] = { ...copy[idx], direction: e.target.value };
                               set("roads_json", JSON.stringify(copy));
                             }}
-                            className="border border-gray-300 rounded px-2 py-1 text-sm"
+                            className="border border-slate-200 rounded-xl px-2 py-1 text-sm"
                           >
                             <option value="north">North</option>
                             <option value="south">South</option>
@@ -724,12 +711,12 @@ export default function PropertyForm() {
                               copy[idx] = { ...copy[idx], width_ft: e.target.value };
                               set("roads_json", JSON.stringify(copy));
                             }}
-                            className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                            className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm"
                             placeholder="Width"
                             min="0"
                             step="0.001"
                           />
-                          <span className="text-xs text-gray-400">ft</span>
+                          <span className="text-xs text-slate-400">ft</span>
                         </div>
                       ))}
                     </div>
@@ -747,19 +734,19 @@ export default function PropertyForm() {
               </div>
 
               {/* Section 3: Seller Details */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-4">
+              <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+                <h2 className="text-base font-bold text-slate-800 mb-4">
                   Seller Details
                 </h2>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Seller Contact
                     </label>
                     <select
                       value={formData.seller_contact_id}
                       onChange={(e) => set("seller_contact_id", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     >
                       <option value="">— Select Seller —</option>
                       {contacts.map((c) => (
@@ -772,9 +759,9 @@ export default function PropertyForm() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Seller Rate / sqft (₹){" "}
-                      <span className="text-red-500">*</span>
+                      <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="number"
@@ -782,22 +769,22 @@ export default function PropertyForm() {
                       onChange={(e) =>
                         set("seller_rate_per_sqft", e.target.value)
                       }
-                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.seller_rate_per_sqft ? "border-red-400" : "border-gray-300"}`}
+                      className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.seller_rate_per_sqft ? "border-rose-400" : "border-slate-200"}`}
                       placeholder="e.g. 500.000"
                       min="0"
                       step="0.001"
                     />
                     {errors.seller_rate_per_sqft && (
-                      <p className="text-red-500 text-xs mt-1">
+                      <p className="text-rose-600 text-xs mt-1">
                         {errors.seller_rate_per_sqft}
                       </p>
                     )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Total Seller Value (₹)
-                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                      <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
                         auto
                       </span>
                     </label>
@@ -807,12 +794,12 @@ export default function PropertyForm() {
                       onChange={(e) =>
                         set("total_seller_value", e.target.value)
                       }
-                      className="w-full border border-blue-200 bg-blue-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-indigo-200 bg-indigo-50 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="Rate × Area"
                       min="0"
                     />
                     {formData.total_seller_value && (
-                      <p className="text-xs text-blue-600 mt-1">
+                      <p className="text-xs text-indigo-600 mt-1">
                         ={" "}
                         {formatCurrency(
                           parseFloat(formData.total_seller_value),
@@ -822,19 +809,19 @@ export default function PropertyForm() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Deal Locked Date
                     </label>
                     <input
                       type="date"
                       value={formData.deal_locked_date}
                       onChange={(e) => set("deal_locked_date", e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
                       Expected Registry Date
                     </label>
                     <input
@@ -843,13 +830,13 @@ export default function PropertyForm() {
                       onChange={(e) =>
                         set("expected_registry_date", e.target.value)
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     />
                   </div>
 
                   {isEditMode && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Actual Registry Date
                       </label>
                       <input
@@ -858,7 +845,7 @@ export default function PropertyForm() {
                         onChange={(e) =>
                           set("actual_registry_date", e.target.value)
                         }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       />
                     </div>
                   )}
@@ -867,25 +854,25 @@ export default function PropertyForm() {
 
               {/* Section 4: Broker Details (only for middleman) */}
               {formData.deal_type === "middleman" && (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h2 className="text-base font-semibold text-gray-800 mb-4">
+                <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+                  <h2 className="text-base font-bold text-slate-800 mb-4">
                     Broker Details
                   </h2>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Broker Name
                       </label>
                       <input
                         type="text"
                         value={formData.broker_name}
                         onChange={(e) => set("broker_name", e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         placeholder="e.g. Ramesh Broker"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1">
                         Broker Commission (₹)
                       </label>
                       <input
@@ -894,7 +881,7 @@ export default function PropertyForm() {
                         onChange={(e) =>
                           set("broker_commission", e.target.value)
                         }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                         placeholder="0"
                         min="0"
                       />
@@ -906,19 +893,19 @@ export default function PropertyForm() {
           )}
 
           {/* Notes */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">
+          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+            <h2 className="text-base font-bold text-slate-800 mb-4">
               Notes
             </h2>
             {isEditMode && (
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-slate-500 mb-1">
                   Status
                 </label>
                 <select
                   value={formData.status}
                   onChange={(e) => set("status", e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                 >
                   <option value="negotiating">Negotiating</option>
                   <option value="advance_given">Advance Given</option>
@@ -933,7 +920,7 @@ export default function PropertyForm() {
               value={formData.notes}
               onChange={(e) => set("notes", e.target.value)}
               rows={3}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               placeholder="Any additional notes..."
             />
           </div>
@@ -943,14 +930,14 @@ export default function PropertyForm() {
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200 transition-all"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitMutation.isPending}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              className="px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 shadow-sm shadow-indigo-500/20 active:scale-[0.98] transition-all"
             >
               {submitMutation.isPending
                 ? "Saving..."
@@ -960,7 +947,7 @@ export default function PropertyForm() {
             </button>
           </div>
         </form>
-      </div>
+      </PageBody>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
+import { GreyedOut } from "../../components/ui";
 
 const PERIOD_PRESETS = [
   { key: "15", label: "15 Days", days: 15 },
@@ -198,6 +199,7 @@ export default function Forecast() {
   const isIn = direction === "inflow";
 
   return (
+    <GreyedOut label="Under Review">
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* Header */}
@@ -473,6 +475,7 @@ export default function Forecast() {
         </div>
       </div>
     </div>
+    </GreyedOut>
   );
 }
 
