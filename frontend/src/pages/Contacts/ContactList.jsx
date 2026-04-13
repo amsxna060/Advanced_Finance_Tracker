@@ -40,8 +40,7 @@ export default function ContactList() {
     let result = allContacts;
     if (contactType)
       result = result.filter((c) => c.contact_type === contactType);
-    if (relType)
-      result = result.filter((c) => c.relationship_type === relType);
+    if (relType) result = result.filter((c) => c.relationship_type === relType);
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -65,7 +64,8 @@ export default function ContactList() {
   const familyFriendCount = useMemo(
     () =>
       allContacts.filter(
-        (c) => c.relationship_type === "family" || c.relationship_type === "friend",
+        (c) =>
+          c.relationship_type === "family" || c.relationship_type === "friend",
       ).length,
     [allContacts],
   );
@@ -95,16 +95,8 @@ export default function ContactList() {
             value={allContacts.length}
             accent="indigo"
           />
-          <HeroStat
-            label="Borrowers"
-            value={borrowerCount}
-            accent="emerald"
-          />
-          <HeroStat
-            label="Partners"
-            value={partnerCount}
-            accent="violet"
-          />
+          <HeroStat label="Borrowers" value={borrowerCount} accent="emerald" />
+          <HeroStat label="Partners" value={partnerCount} accent="violet" />
           <HeroStat
             label="Family & Friends"
             value={familyFriendCount}
@@ -151,11 +143,12 @@ export default function ContactList() {
         </Card>
 
         {/* Results count */}
-        {(search || contactType || relType) && contacts.length !== allContacts.length && (
-          <p className="text-sm text-slate-500 mb-4">
-            {contacts.length} result(s) found
-          </p>
-        )}
+        {(search || contactType || relType) &&
+          contacts.length !== allContacts.length && (
+            <p className="text-sm text-slate-500 mb-4">
+              {contacts.length} result(s) found
+            </p>
+          )}
 
         {error && (
           <Card className="p-4 mb-4 border-rose-200 bg-rose-50">

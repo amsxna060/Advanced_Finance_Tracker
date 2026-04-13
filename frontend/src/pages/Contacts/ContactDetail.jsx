@@ -276,7 +276,9 @@ export default function ContactDetail() {
                           {contact.address || contact.city}
                         </p>
                         {contact.address && contact.city && (
-                          <p className="text-xs text-slate-400">{contact.city}</p>
+                          <p className="text-xs text-slate-400">
+                            {contact.city}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -332,9 +334,7 @@ export default function ContactDetail() {
                     <PlusCircle className="w-3 h-3" /> New Loan
                   </button>
                   <button
-                    onClick={() =>
-                      navigate(`/loans?contact_id=${contact.id}`)
-                    }
+                    onClick={() => navigate(`/loans?contact_id=${contact.id}`)}
                     className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <ExternalLink className="w-3 h-3" /> All Loans
@@ -587,10 +587,7 @@ export default function ContactDetail() {
           {/* Partnerships */}
           {partnerships.length > 0 && (
             <div>
-              <SectionHeader
-                title="Partnerships"
-                count={partnerships.length}
-              />
+              <SectionHeader title="Partnerships" count={partnerships.length} />
               <Card>
                 <CardBody className="space-y-1 !py-3">
                   {partnerships.map((p) => (
