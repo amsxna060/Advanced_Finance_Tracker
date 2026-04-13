@@ -102,642 +102,644 @@ export default function Analytics() {
 
   return (
     <GreyedOut label="Under Review">
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="text-gray-600 hover:text-gray-900 mb-2 text-sm"
-            >
-              ← Back to Dashboard
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Financial Analytics
-            </h1>
-            <p className="text-gray-600 mt-1">
-              Past activity, future projections &amp; portfolio overview
-            </p>
+      <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="text-gray-600 hover:text-gray-900 mb-2 text-sm"
+              >
+                ← Back to Dashboard
+              </button>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Financial Analytics
+              </h1>
+              <p className="text-gray-600 mt-1">
+                Past activity, future projections &amp; portfolio overview
+              </p>
+            </div>
+            <div className="text-sm text-gray-500">As of {data.as_of_date}</div>
           </div>
-          <div className="text-sm text-gray-500">As of {data.as_of_date}</div>
-        </div>
 
-        {/* Net Worth Banner */}
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div>
-              <p className="text-indigo-200 text-sm">Net Worth</p>
-              <p className="text-3xl font-bold mt-1">
-                {formatCurrency(net_worth)}
-              </p>
-            </div>
-            <div>
-              <p className="text-indigo-200 text-sm">Total Cash</p>
-              <p className="text-2xl font-bold mt-1">
-                {formatCurrency(total_cash)}
-              </p>
-            </div>
-            <div>
-              <p className="text-indigo-200 text-sm">Investments</p>
-              <p className="text-2xl font-bold mt-1">
-                {formatCurrency(investments.total)}
-              </p>
-            </div>
-            <div>
-              <p className="text-indigo-200 text-sm">Liabilities</p>
-              <p className="text-2xl font-bold mt-1">
-                {formatCurrency(liabilities.total)}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => navigate("/assets")}
-            className="mt-4 text-sm text-indigo-200 hover:text-white transition-colors underline underline-offset-2"
-          >
-            View full balance sheet →
-          </button>
-        </div>
-
-        {/* ── FORECAST SUMMARY (link to full page) ──────── */}
-        <ForecastSummary
-          forecast={forecast}
-          forecastLoading={forecastLoading}
-          navigate={navigate}
-        />
-
-        {/* ══════════════════════════════════════════════════
-            HISTORICAL ACTIVITY — What actually happened
-           ══════════════════════════════════════════════════ */}
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="p-5 border-b">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Net Worth Banner */}
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  Money Movement
-                </h2>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  What actually happened — collections, disbursements,
-                  investments
+                <p className="text-indigo-200 text-sm">Net Worth</p>
+                <p className="text-3xl font-bold mt-1">
+                  {formatCurrency(net_worth)}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {PERIOD_PRESETS.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => setActivityPeriod(p.key)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-                      activityPeriod === p.key
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              <div>
+                <p className="text-indigo-200 text-sm">Total Cash</p>
+                <p className="text-2xl font-bold mt-1">
+                  {formatCurrency(total_cash)}
+                </p>
+              </div>
+              <div>
+                <p className="text-indigo-200 text-sm">Investments</p>
+                <p className="text-2xl font-bold mt-1">
+                  {formatCurrency(investments.total)}
+                </p>
+              </div>
+              <div>
+                <p className="text-indigo-200 text-sm">Liabilities</p>
+                <p className="text-2xl font-bold mt-1">
+                  {formatCurrency(liabilities.total)}
+                </p>
               </div>
             </div>
-            {activityPeriod === "custom" && (
-              <div className="flex items-center gap-3 mt-3">
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="border rounded px-2 py-1 text-sm"
-                />
-                <span className="text-gray-400 text-sm">to</span>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="border rounded px-2 py-1 text-sm"
-                />
-              </div>
-            )}
+            <button
+              onClick={() => navigate("/assets")}
+              className="mt-4 text-sm text-indigo-200 hover:text-white transition-colors underline underline-offset-2"
+            >
+              View full balance sheet →
+            </button>
           </div>
 
-          {activityLoading ? (
-            <div className="p-6">
-              <div className="animate-pulse space-y-3">
-                <div className="h-6 bg-gray-100 rounded w-1/3" />
-                <div className="h-20 bg-gray-100 rounded" />
+          {/* ── FORECAST SUMMARY (link to full page) ──────── */}
+          <ForecastSummary
+            forecast={forecast}
+            forecastLoading={forecastLoading}
+            navigate={navigate}
+          />
+
+          {/* ══════════════════════════════════════════════════
+            HISTORICAL ACTIVITY — What actually happened
+           ══════════════════════════════════════════════════ */}
+          <div className="bg-white rounded-xl shadow-sm border">
+            <div className="p-5 border-b">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    Money Movement
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    What actually happened — collections, disbursements,
+                    investments
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {PERIOD_PRESETS.map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => setActivityPeriod(p.key)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                        activityPeriod === p.key
+                          ? "bg-indigo-600 text-white"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : activity ? (
-            <div className="p-5 space-y-5">
-              {/* Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <ActivityCard
-                  label="EMIs Collected"
-                  value={activity.summary.emis_collected}
-                  color="green"
-                  icon="📥"
-                />
-                <ActivityCard
-                  label="Interest Collected"
-                  value={activity.summary.interest_collected}
-                  color="emerald"
-                  icon="💰"
-                />
-                <ActivityCard
-                  label="Principal Collected"
-                  value={activity.summary.principal_collected}
-                  color="teal"
-                  icon="🏦"
-                />
-                <ActivityCard
-                  label="Money Lent Out"
-                  value={activity.summary.loans_given}
-                  color="blue"
-                  icon="📤"
-                />
-                <ActivityCard
-                  label="Money Borrowed"
-                  value={activity.summary.loans_taken}
-                  color="orange"
-                  icon="🏦"
-                />
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <ActivityCard
-                  label="Payments Made (Outflow)"
-                  value={activity.summary.payments_made}
-                  color="red"
-                  icon="💸"
-                />
-                <ActivityCard
-                  label="Total Collected"
-                  value={activity.summary.total_collected}
-                  color="teal"
-                  icon="✅"
-                />
-                <ActivityCard
-                  label="Property Invested"
-                  value={activity.summary.property_invested}
-                  color="purple"
-                  icon="🏠"
-                />
-                <ActivityCard
-                  label="Beesi Paid"
-                  value={activity.summary.beesi_paid}
-                  color="amber"
-                  icon="🔄"
-                />
-              </div>
-
-              {/* ── Expandable sections ─────────────────────── */}
-
-              {/* EMIs Collected */}
-              <ActivitySection
-                title="EMIs Collected"
-                subtitle="From whom you received EMI payments"
-                section={activity.sections.emis_collected}
-                sectionKey="emis"
-                expanded={expandedSection === "emis"}
-                toggle={() => toggle("emis")}
-                navigate={navigate}
-                color="green"
-              />
-
-              {/* Interest Collected */}
-              <ActivitySection
-                title="Interest Collected"
-                subtitle="Monthly interest payments received"
-                section={activity.sections.interest_collected}
-                sectionKey="interest"
-                expanded={expandedSection === "interest"}
-                toggle={() => toggle("interest")}
-                navigate={navigate}
-                color="emerald"
-              />
-
-              {/* Principal Collected */}
-              {activity.sections.principal_collected?.total > 0 && (
-                <ActivitySection
-                  title="Principal Collected"
-                  subtitle="Principal repayments received on loans given"
-                  section={activity.sections.principal_collected}
-                  sectionKey="principal"
-                  expanded={expandedSection === "principal"}
-                  toggle={() => toggle("principal")}
-                  navigate={navigate}
-                  color="teal"
-                />
-              )}
-
-              {/* Loans Given */}
-              <ActivitySection
-                title="New Loans Given"
-                subtitle="Money you lent out during this period"
-                section={activity.sections.loans_given}
-                sectionKey="given"
-                expanded={expandedSection === "given"}
-                toggle={() => toggle("given")}
-                navigate={navigate}
-                color="blue"
-              />
-
-              {/* Loans Taken */}
-              <ActivitySection
-                title="Money Borrowed"
-                subtitle="Loans you took during this period"
-                section={activity.sections.loans_taken}
-                sectionKey="taken"
-                expanded={expandedSection === "taken"}
-                toggle={() => toggle("taken")}
-                navigate={navigate}
-                color="orange"
-              />
-
-              {/* Payments Made on loans taken */}
-              <ActivitySection
-                title="Payments Made (Loans Taken)"
-                subtitle="EMIs / interest you paid to lenders"
-                section={activity.sections.payments_made}
-                sectionKey="paid"
-                expanded={expandedSection === "paid"}
-                toggle={() => toggle("paid")}
-                navigate={navigate}
-                color="red"
-              />
-
-              {/* Property Investments */}
-              {activity.sections.property?.total > 0 && (
-                <div className="border rounded-lg">
-                  <button
-                    onClick={() => toggle("property")}
-                    className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-purple-500" />
-                      <span className="text-sm font-semibold text-gray-800">
-                        Property Investments
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {activity.sections.property.count} transaction
-                        {activity.sections.property.count !== 1 ? "s" : ""}
-                      </span>
-                      <span className="text-[10px] text-gray-400 hidden md:inline">
-                        — Advances &amp; investments in plots/sites
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-purple-700">
-                        {formatCurrency(activity.sections.property.total)}
-                      </span>
-                      <span
-                        className={`text-gray-400 text-xs transition-transform ${expandedSection === "property" ? "rotate-90" : ""}`}
-                      >
-                        ▶
-                      </span>
-                    </div>
-                  </button>
-                  {expandedSection === "property" && (
-                    <div className="border-t divide-y">
-                      {activity.sections.property.items.map((it, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between px-4 py-2 text-xs"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-gray-400 font-mono w-20">
-                              {it.date}
-                            </span>
-                            <span className="text-sm font-medium text-gray-800">
-                              {it.property}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px] uppercase">
-                              {it.txn_type?.replace(/_/g, " ")}
-                            </span>
-                          </div>
-                          <span className="font-semibold text-gray-800">
-                            {formatCurrency(it.amount)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              {activityPeriod === "custom" && (
+                <div className="flex items-center gap-3 mt-3">
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm"
+                  />
+                  <span className="text-gray-400 text-sm">to</span>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm"
+                  />
                 </div>
               )}
+            </div>
 
-              {/* Beesi */}
-              {activity.sections.beesi?.total > 0 && (
-                <div className="border rounded-lg">
-                  <button
-                    onClick={() => toggle("beesi")}
-                    className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-amber-500" />
-                      <span className="text-sm font-semibold text-gray-800">
-                        Beesi Installments Paid
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {activity.sections.beesi.items.length} payment
-                        {activity.sections.beesi.items.length !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                    <span className="text-sm font-bold text-amber-700">
-                      {formatCurrency(activity.sections.beesi.total)}
-                    </span>
-                  </button>
-                  {expandedSection === "beesi" && (
-                    <div className="border-t divide-y">
-                      {activity.sections.beesi.items.map((it, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between px-4 py-2 text-xs"
+            {activityLoading ? (
+              <div className="p-6">
+                <div className="animate-pulse space-y-3">
+                  <div className="h-6 bg-gray-100 rounded w-1/3" />
+                  <div className="h-20 bg-gray-100 rounded" />
+                </div>
+              </div>
+            ) : activity ? (
+              <div className="p-5 space-y-5">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <ActivityCard
+                    label="EMIs Collected"
+                    value={activity.summary.emis_collected}
+                    color="green"
+                    icon="📥"
+                  />
+                  <ActivityCard
+                    label="Interest Collected"
+                    value={activity.summary.interest_collected}
+                    color="emerald"
+                    icon="💰"
+                  />
+                  <ActivityCard
+                    label="Principal Collected"
+                    value={activity.summary.principal_collected}
+                    color="teal"
+                    icon="🏦"
+                  />
+                  <ActivityCard
+                    label="Money Lent Out"
+                    value={activity.summary.loans_given}
+                    color="blue"
+                    icon="📤"
+                  />
+                  <ActivityCard
+                    label="Money Borrowed"
+                    value={activity.summary.loans_taken}
+                    color="orange"
+                    icon="🏦"
+                  />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <ActivityCard
+                    label="Payments Made (Outflow)"
+                    value={activity.summary.payments_made}
+                    color="red"
+                    icon="💸"
+                  />
+                  <ActivityCard
+                    label="Total Collected"
+                    value={activity.summary.total_collected}
+                    color="teal"
+                    icon="✅"
+                  />
+                  <ActivityCard
+                    label="Property Invested"
+                    value={activity.summary.property_invested}
+                    color="purple"
+                    icon="🏠"
+                  />
+                  <ActivityCard
+                    label="Beesi Paid"
+                    value={activity.summary.beesi_paid}
+                    color="amber"
+                    icon="🔄"
+                  />
+                </div>
+
+                {/* ── Expandable sections ─────────────────────── */}
+
+                {/* EMIs Collected */}
+                <ActivitySection
+                  title="EMIs Collected"
+                  subtitle="From whom you received EMI payments"
+                  section={activity.sections.emis_collected}
+                  sectionKey="emis"
+                  expanded={expandedSection === "emis"}
+                  toggle={() => toggle("emis")}
+                  navigate={navigate}
+                  color="green"
+                />
+
+                {/* Interest Collected */}
+                <ActivitySection
+                  title="Interest Collected"
+                  subtitle="Monthly interest payments received"
+                  section={activity.sections.interest_collected}
+                  sectionKey="interest"
+                  expanded={expandedSection === "interest"}
+                  toggle={() => toggle("interest")}
+                  navigate={navigate}
+                  color="emerald"
+                />
+
+                {/* Principal Collected */}
+                {activity.sections.principal_collected?.total > 0 && (
+                  <ActivitySection
+                    title="Principal Collected"
+                    subtitle="Principal repayments received on loans given"
+                    section={activity.sections.principal_collected}
+                    sectionKey="principal"
+                    expanded={expandedSection === "principal"}
+                    toggle={() => toggle("principal")}
+                    navigate={navigate}
+                    color="teal"
+                  />
+                )}
+
+                {/* Loans Given */}
+                <ActivitySection
+                  title="New Loans Given"
+                  subtitle="Money you lent out during this period"
+                  section={activity.sections.loans_given}
+                  sectionKey="given"
+                  expanded={expandedSection === "given"}
+                  toggle={() => toggle("given")}
+                  navigate={navigate}
+                  color="blue"
+                />
+
+                {/* Loans Taken */}
+                <ActivitySection
+                  title="Money Borrowed"
+                  subtitle="Loans you took during this period"
+                  section={activity.sections.loans_taken}
+                  sectionKey="taken"
+                  expanded={expandedSection === "taken"}
+                  toggle={() => toggle("taken")}
+                  navigate={navigate}
+                  color="orange"
+                />
+
+                {/* Payments Made on loans taken */}
+                <ActivitySection
+                  title="Payments Made (Loans Taken)"
+                  subtitle="EMIs / interest you paid to lenders"
+                  section={activity.sections.payments_made}
+                  sectionKey="paid"
+                  expanded={expandedSection === "paid"}
+                  toggle={() => toggle("paid")}
+                  navigate={navigate}
+                  color="red"
+                />
+
+                {/* Property Investments */}
+                {activity.sections.property?.total > 0 && (
+                  <div className="border rounded-lg">
+                    <button
+                      onClick={() => toggle("property")}
+                      className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-purple-500" />
+                        <span className="text-sm font-semibold text-gray-800">
+                          Property Investments
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {activity.sections.property.count} transaction
+                          {activity.sections.property.count !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-[10px] text-gray-400 hidden md:inline">
+                          — Advances &amp; investments in plots/sites
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-purple-700">
+                          {formatCurrency(activity.sections.property.total)}
+                        </span>
+                        <span
+                          className={`text-gray-400 text-xs transition-transform ${expandedSection === "property" ? "rotate-90" : ""}`}
                         >
-                          <span className="text-gray-700">
-                            {it.beesi} — Month #{it.month_number}
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-gray-400 font-mono">
-                              {it.date}
-                            </span>
+                          ▶
+                        </span>
+                      </div>
+                    </button>
+                    {expandedSection === "property" && (
+                      <div className="border-t divide-y">
+                        {activity.sections.property.items.map((it, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between px-4 py-2 text-xs"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="text-gray-400 font-mono w-20">
+                                {it.date}
+                              </span>
+                              <span className="text-sm font-medium text-gray-800">
+                                {it.property}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px] uppercase">
+                                {it.txn_type?.replace(/_/g, " ")}
+                              </span>
+                            </div>
                             <span className="font-semibold text-gray-800">
                               {formatCurrency(it.amount)}
                             </span>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-        {/* ── Portfolio Overview (existing sections) ────── */}
-        {/* Counts */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <CountCard
-            label="Active Loans Given"
-            value={counts.active_loans_given}
-            color="green"
-          />
-          <CountCard
-            label="Active Loans Taken"
-            value={counts.active_loans_taken}
-            color="red"
-          />
-          <CountCard
-            label="Active Properties"
-            value={counts.active_properties}
-            color="purple"
-          />
-          <CountCard
-            label="Active Partnerships"
-            value={counts.active_partnerships}
-            color="orange"
-          />
-          <CountCard
-            label="Active Beesi"
-            value={counts.active_beesis}
-            color="blue"
-          />
-        </div>
-
-        {/* Investments & Liabilities detail */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Investments Breakdown
-            </h3>
-            <div className="space-y-3 mb-6">
-              <DetailRow
-                label="Loans Given (Outstanding)"
-                value={investments.loans_given_outstanding}
-              />
-              <DetailRow
-                label="Interest Pending (Receivable)"
-                value={investments.loans_given_interest_pending}
-                sub
-              />
-              <DetailRow
-                label="Plot Advances (My Share)"
-                value={investments.property_advances}
-              />
-              <DetailRow
-                label="Site Investments"
-                value={investments.property_site_investments}
-              />
-              {investments.partnership_invested > 0 && (
-                <DetailRow
-                  label="My Partnership Investment"
-                  value={investments.partnership_invested}
-                />
-              )}
-              <DetailRow
-                label="Beesi Invested"
-                value={investments.beesi_invested}
-              />
-              <div className="border-t pt-3">
-                <DetailRow
-                  label="Total Investments"
-                  value={investments.total}
-                  bold
-                />
-              </div>
-            </div>
-            {investmentPie.length > 0 && (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={investmentPie}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
-                    }
-                  >
-                    {investmentPie.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => formatCurrency(v)} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Liabilities Breakdown
-            </h3>
-            <div className="space-y-3 mb-6">
-              <DetailRow
-                label="Loans Taken (Outstanding)"
-                value={liabilities.loans_taken_outstanding}
-              />
-              <DetailRow
-                label="Interest Pending (Payable)"
-                value={liabilities.loans_taken_interest_pending}
-                sub
-              />
-              <DetailRow
-                label="Partner Payables"
-                value={liabilities.partner_payables}
-              />
-              <div className="border-t pt-3">
-                <DetailRow
-                  label="Total Liabilities"
-                  value={liabilities.total}
-                  bold
-                />
-              </div>
-            </div>
-            {liabilityPie.length > 0 && (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={liabilityPie}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
-                    }
-                  >
-                    {liabilityPie.map((_, i) => (
-                      <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => formatCurrency(v)} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* P&L */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Profit &amp; Loss
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <PnlCard label="Property Profit" value={pnl.property_profit} />
-            <PnlCard label="Partnership P&L" value={pnl.partnership_pnl} />
-            <PnlCard label="Beesi P&L" value={pnl.beesi_pnl} />
-            <PnlCard
-              label="Total Expenses"
-              value={-pnl.total_expenses}
-              negative
-            />
-            <PnlCard
-              label="Expenses This Month"
-              value={-pnl.expenses_this_month}
-              negative
-            />
-          </div>
-        </div>
-
-        {/* Monthly Cash Flow */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Monthly Cash Flow (Last 12 Months)
-          </h3>
-          {monthly_cashflow.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={monthly_cashflow}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v) => formatCurrency(v)} />
-                <Legend />
-                <Bar dataKey="inflow" name="Inflow" fill="#10b981" />
-                <Bar dataKey="outflow" name="Outflow" fill="#ef4444" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-gray-500 text-sm">
-              No cash flow data available yet.
-            </p>
-          )}
-        </div>
-
-        {/* Accounts & Top Contacts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Account Balances
-            </h3>
-            {accounts.length > 0 ? (
-              <div className="space-y-3">
-                {accounts.map((a) => (
-                  <button
-                    key={a.id}
-                    onClick={() => navigate(`/accounts/${a.id}`)}
-                    className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left"
-                  >
-                    <div>
-                      <span className="text-sm font-medium text-gray-900">
-                        {a.name}
-                      </span>
-                      <span className="text-xs text-gray-500 ml-2 capitalize">
-                        {a.account_type}
-                      </span>
-                    </div>
-                    <span
-                      className={`text-sm font-semibold ${a.balance >= 0 ? "text-green-700" : "text-red-700"}`}
+                {/* Beesi */}
+                {activity.sections.beesi?.total > 0 && (
+                  <div className="border rounded-lg">
+                    <button
+                      onClick={() => toggle("beesi")}
+                      className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
                     >
-                      {formatCurrency(a.balance)}
-                    </span>
-                  </button>
-                ))}
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span className="text-sm font-semibold text-gray-800">
+                          Beesi Installments Paid
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {activity.sections.beesi.items.length} payment
+                          {activity.sections.beesi.items.length !== 1
+                            ? "s"
+                            : ""}
+                        </span>
+                      </div>
+                      <span className="text-sm font-bold text-amber-700">
+                        {formatCurrency(activity.sections.beesi.total)}
+                      </span>
+                    </button>
+                    {expandedSection === "beesi" && (
+                      <div className="border-t divide-y">
+                        {activity.sections.beesi.items.map((it, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between px-4 py-2 text-xs"
+                          >
+                            <span className="text-gray-700">
+                              {it.beesi} — Month #{it.month_number}
+                            </span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-gray-400 font-mono">
+                                {it.date}
+                              </span>
+                              <span className="font-semibold text-gray-800">
+                                {formatCurrency(it.amount)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+            ) : null}
+          </div>
+
+          {/* ── Portfolio Overview (existing sections) ────── */}
+          {/* Counts */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <CountCard
+              label="Active Loans Given"
+              value={counts.active_loans_given}
+              color="green"
+            />
+            <CountCard
+              label="Active Loans Taken"
+              value={counts.active_loans_taken}
+              color="red"
+            />
+            <CountCard
+              label="Active Properties"
+              value={counts.active_properties}
+              color="purple"
+            />
+            <CountCard
+              label="Active Partnerships"
+              value={counts.active_partnerships}
+              color="orange"
+            />
+            <CountCard
+              label="Active Beesi"
+              value={counts.active_beesis}
+              color="blue"
+            />
+          </div>
+
+          {/* Investments & Liabilities detail */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Investments Breakdown
+              </h3>
+              <div className="space-y-3 mb-6">
+                <DetailRow
+                  label="Loans Given (Outstanding)"
+                  value={investments.loans_given_outstanding}
+                />
+                <DetailRow
+                  label="Interest Pending (Receivable)"
+                  value={investments.loans_given_interest_pending}
+                  sub
+                />
+                <DetailRow
+                  label="Plot Advances (My Share)"
+                  value={investments.property_advances}
+                />
+                <DetailRow
+                  label="Site Investments"
+                  value={investments.property_site_investments}
+                />
+                {investments.partnership_invested > 0 && (
+                  <DetailRow
+                    label="My Partnership Investment"
+                    value={investments.partnership_invested}
+                  />
+                )}
+                <DetailRow
+                  label="Beesi Invested"
+                  value={investments.beesi_invested}
+                />
+                <div className="border-t pt-3">
+                  <DetailRow
+                    label="Total Investments"
+                    value={investments.total}
+                    bold
+                  />
+                </div>
+              </div>
+              {investmentPie.length > 0 && (
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={investmentPie}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      label={({ name, percent }) =>
+                        `${name} ${(percent * 100).toFixed(0)}%`
+                      }
+                    >
+                      {investmentPie.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => formatCurrency(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Liabilities Breakdown
+              </h3>
+              <div className="space-y-3 mb-6">
+                <DetailRow
+                  label="Loans Taken (Outstanding)"
+                  value={liabilities.loans_taken_outstanding}
+                />
+                <DetailRow
+                  label="Interest Pending (Payable)"
+                  value={liabilities.loans_taken_interest_pending}
+                  sub
+                />
+                <DetailRow
+                  label="Partner Payables"
+                  value={liabilities.partner_payables}
+                />
+                <div className="border-t pt-3">
+                  <DetailRow
+                    label="Total Liabilities"
+                    value={liabilities.total}
+                    bold
+                  />
+                </div>
+              </div>
+              {liabilityPie.length > 0 && (
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={liabilityPie}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      label={({ name, percent }) =>
+                        `${name} ${(percent * 100).toFixed(0)}%`
+                      }
+                    >
+                      {liabilityPie.map((_, i) => (
+                        <Cell key={i} fill={COLORS[(i + 3) % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => formatCurrency(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* P&L */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Profit &amp; Loss
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <PnlCard label="Property Profit" value={pnl.property_profit} />
+              <PnlCard label="Partnership P&L" value={pnl.partnership_pnl} />
+              <PnlCard label="Beesi P&L" value={pnl.beesi_pnl} />
+              <PnlCard
+                label="Total Expenses"
+                value={-pnl.total_expenses}
+                negative
+              />
+              <PnlCard
+                label="Expenses This Month"
+                value={-pnl.expenses_this_month}
+                negative
+              />
+            </div>
+          </div>
+
+          {/* Monthly Cash Flow */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Monthly Cash Flow (Last 12 Months)
+            </h3>
+            {monthly_cashflow.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={monthly_cashflow}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                  <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                  <Legend />
+                  <Bar dataKey="inflow" name="Inflow" fill="#10b981" />
+                  <Bar dataKey="outflow" name="Outflow" fill="#ef4444" />
+                </BarChart>
+              </ResponsiveContainer>
             ) : (
               <p className="text-gray-500 text-sm">
-                No accounts.{" "}
-                <button
-                  onClick={() => navigate("/accounts/new")}
-                  className="text-blue-600 hover:underline"
-                >
-                  Create one
-                </button>
+                No cash flow data available yet.
               </p>
             )}
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Top Contacts by Outstanding
-            </h3>
-            {top_contacts.length > 0 ? (
-              <div className="space-y-3">
-                {top_contacts.map((c, idx) => (
+          {/* Accounts & Top Contacts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Account Balances
+              </h3>
+              {accounts.length > 0 ? (
+                <div className="space-y-3">
+                  {accounts.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => navigate(`/accounts/${a.id}`)}
+                      className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left"
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">
+                          {a.name}
+                        </span>
+                        <span className="text-xs text-gray-500 ml-2 capitalize">
+                          {a.account_type}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-sm font-semibold ${a.balance >= 0 ? "text-green-700" : "text-red-700"}`}
+                      >
+                        {formatCurrency(a.balance)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">
+                  No accounts.{" "}
                   <button
-                    key={c.id}
-                    onClick={() => navigate(`/contacts/${c.id}`)}
-                    className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left"
+                    onClick={() => navigate("/accounts/new")}
+                    className="text-blue-600 hover:underline"
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold text-gray-400 w-5">
-                        #{idx + 1}
-                      </span>
-                      <span className="text-sm font-medium text-gray-900">
-                        {c.name}
-                      </span>
-                    </div>
-                    <span className="text-sm font-semibold text-blue-700">
-                      {formatCurrency(c.outstanding)}
-                    </span>
+                    Create one
                   </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-sm">No outstanding loans.</p>
-            )}
+                </p>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Top Contacts by Outstanding
+              </h3>
+              {top_contacts.length > 0 ? (
+                <div className="space-y-3">
+                  {top_contacts.map((c, idx) => (
+                    <button
+                      key={c.id}
+                      onClick={() => navigate(`/contacts/${c.id}`)}
+                      className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-gray-400 w-5">
+                          #{idx + 1}
+                        </span>
+                        <span className="text-sm font-medium text-gray-900">
+                          {c.name}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-blue-700">
+                        {formatCurrency(c.outstanding)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">No outstanding loans.</p>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </GreyedOut>
   );
 }

@@ -106,8 +106,12 @@ export default function AccountDetail() {
     balanceMap[t.id] = runningBal;
   });
 
-  const totalCredits = txns.filter((t) => t.txn_type === "credit").reduce((s, t) => s + Number(t.amount), 0);
-  const totalDebits = txns.filter((t) => t.txn_type === "debit").reduce((s, t) => s + Number(t.amount), 0);
+  const totalCredits = txns
+    .filter((t) => t.txn_type === "credit")
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const totalDebits = txns
+    .filter((t) => t.txn_type === "debit")
+    .reduce((s, t) => s + Number(t.amount), 0);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -118,16 +122,46 @@ export default function AccountDetail() {
         actions={
           isAdmin && (
             <>
-              <Button variant="white" size="md" onClick={() => navigate(`/accounts/${id}/edit`)}>Edit</Button>
-              <Button variant="danger" size="md" onClick={() => { if (window.confirm("Delete this account and all transactions?")) deleteSelf.mutate(); }}>Delete</Button>
+              <Button
+                variant="white"
+                size="md"
+                onClick={() => navigate(`/accounts/${id}/edit`)}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="danger"
+                size="md"
+                onClick={() => {
+                  if (
+                    window.confirm("Delete this account and all transactions?")
+                  )
+                    deleteSelf.mutate();
+                }}
+              >
+                Delete
+              </Button>
             </>
           )
         }
       >
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-          <HeroStat label="Current Balance" value={formatCurrency(account.current_balance)} sub={`Opening: ${formatCurrency(account.opening_balance)}`} accent="emerald" />
-          <HeroStat label="Total Credits" value={formatCurrency(totalCredits)} accent="teal" />
-          <HeroStat label="Total Debits" value={formatCurrency(totalDebits)} accent="rose" />
+          <HeroStat
+            label="Current Balance"
+            value={formatCurrency(account.current_balance)}
+            sub={`Opening: ${formatCurrency(account.opening_balance)}`}
+            accent="emerald"
+          />
+          <HeroStat
+            label="Total Credits"
+            value={formatCurrency(totalCredits)}
+            accent="teal"
+          />
+          <HeroStat
+            label="Total Debits"
+            value={formatCurrency(totalDebits)}
+            accent="rose"
+          />
           <HeroStat label="Transactions" value={txns.length} accent="indigo" />
         </div>
       </PageHero>
@@ -136,9 +170,7 @@ export default function AccountDetail() {
         {/* Transaction form */}
         <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 mb-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-bold text-slate-800">
-              Transactions
-            </h2>
+            <h2 className="text-base font-bold text-slate-800">Transactions</h2>
             <button
               onClick={() => setShowTxnForm(!showTxnForm)}
               className="px-3 py-1.5 bg-teal-600 text-white rounded-xl text-sm hover:bg-teal-700 shadow-sm active:scale-[0.98]"
@@ -154,7 +186,9 @@ export default function AccountDetail() {
               )}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Type *</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Type *
+                  </label>
                   <select
                     name="txn_type"
                     value={txnForm.txn_type}
@@ -180,7 +214,9 @@ export default function AccountDetail() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Date *</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Date *
+                  </label>
                   <input
                     name="txn_date"
                     type="date"
@@ -207,7 +243,9 @@ export default function AccountDetail() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Linked To</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Linked To
+                  </label>
                   <select
                     name="linked_type"
                     value={txnForm.linked_type}
@@ -321,12 +359,18 @@ export default function AccountDetail() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left bg-slate-50">
-                    <th className="pb-2 pt-2 text-slate-500 font-medium">Date</th>
+                    <th className="pb-2 pt-2 text-slate-500 font-medium">
+                      Date
+                    </th>
                     <th className="pb-2 pt-2 text-slate-500 font-medium">
                       Description
                     </th>
-                    <th className="pb-2 pt-2 text-slate-500 font-medium">Mode</th>
-                    <th className="pb-2 pt-2 text-slate-500 font-medium">Linked</th>
+                    <th className="pb-2 pt-2 text-slate-500 font-medium">
+                      Mode
+                    </th>
+                    <th className="pb-2 pt-2 text-slate-500 font-medium">
+                      Linked
+                    </th>
                     <th className="pb-2 pt-2 text-right text-slate-500 font-medium">
                       Amount
                     </th>

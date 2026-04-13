@@ -42,9 +42,24 @@ const TYPE_LABELS = {
 };
 
 const TYPE_COLORS = {
-  interest_only: { ring: "ring-teal-500/30", bg: "bg-teal-50", text: "text-teal-700", bar: "#14b8a6" },
-  emi: { ring: "ring-violet-500/30", bg: "bg-violet-50", text: "text-violet-700", bar: "#8b5cf6" },
-  short_term: { ring: "ring-amber-500/30", bg: "bg-amber-50", text: "text-amber-700", bar: "#f59e0b" },
+  interest_only: {
+    ring: "ring-teal-500/30",
+    bg: "bg-teal-50",
+    text: "text-teal-700",
+    bar: "#14b8a6",
+  },
+  emi: {
+    ring: "ring-violet-500/30",
+    bg: "bg-violet-50",
+    text: "text-violet-700",
+    bar: "#8b5cf6",
+  },
+  short_term: {
+    ring: "ring-amber-500/30",
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    bar: "#f59e0b",
+  },
 };
 
 /* ── small reusable pieces ────────────────────────────────────────────── */
@@ -52,8 +67,12 @@ const TYPE_COLORS = {
 function GlassCard({ label, value, sub }) {
   return (
     <div className="bg-white/[0.07] backdrop-blur-xl border border-white/[0.12] rounded-2xl px-5 py-4">
-      <p className="text-indigo-300/80 text-[11px] font-semibold uppercase tracking-widest">{label}</p>
-      <p className="text-white text-xl font-extrabold mt-1 tracking-tight">{value}</p>
+      <p className="text-indigo-300/80 text-[11px] font-semibold uppercase tracking-widest">
+        {label}
+      </p>
+      <p className="text-white text-xl font-extrabold mt-1 tracking-tight">
+        {value}
+      </p>
       {sub && <p className="text-indigo-300/60 text-xs mt-0.5">{sub}</p>}
     </div>
   );
@@ -71,33 +90,64 @@ function Stat({ label, value, accent = "emerald" }) {
     slate: "border-slate-400",
   };
   return (
-    <div className={`bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-shadow px-5 py-4 border-l-4 ${accents[accent]}`}>
-      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{label}</p>
-      <p className="text-2xl font-extrabold text-slate-800 mt-1 tracking-tight">{value}</p>
+    <div
+      className={`bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-shadow px-5 py-4 border-l-4 ${accents[accent]}`}
+    >
+      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">
+        {label}
+      </p>
+      <p className="text-2xl font-extrabold text-slate-800 mt-1 tracking-tight">
+        {value}
+      </p>
     </div>
   );
 }
 
 function SectionTitle({ children, count, color = "indigo" }) {
-  const dots = { indigo: "bg-indigo-500", emerald: "bg-emerald-500", rose: "bg-rose-500", amber: "bg-amber-500", violet: "bg-violet-500" };
+  const dots = {
+    indigo: "bg-indigo-500",
+    emerald: "bg-emerald-500",
+    rose: "bg-rose-500",
+    amber: "bg-amber-500",
+    violet: "bg-violet-500",
+  };
   return (
     <div className="flex items-center gap-2.5 mb-4 mt-8">
       <span className={`w-2 h-2 rounded-full ${dots[color]}`} />
-      <h2 className="text-base font-bold text-slate-700 uppercase tracking-wide">{children}</h2>
+      <h2 className="text-base font-bold text-slate-700 uppercase tracking-wide">
+        {children}
+      </h2>
       {count != null && (
-        <span className="ml-1 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">{count}</span>
+        <span className="ml-1 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
+          {count}
+        </span>
       )}
     </div>
   );
 }
 
 function TrendArrow({ pct }) {
-  if (pct === 0) return <span className="text-slate-400 text-xs font-medium">no change</span>;
+  if (pct === 0)
+    return (
+      <span className="text-slate-400 text-xs font-medium">no change</span>
+    );
   const up = pct > 0;
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-bold ${up ? "text-rose-500" : "text-emerald-500"}`}>
-      <svg className={`w-3.5 h-3.5 ${up ? "" : "rotate-180"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
+    <span
+      className={`inline-flex items-center gap-0.5 text-xs font-bold ${up ? "text-rose-500" : "text-emerald-500"}`}
+    >
+      <svg
+        className={`w-3.5 h-3.5 ${up ? "" : "rotate-180"}`}
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={3}
+          d="M5 15l7-7 7 7"
+        />
       </svg>
       {Math.abs(pct).toFixed(1)}%
     </span>
@@ -111,8 +161,18 @@ function ExpandToggle({ expanded, onClick, label }) {
       className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-500 hover:text-indigo-700 transition-colors"
     >
       {label}
-      <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+      <svg
+        className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2.5}
+          d="M19 9l-7 7-7-7"
+        />
       </svg>
     </button>
   );
@@ -126,12 +186,16 @@ function Skeleton() {
           <div className="h-4 w-40 bg-white/10 rounded" />
           <div className="h-10 w-64 bg-white/10 rounded" />
           <div className="grid grid-cols-3 gap-3 mt-6">
-            {[1, 2, 3].map((i) => <div key={i} className="h-20 bg-white/[0.07] rounded-2xl" />)}
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-20 bg-white/[0.07] rounded-2xl" />
+            ))}
           </div>
         </div>
       </div>
       <div className="max-w-7xl mx-auto px-6 -mt-4 space-y-6 pb-16">
-        {[1, 2, 3, 4].map((i) => <div key={i} className="h-32 bg-white rounded-2xl shadow-sm" />)}
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-32 bg-white rounded-2xl shadow-sm" />
+        ))}
       </div>
     </div>
   );
@@ -144,7 +208,9 @@ function ChartTooltip({ active, payload, label }) {
     <div className="bg-slate-800 text-white text-xs rounded-lg px-3 py-2 shadow-xl border border-slate-700">
       <p className="font-semibold mb-1">{label}</p>
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color }}>{p.name}: {fc(p.value)}</p>
+        <p key={i} style={{ color: p.color }}>
+          {p.name}: {fc(p.value)}
+        </p>
       ))}
     </div>
   );
@@ -170,12 +236,35 @@ export default function Dashboard() {
 
   if (isLoading || !data) return <Skeleton />;
 
-  const { net_worth, lending, borrowing, obligations, expenses, investments, alerts, interest_only_alerts = [], this_month, cashflow } = data;
+  const {
+    net_worth,
+    lending,
+    borrowing,
+    obligations,
+    expenses,
+    investments,
+    alerts,
+    interest_only_alerts = [],
+    this_month,
+    cashflow,
+  } = data;
 
   const collectionData = [
     { name: "EMI", value: this_month.emi_collected, color: "#8b5cf6" },
-    { name: "Interest", value: this_month.interest_collected, color: "#14b8a6" },
-    ...(this_month.short_term_profit > 0 ? [{ name: "ST Profit", value: this_month.short_term_profit, color: "#f59e0b" }] : []),
+    {
+      name: "Interest",
+      value: this_month.interest_collected,
+      color: "#14b8a6",
+    },
+    ...(this_month.short_term_profit > 0
+      ? [
+          {
+            name: "ST Profit",
+            value: this_month.short_term_profit,
+            color: "#f59e0b",
+          },
+        ]
+      : []),
   ].filter((d) => d.value > 0);
 
   return (
@@ -188,45 +277,95 @@ export default function Dashboard() {
 
         <div className="relative max-w-7xl mx-auto">
           <p className="text-indigo-300/80 text-sm font-medium">
-            Welcome back, <span className="text-indigo-200 font-semibold">{user?.full_name || user?.username}</span>
+            Welcome back,{" "}
+            <span className="text-indigo-200 font-semibold">
+              {user?.full_name || user?.username}
+            </span>
           </p>
 
           <div className="mt-2 flex items-baseline gap-3 flex-wrap">
-            <h1 className="text-white text-3xl sm:text-4xl font-extrabold tracking-tight">{fcShort(net_worth.net_worth)}</h1>
-            <span className="text-indigo-400/70 text-sm font-medium">Net Worth</span>
+            <h1 className="text-white text-3xl sm:text-4xl font-extrabold tracking-tight">
+              {fcShort(net_worth.net_worth)}
+            </h1>
+            <span className="text-indigo-400/70 text-sm font-medium">
+              Net Worth
+            </span>
           </div>
 
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <GlassCard label="Total Assets" value={fcShort(net_worth.total_assets)} sub="Receivables + Investments + Cash" />
-            <GlassCard label="Total Liabilities" value={fcShort(net_worth.total_liabilities)} sub="Payables + Borrowings" />
-            <GlassCard label="Cash Balance" value={fcShort(net_worth.cash_balance)} sub="Across all accounts" />
+            <GlassCard
+              label="Total Assets"
+              value={fcShort(net_worth.total_assets)}
+              sub="Receivables + Investments + Cash"
+            />
+            <GlassCard
+              label="Total Liabilities"
+              value={fcShort(net_worth.total_liabilities)}
+              sub="Payables + Borrowings"
+            />
+            <GlassCard
+              label="Cash Balance"
+              value={fcShort(net_worth.cash_balance)}
+              sub="Across all accounts"
+            />
           </div>
         </div>
       </div>
 
       {/* ──────────────────── BODY ──────────────────── */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-5 pb-16 relative z-10">
-
         {/* ── LENDING ─────────────────────────────────── */}
-        <SectionTitle color="emerald" count={lending.active_count}>Lending</SectionTitle>
+        <SectionTitle color="emerald" count={lending.active_count}>
+          Lending
+        </SectionTitle>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Stat label="Total Lent (All-time)" value={fcShort(lending.total_lent_all_time)} accent="emerald" />
-          <Stat label="Outstanding" value={fcShort(lending.total_outstanding)} accent="sky" />
+          <Stat
+            label="Total Lent (All-time)"
+            value={fcShort(lending.total_lent_all_time)}
+            accent="emerald"
+          />
+          <Stat
+            label="Outstanding"
+            value={fcShort(lending.total_outstanding)}
+            accent="sky"
+          />
           <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-shadow px-5 py-4 border-l-4 border-l-teal-500">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">Interest Earned</p>
-            <p className="text-2xl font-extrabold text-slate-800 mt-1 tracking-tight">{fcShort(lending.total_interest_earned)}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">
+              Interest Earned
+            </p>
+            <p className="text-2xl font-extrabold text-slate-800 mt-1 tracking-tight">
+              {fcShort(lending.total_interest_earned)}
+            </p>
             {lending.avg_lending_rate_pa > 0 && (
               <div className="flex items-center gap-1 mt-1">
-                <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
+                <svg
+                  className="w-3 h-3 text-emerald-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={3}
+                    d="M5 15l7-7 7 7"
+                  />
                 </svg>
-                <span className="text-emerald-600 text-xs font-bold">{lending.avg_lending_rate_pa.toFixed(2)}% p.a.</span>
-                <span className="text-slate-400 text-[10px] ml-0.5">avg rate</span>
+                <span className="text-emerald-600 text-xs font-bold">
+                  {lending.avg_lending_rate_pa.toFixed(2)}% p.a.
+                </span>
+                <span className="text-slate-400 text-[10px] ml-0.5">
+                  avg rate
+                </span>
               </div>
             )}
           </div>
-          <Stat label="Principal Recovered" value={fcShort(lending.total_principal_recovered)} accent="indigo" />
+          <Stat
+            label="Principal Recovered"
+            value={fcShort(lending.total_principal_recovered)}
+            accent="indigo"
+          />
         </div>
 
         {/* Loan-type tabs */}
@@ -246,7 +385,9 @@ export default function Dashboard() {
                 }`}
               >
                 {TYPE_LABELS[lt]}{" "}
-                <span className={`ml-1 text-xs ${isOpen ? "opacity-80" : "text-slate-400"}`}>
+                <span
+                  className={`ml-1 text-xs ${isOpen ? "opacity-80" : "text-slate-400"}`}
+                >
                   {info.active_count}A / {info.closed_count}C
                 </span>
               </button>
@@ -257,19 +398,35 @@ export default function Dashboard() {
         {/* Inline expansion */}
         {expandedType && (
           <div className="mt-3 bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-            <div className={`px-5 py-3 border-b border-slate-100 flex items-center justify-between ${TYPE_COLORS[expandedType].bg}`}>
+            <div
+              className={`px-5 py-3 border-b border-slate-100 flex items-center justify-between ${TYPE_COLORS[expandedType].bg}`}
+            >
               <div className="flex items-center gap-3">
-                <span className={`text-sm font-bold ${TYPE_COLORS[expandedType].text}`}>{TYPE_LABELS[expandedType]} Loans</span>
+                <span
+                  className={`text-sm font-bold ${TYPE_COLORS[expandedType].text}`}
+                >
+                  {TYPE_LABELS[expandedType]} Loans
+                </span>
                 <span className="text-xs text-slate-500">
-                  Outstanding: <b>{fcShort(lending.by_type[expandedType].total_outstanding)}</b>
+                  Outstanding:{" "}
+                  <b>
+                    {fcShort(lending.by_type[expandedType].total_outstanding)}
+                  </b>
                   {" \u00b7 "}
-                  Earned: <b>{fcShort(lending.by_type[expandedType].total_interest_earned)}</b>
+                  Earned:{" "}
+                  <b>
+                    {fcShort(
+                      lending.by_type[expandedType].total_interest_earned,
+                    )}
+                  </b>
                 </span>
               </div>
             </div>
             <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
               {lending.by_type[expandedType].loans.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-6">No loans in this category</p>
+                <p className="text-sm text-slate-400 text-center py-6">
+                  No loans in this category
+                </p>
               ) : (
                 lending.by_type[expandedType].loans.map((loan) => (
                   <div
@@ -278,16 +435,26 @@ export default function Dashboard() {
                     className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 cursor-pointer transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[loan.status] || "bg-slate-300"}`} />
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[loan.status] || "bg-slate-300"}`}
+                      />
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{loan.contact_name}</p>
-                        <p className="text-[11px] text-slate-400">{loan.disbursed_date || "\u2014"} &middot; {loan.status}</p>
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {loan.contact_name}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {loan.disbursed_date || "\u2014"} &middot;{" "}
+                          {loan.status}
+                        </p>
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-4">
-                      <p className="text-sm font-bold text-slate-800">{fcShort(loan.principal)}</p>
+                      <p className="text-sm font-bold text-slate-800">
+                        {fcShort(loan.principal)}
+                      </p>
                       <p className="text-[11px] text-slate-400">
-                        Out: {fcShort(loan.outstanding)} &middot; Earned: {fcShort(loan.interest_earned)}
+                        Out: {fcShort(loan.outstanding)} &middot; Earned:{" "}
+                        {fcShort(loan.interest_earned)}
                       </p>
                     </div>
                   </div>
@@ -303,13 +470,33 @@ export default function Dashboard() {
           <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-bold text-slate-700">{this_month.month_name}</h3>
-                <p className="text-[11px] text-slate-400">Collections this month</p>
+                <h3 className="text-sm font-bold text-slate-700">
+                  {this_month.month_name}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Collections this month
+                </p>
               </div>
               <div className="text-right">
-                <div className={`flex items-center gap-0.5 justify-end text-xs font-bold ${this_month.collection_trend_pct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={this_month.collection_trend_pct >= 0 ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+                <div
+                  className={`flex items-center gap-0.5 justify-end text-xs font-bold ${this_month.collection_trend_pct >= 0 ? "text-emerald-600" : "text-rose-500"}`}
+                >
+                  <svg
+                    className="w-3 h-3"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={3}
+                      d={
+                        this_month.collection_trend_pct >= 0
+                          ? "M5 15l7-7 7 7"
+                          : "M19 9l-7 7-7-7"
+                      }
+                    />
                   </svg>
                   {Math.abs(this_month.collection_trend_pct).toFixed(1)}%
                 </div>
@@ -322,7 +509,11 @@ export default function Dashboard() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={collectionData.length > 0 ? collectionData : [{ name: "None", value: 1, color: "#e2e8f0" }]}
+                      data={
+                        collectionData.length > 0
+                          ? collectionData
+                          : [{ name: "None", value: 1, color: "#e2e8f0" }]
+                      }
                       cx="50%"
                       cy="50%"
                       innerRadius={28}
@@ -330,7 +521,10 @@ export default function Dashboard() {
                       dataKey="value"
                       strokeWidth={0}
                     >
-                      {(collectionData.length > 0 ? collectionData : [{ color: "#e2e8f0" }]).map((d, i) => (
+                      {(collectionData.length > 0
+                        ? collectionData
+                        : [{ color: "#e2e8f0" }]
+                      ).map((d, i) => (
                         <Cell key={i} fill={d.color} />
                       ))}
                     </Pie>
@@ -341,28 +535,42 @@ export default function Dashboard() {
               <div className="space-y-2 flex-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Total Collected</span>
-                  <span className="font-bold text-slate-800">{fc(this_month.total_collected)}</span>
+                  <span className="font-bold text-slate-800">
+                    {fc(this_month.total_collected)}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-violet-500">EMI Collected</span>
-                  <span className="font-semibold text-violet-600">{fc(this_month.emi_collected)}</span>
+                  <span className="font-semibold text-violet-600">
+                    {fc(this_month.emi_collected)}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-teal-500">Interest (IO)</span>
-                  <span className="font-semibold text-teal-600">{fc(this_month.interest_collected)}</span>
+                  <span className="font-semibold text-teal-600">
+                    {fc(this_month.interest_collected)}
+                  </span>
                 </div>
                 {this_month.short_term_profit > 0 && (
                   <div className="flex justify-between">
                     <span className="text-amber-500">Short-term Profit</span>
-                    <span className="font-semibold text-amber-600">{fc(this_month.short_term_profit)}</span>
+                    <span className="font-semibold text-amber-600">
+                      {fc(this_month.short_term_profit)}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between border-t border-slate-100 pt-1.5">
                   <span className="text-slate-400">Last Month</span>
-                  <span className="font-semibold text-slate-600">{fc(this_month.last_month_total)}</span>
+                  <span className="font-semibold text-slate-600">
+                    {fc(this_month.last_month_total)}
+                  </span>
                 </div>
                 {this_month.closed_loan_count > 0 && (
-                  <p className="text-[10px] text-slate-400">{this_month.closed_loan_count} loan{this_month.closed_loan_count > 1 ? 's' : ''} settled this month</p>
+                  <p className="text-[10px] text-slate-400">
+                    {this_month.closed_loan_count} loan
+                    {this_month.closed_loan_count > 1 ? "s" : ""} settled this
+                    month
+                  </p>
                 )}
               </div>
             </div>
@@ -371,10 +579,15 @@ export default function Dashboard() {
           {/* Cashflow area chart */}
           <div className="xl:col-span-3 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5">
             <h3 className="text-sm font-bold text-slate-700 mb-1">Cash Flow</h3>
-            <p className="text-[11px] text-slate-400 mb-4">6-month inflow vs outflow</p>
+            <p className="text-[11px] text-slate-400 mb-4">
+              6-month inflow vs outflow
+            </p>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={cashflow} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                <AreaChart
+                  data={cashflow}
+                  margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
+                >
                   <defs>
                     <linearGradient id="gInflow" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
@@ -386,16 +599,41 @@ export default function Dashboard() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: "#94a3b8" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <YAxis
                     tick={{ fontSize: 10, fill: "#94a3b8" }}
                     axisLine={false}
                     tickLine={false}
-                    tickFormatter={(v) => (v >= 1e5 ? `${(v / 1e5).toFixed(1)}L` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : v)}
+                    tickFormatter={(v) =>
+                      v >= 1e5
+                        ? `${(v / 1e5).toFixed(1)}L`
+                        : v >= 1e3
+                          ? `${(v / 1e3).toFixed(0)}K`
+                          : v
+                    }
                   />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="inflow" stroke="#10b981" strokeWidth={2} fill="url(#gInflow)" name="Inflow" />
-                  <Area type="monotone" dataKey="outflow" stroke="#f43f5e" strokeWidth={2} fill="url(#gOutflow)" name="Outflow" />
+                  <Area
+                    type="monotone"
+                    dataKey="inflow"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    fill="url(#gInflow)"
+                    name="Inflow"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="outflow"
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    fill="url(#gOutflow)"
+                    name="Outflow"
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -411,17 +649,29 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-slate-700">Borrowing</h3>
               {borrowing.loans.length > 0 && (
-                <ExpandToggle expanded={expandBorrowing} onClick={() => setExpandBorrowing(!expandBorrowing)} label={`${borrowing.loans.length} active`} />
+                <ExpandToggle
+                  expanded={expandBorrowing}
+                  onClick={() => setExpandBorrowing(!expandBorrowing)}
+                  label={`${borrowing.loans.length} active`}
+                />
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Total Borrowed</p>
-                <p className="text-lg font-extrabold text-slate-800">{fcShort(borrowing.total_borrowed)}</p>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">
+                  Total Borrowed
+                </p>
+                <p className="text-lg font-extrabold text-slate-800">
+                  {fcShort(borrowing.total_borrowed)}
+                </p>
               </div>
               <div>
-                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Outstanding</p>
-                <p className="text-lg font-extrabold text-rose-600">{fcShort(borrowing.total_outstanding)}</p>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">
+                  Outstanding
+                </p>
+                <p className="text-lg font-extrabold text-rose-600">
+                  {fcShort(borrowing.total_outstanding)}
+                </p>
               </div>
             </div>
 
@@ -434,12 +684,22 @@ export default function Dashboard() {
                     className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-700 truncate">{l.institution_name || l.contact_name || `Loan #${l.id}`}</p>
-                      <p className="text-[11px] text-slate-400">{(l.loan_type || "").replace("_", " ")}</p>
+                      <p className="text-sm font-semibold text-slate-700 truncate">
+                        {l.institution_name ||
+                          l.contact_name ||
+                          `Loan #${l.id}`}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {(l.loan_type || "").replace("_", " ")}
+                      </p>
                     </div>
                     <div className="text-right shrink-0 ml-3">
-                      <p className="text-sm font-bold text-slate-800">{fcShort(l.outstanding)}</p>
-                      <p className="text-[11px] text-slate-400">of {fcShort(l.principal)}</p>
+                      <p className="text-sm font-bold text-slate-800">
+                        {fcShort(l.outstanding)}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        of {fcShort(l.principal)}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -452,17 +712,29 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-slate-700">Obligations</h3>
               {obligations.items.length > 0 && (
-                <ExpandToggle expanded={expandObligations} onClick={() => setExpandObligations(!expandObligations)} label={`${obligations.items.length} open`} />
+                <ExpandToggle
+                  expanded={expandObligations}
+                  onClick={() => setExpandObligations(!expandObligations)}
+                  label={`${obligations.items.length} open`}
+                />
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Receivable</p>
-                <p className="text-lg font-extrabold text-emerald-600">{fcShort(obligations.receivable_pending)}</p>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">
+                  Receivable
+                </p>
+                <p className="text-lg font-extrabold text-emerald-600">
+                  {fcShort(obligations.receivable_pending)}
+                </p>
               </div>
               <div>
-                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">Payable</p>
-                <p className="text-lg font-extrabold text-rose-600">{fcShort(obligations.payable_pending)}</p>
+                <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-widest">
+                  Payable
+                </p>
+                <p className="text-lg font-extrabold text-rose-600">
+                  {fcShort(obligations.payable_pending)}
+                </p>
               </div>
             </div>
 
@@ -475,15 +747,27 @@ export default function Dashboard() {
                     className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-1.5 h-1.5 rounded-full ${ob.type === "receivable" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${ob.type === "receivable" ? "bg-emerald-400" : "bg-rose-400"}`}
+                      />
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-700 truncate">{ob.contact_name || ob.reason || `#${ob.id}`}</p>
-                        <p className="text-[11px] text-slate-400">{ob.type} &middot; {ob.status}</p>
+                        <p className="text-sm font-semibold text-slate-700 truncate">
+                          {ob.contact_name || ob.reason || `#${ob.id}`}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {ob.type} &middot; {ob.status}
+                        </p>
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-3">
-                      <p className={`text-sm font-bold ${ob.type === "receivable" ? "text-emerald-700" : "text-rose-700"}`}>{fcShort(ob.pending)}</p>
-                      <p className="text-[11px] text-slate-400">of {fcShort(ob.amount)}</p>
+                      <p
+                        className={`text-sm font-bold ${ob.type === "receivable" ? "text-emerald-700" : "text-rose-700"}`}
+                      >
+                        {fcShort(ob.pending)}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        of {fcShort(ob.amount)}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -503,16 +787,41 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                <svg
+                  className="w-4 h-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                  />
                 </svg>
               </span>
-              <h4 className="text-sm font-bold text-slate-700 group-hover:text-violet-700 transition-colors">Properties</h4>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-violet-700 transition-colors">
+                Properties
+              </h4>
             </div>
-            <p className="text-xl font-extrabold text-slate-800">{investments.properties.count}</p>
+            <p className="text-xl font-extrabold text-slate-800">
+              {investments.properties.count}
+            </p>
             <div className="text-[11px] text-slate-400 mt-1 space-y-0.5">
               <p>Invested: {fcShort(investments.properties.total_invested)}</p>
-              <p>Profit: <span className={investments.properties.total_profit >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>{fcShort(investments.properties.total_profit)}</span></p>
+              <p>
+                Profit:{" "}
+                <span
+                  className={
+                    investments.properties.total_profit >= 0
+                      ? "text-emerald-600 font-semibold"
+                      : "text-rose-600 font-semibold"
+                  }
+                >
+                  {fcShort(investments.properties.total_profit)}
+                </span>
+              </p>
             </div>
           </div>
 
@@ -523,16 +832,37 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-sm">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                <svg
+                  className="w-4 h-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
                 </svg>
               </span>
-              <h4 className="text-sm font-bold text-slate-700 group-hover:text-indigo-700 transition-colors">Partnerships</h4>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-indigo-700 transition-colors">
+                Partnerships
+              </h4>
             </div>
-            <p className="text-xl font-extrabold text-slate-800">{investments.partnerships.count}</p>
+            <p className="text-xl font-extrabold text-slate-800">
+              {investments.partnerships.count}
+            </p>
             <div className="text-[11px] text-slate-400 mt-1 space-y-0.5">
-              <p>Invested: {fcShort(investments.partnerships.total_invested)}</p>
-              <p>Received: <span className="text-emerald-600 font-semibold">{fcShort(investments.partnerships.total_received)}</span></p>
+              <p>
+                Invested: {fcShort(investments.partnerships.total_invested)}
+              </p>
+              <p>
+                Received:{" "}
+                <span className="text-emerald-600 font-semibold">
+                  {fcShort(investments.partnerships.total_received)}
+                </span>
+              </p>
             </div>
           </div>
 
@@ -543,16 +873,35 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-sm">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                <svg
+                  className="w-4 h-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+                  />
                 </svg>
               </span>
-              <h4 className="text-sm font-bold text-slate-700 group-hover:text-amber-700 transition-colors">Beesi</h4>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-amber-700 transition-colors">
+                Beesi
+              </h4>
             </div>
-            <p className="text-xl font-extrabold text-slate-800">{investments.beesi.count}</p>
+            <p className="text-xl font-extrabold text-slate-800">
+              {investments.beesi.count}
+            </p>
             <div className="text-[11px] text-slate-400 mt-1 space-y-0.5">
               <p>Paid: {fcShort(investments.beesi.total_paid)}</p>
-              <p>Received: <span className="text-emerald-600 font-semibold">{fcShort(investments.beesi.total_received)}</span></p>
+              <p>
+                Received:{" "}
+                <span className="text-emerald-600 font-semibold">
+                  {fcShort(investments.beesi.total_received)}
+                </span>
+              </p>
             </div>
           </div>
 
@@ -563,23 +912,44 @@ export default function Dashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center shadow-sm">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                <svg
+                  className="w-4 h-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"
+                  />
                 </svg>
               </span>
-              <h4 className="text-sm font-bold text-slate-700 group-hover:text-rose-700 transition-colors">Expenses</h4>
+              <h4 className="text-sm font-bold text-slate-700 group-hover:text-rose-700 transition-colors">
+                Expenses
+              </h4>
             </div>
             <div className="flex items-baseline gap-2">
-              <p className="text-xl font-extrabold text-slate-800">{fcShort(expenses.this_month_total)}</p>
+              <p className="text-xl font-extrabold text-slate-800">
+                {fcShort(expenses.this_month_total)}
+              </p>
               <TrendArrow pct={expenses.trend_pct} />
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Last month: {fcShort(expenses.last_month_total)}</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Last month: {fcShort(expenses.last_month_total)}
+            </p>
             {expenses.top_categories.length > 0 && (
               <div className="mt-2 space-y-1">
                 {expenses.top_categories.slice(0, 3).map((c) => (
-                  <div key={c.name} className="flex justify-between text-[11px]">
+                  <div
+                    key={c.name}
+                    className="flex justify-between text-[11px]"
+                  >
                     <span className="text-slate-500 truncate">{c.name}</span>
-                    <span className="text-slate-700 font-semibold">{fcShort(c.amount)}</span>
+                    <span className="text-slate-700 font-semibold">
+                      {fcShort(c.amount)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -590,32 +960,93 @@ export default function Dashboard() {
         {/* ── ALERTS ──────────────────────────────────── */}
         {(alerts.length > 0 || interest_only_alerts.length > 0) && (
           <>
-            <SectionTitle color="amber" count={alerts.length + interest_only_alerts.length}>Alerts</SectionTitle>
+            <SectionTitle
+              color="amber"
+              count={alerts.length + interest_only_alerts.length}
+            >
+              Alerts
+            </SectionTitle>
             <div className="space-y-2">
               {alerts.map((a, i) => {
                 const colors = {
-                  emi_overdue: { border: "border-l-rose-500", bg: "bg-rose-50/60", title: "text-rose-800", desc: "text-rose-600", badge: "bg-rose-100 text-rose-700", label: "EMI" },
-                  emi_upcoming: { border: "border-l-orange-400", bg: "bg-orange-50/60", title: "text-orange-800", desc: "text-orange-600", badge: "bg-orange-100 text-orange-700", label: "EMI" },
-                  short_term_overdue: { border: "border-l-amber-500", bg: "bg-amber-50/60", title: "text-amber-800", desc: "text-amber-600", badge: "bg-amber-100 text-amber-700", label: "Short Term" },
-                  short_term_upcoming: { border: "border-l-yellow-400", bg: "bg-yellow-50/60", title: "text-yellow-800", desc: "text-yellow-600", badge: "bg-yellow-100 text-yellow-700", label: "Short Term" },
-                  collateral: { border: "border-l-purple-500", bg: "bg-purple-50/60", title: "text-purple-800", desc: "text-purple-600", badge: "bg-purple-100 text-purple-700", label: "Collateral" },
-                  obligation: { border: "border-l-indigo-400", bg: "bg-indigo-50/60", title: "text-indigo-800", desc: "text-indigo-600", badge: "bg-indigo-100 text-indigo-700", label: "Obligation" },
+                  emi_overdue: {
+                    border: "border-l-rose-500",
+                    bg: "bg-rose-50/60",
+                    title: "text-rose-800",
+                    desc: "text-rose-600",
+                    badge: "bg-rose-100 text-rose-700",
+                    label: "EMI",
+                  },
+                  emi_upcoming: {
+                    border: "border-l-orange-400",
+                    bg: "bg-orange-50/60",
+                    title: "text-orange-800",
+                    desc: "text-orange-600",
+                    badge: "bg-orange-100 text-orange-700",
+                    label: "EMI",
+                  },
+                  short_term_overdue: {
+                    border: "border-l-amber-500",
+                    bg: "bg-amber-50/60",
+                    title: "text-amber-800",
+                    desc: "text-amber-600",
+                    badge: "bg-amber-100 text-amber-700",
+                    label: "Short Term",
+                  },
+                  short_term_upcoming: {
+                    border: "border-l-yellow-400",
+                    bg: "bg-yellow-50/60",
+                    title: "text-yellow-800",
+                    desc: "text-yellow-600",
+                    badge: "bg-yellow-100 text-yellow-700",
+                    label: "Short Term",
+                  },
+                  collateral: {
+                    border: "border-l-purple-500",
+                    bg: "bg-purple-50/60",
+                    title: "text-purple-800",
+                    desc: "text-purple-600",
+                    badge: "bg-purple-100 text-purple-700",
+                    label: "Collateral",
+                  },
+                  obligation: {
+                    border: "border-l-indigo-400",
+                    bg: "bg-indigo-50/60",
+                    title: "text-indigo-800",
+                    desc: "text-indigo-600",
+                    badge: "bg-indigo-100 text-indigo-700",
+                    label: "Obligation",
+                  },
                 };
                 const c = colors[a.type] || colors.collateral;
                 return (
                   <div
                     key={i}
-                    onClick={() => a.loan_id ? navigate(`/loans/${a.loan_id}`) : a.obligation_id ? navigate(`/obligations`) : null}
+                    onClick={() =>
+                      a.loan_id
+                        ? navigate(`/loans/${a.loan_id}`)
+                        : a.obligation_id
+                          ? navigate(`/obligations`)
+                          : null
+                    }
                     className={`flex items-center justify-between px-5 py-3 rounded-2xl border border-l-4 ${c.border} ${c.bg} hover:shadow-sm cursor-pointer transition-all`}
                   >
                     <div className="min-w-0">
-                      <p className={`text-sm font-semibold ${c.title}`}>{a.title}</p>
-                      <p className={`text-xs ${c.desc} mt-0.5`}>{a.description}</p>
+                      <p className={`text-sm font-semibold ${c.title}`}>
+                        {a.title}
+                      </p>
+                      <p className={`text-xs ${c.desc} mt-0.5`}>
+                        {a.description}
+                      </p>
                       {a.days_overdue != null && (
-                        <p className="text-[10px] font-bold text-rose-500 mt-0.5">{a.days_overdue} days overdue</p>
+                        <p className="text-[10px] font-bold text-rose-500 mt-0.5">
+                          {a.days_overdue} days overdue
+                        </p>
                       )}
                     </div>
-                    <span className={`shrink-0 ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.badge}`}>
+                    <span
+                      className={`shrink-0 ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.badge}`}
+                    >
                       {c.label}
                     </span>
                   </div>
@@ -626,14 +1057,26 @@ export default function Dashboard() {
               {interest_only_alerts.length > 0 && (
                 <div className="mt-3">
                   <button
-                    onClick={() => setExpandInterestAlerts(!expandInterestAlerts)}
+                    onClick={() =>
+                      setExpandInterestAlerts(!expandInterestAlerts)
+                    }
                     className="w-full flex items-center justify-between px-5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200/60 hover:bg-slate-100 transition-colors"
                   >
                     <span className="text-xs font-semibold text-slate-500">
                       Interest Only ({interest_only_alerts.length})
                     </span>
-                    <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expandInterestAlerts ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                    <svg
+                      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expandInterestAlerts ? "rotate-180" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2.5}
+                        d="M19 9l-7 7-7-7"
+                      />
                     </svg>
                   </button>
                   {expandInterestAlerts && (
@@ -645,13 +1088,28 @@ export default function Dashboard() {
                           className="flex items-center justify-between px-5 py-3 rounded-2xl border border-l-4 border-l-slate-300 bg-slate-50/60 hover:shadow-sm cursor-pointer transition-all"
                         >
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-700">{a.title}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{a.description}</p>
+                            <p className="text-sm font-semibold text-slate-700">
+                              {a.title}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {a.description}
+                            </p>
                             {a.last_payment_date && (
-                              <p className="text-[10px] text-slate-400 mt-0.5">Last paid: {new Date(a.last_payment_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                Last paid:{" "}
+                                {new Date(
+                                  a.last_payment_date,
+                                ).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </p>
                             )}
                             {!a.last_payment_date && (
-                              <p className="text-[10px] text-rose-400 mt-0.5">Never paid</p>
+                              <p className="text-[10px] text-rose-400 mt-0.5">
+                                Never paid
+                              </p>
                             )}
                           </div>
                           <span className="shrink-0 ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-500">
@@ -673,12 +1131,24 @@ export default function Dashboard() {
             <SectionTitle color="amber">Alerts</SectionTitle>
             <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm py-8 text-center">
               <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-6 h-6 text-emerald-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
               </div>
               <p className="text-sm font-semibold text-slate-600">All clear!</p>
-              <p className="text-xs text-slate-400 mt-0.5">No overdue EMIs or risky collateral</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                No overdue EMIs or risky collateral
+              </p>
             </div>
           </>
         )}

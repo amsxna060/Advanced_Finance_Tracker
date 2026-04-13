@@ -50,17 +50,33 @@ export default function Login() {
       <div className="max-w-md w-full relative z-10 animate-fadeIn">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25 mb-5">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-8 h-8 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">FinTracker</h1>
-          <p className="text-indigo-300/60 text-sm mt-1.5 font-medium">Advanced Finance Tracker</p>
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">
+            FinTracker
+          </h1>
+          <p className="text-indigo-300/60 text-sm mt-1.5 font-medium">
+            Advanced Finance Tracker
+          </p>
         </div>
 
         <div className="bg-white/[0.07] backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-white/[0.12]">
           <h2 className="text-lg font-bold text-white mb-1">Welcome back</h2>
-          <p className="text-indigo-300/50 text-sm mb-6">Sign in to continue to your dashboard</p>
+          <p className="text-indigo-300/50 text-sm mb-6">
+            Sign in to continue to your dashboard
+          </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
@@ -70,7 +86,10 @@ export default function Login() {
             )}
 
             <div>
-              <label htmlFor="username" className="block text-[11px] font-semibold text-indigo-300/80 uppercase tracking-widest mb-2">
+              <label
+                htmlFor="username"
+                className="block text-[11px] font-semibold text-indigo-300/80 uppercase tracking-widest mb-2"
+              >
                 Username
               </label>
               <input
@@ -85,7 +104,10 @@ export default function Login() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-[11px] font-semibold text-indigo-300/80 uppercase tracking-widest mb-2">
+              <label
+                htmlFor="password"
+                className="block text-[11px] font-semibold text-indigo-300/80 uppercase tracking-widest mb-2"
+              >
                 Password
               </label>
               <input
@@ -114,7 +136,9 @@ export default function Login() {
           </form>
         </div>
 
-        <p className="text-center text-indigo-300/30 text-xs mt-6">Secured with end-to-end encryption</p>
+        <p className="text-center text-indigo-300/30 text-xs mt-6">
+          Secured with end-to-end encryption
+        </p>
       </div>
     </div>
   );

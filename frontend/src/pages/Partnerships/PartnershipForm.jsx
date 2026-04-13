@@ -238,331 +238,340 @@ export default function PartnershipForm() {
         compact
         backTo="/partnerships"
         title={isEditMode ? "Edit Partnership" : "New Partnership"}
-        subtitle={isEditMode ? "Update partnership details" : "Create a new investment partnership"}
+        subtitle={
+          isEditMode
+            ? "Update partnership details"
+            : "Create a new investment partnership"
+        }
       />
 
       <PageBody>
         <Card className="p-0">
-        <form onSubmit={handleSubmit} className="space-y-5 p-5 sm:p-6">
-          {/* Step 1: Basic Info */}
-          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
-            <h2 className="text-base font-bold text-slate-800 mb-4">
-              Basic Info
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Title <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => set("title", e.target.value)}
-                  className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.title ? "border-rose-400" : "border-slate-200"}`}
-                  placeholder="e.g. Shivaji Nagar Plot Partnership"
-                />
-                {errors.title && (
-                  <p className="text-rose-500 text-xs mt-1">{errors.title}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Linked Property Deal
-                  <span className="text-xs text-slate-400 ml-2">
-                    (Plot deals only)
-                  </span>
-                </label>
-                <select
-                  value={formData.linked_property_deal_id}
-                  onChange={(e) =>
-                    set("linked_property_deal_id", e.target.value)
-                  }
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
-                  disabled={isEditMode}
-                >
-                  <option value="">— No linked property —</option>
-                  {properties.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.title}
-                      {p.location ? ` (${p.location})` : ""}
-                    </option>
-                  ))}
-                </select>
-                {isEditMode && (
-                  <p className="text-xs text-slate-400 mt-1">
-                    Linked property cannot be changed after creation.
-                  </p>
-                )}
-              </div>
-
-              {/* Linked property info box */}
-              {linkedProperty && (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm space-y-1.5">
-                  <div className="font-semibold text-indigo-800 mb-2">
-                    Linked Property Details
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Area:</span>
-                    <span className="font-medium">
-                      {linkedProperty.total_area_sqft
-                        ? `${Number(linkedProperty.total_area_sqft).toLocaleString()} sqft`
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Total Seller Value:</span>
-                    <span className="font-medium">
-                      {linkedProperty.total_seller_value
-                        ? formatCurrency(linkedProperty.total_seller_value)
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Advance Paid:</span>
-                    <span className="font-medium">
-                      {formatCurrency(linkedProperty.advance_paid || 0)}
-                    </span>
-                  </div>
-                  {linkedProperty.broker_commission > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Broker Commission:</span>
-                      <span className="font-medium">
-                        {formatCurrency(linkedProperty.broker_commission)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Notes
-                </label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => set("notes", e.target.value)}
-                  rows={2}
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                  placeholder="Any notes..."
-                />
-              </div>
-
-              {isEditMode && (
+          <form onSubmit={handleSubmit} className="space-y-5 p-5 sm:p-6">
+            {/* Step 1: Basic Info */}
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+              <h2 className="text-base font-bold text-slate-800 mb-4">
+                Basic Info
+              </h2>
+              <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
-                    Status
+                    Title <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => set("title", e.target.value)}
+                    className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.title ? "border-rose-400" : "border-slate-200"}`}
+                    placeholder="e.g. Shivaji Nagar Plot Partnership"
+                  />
+                  {errors.title && (
+                    <p className="text-rose-500 text-xs mt-1">{errors.title}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Linked Property Deal
+                    <span className="text-xs text-slate-400 ml-2">
+                      (Plot deals only)
+                    </span>
                   </label>
                   <select
-                    value={formData.status}
-                    onChange={(e) => set("status", e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    value={formData.linked_property_deal_id}
+                    onChange={(e) =>
+                      set("linked_property_deal_id", e.target.value)
+                    }
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
+                    disabled={isEditMode}
                   >
-                    <option value="active">Active</option>
-                    <option value="settled">Settled</option>
-                    <option value="cancelled">Cancelled</option>
+                    <option value="">— No linked property —</option>
+                    {properties.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                        {p.location ? ` (${p.location})` : ""}
+                      </option>
+                    ))}
                   </select>
+                  {isEditMode && (
+                    <p className="text-xs text-slate-400 mt-1">
+                      Linked property cannot be changed after creation.
+                    </p>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
 
-          {/* Step 2: Partners (create mode only) */}
-          {!isEditMode && (
-            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-bold text-slate-800">
-                  Partners
-                </h2>
-                <div className="flex items-center gap-3 text-sm">
-                  <span
-                    className={`font-medium ${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-emerald-600" : "text-orange-600"}`}
-                  >
-                    Total: {totalSharePct.toFixed(1)}%
-                  </span>
-                  <button
-                    type="button"
-                    onClick={addPartner}
-                    className="text-indigo-600 hover:text-indigo-800 font-medium"
-                  >
-                    + Add Partner
-                  </button>
-                </div>
-              </div>
-
-              {errors.partners && (
-                <p className="text-rose-700 text-sm mb-3 bg-rose-50 border border-rose-200 rounded-xl p-2">
-                  ⚠ {errors.partners}
-                </p>
-              )}
-
-              <div className="space-y-4">
-                {partners.map((partner, idx) => (
-                  <div
-                    key={idx}
-                    className="border border-slate-200/60 rounded-xl p-4 relative"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-slate-700">
-                        Partner {idx + 1}
-                      </span>
-                      {partners.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removePartner(idx)}
-                          className="text-rose-500 hover:text-rose-700 text-xs"
-                        >
-                          Remove
-                        </button>
-                      )}
+                {/* Linked property info box */}
+                {linkedProperty && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm space-y-1.5">
+                    <div className="font-semibold text-indigo-800 mb-2">
+                      Linked Property Details
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Area:</span>
+                      <span className="font-medium">
+                        {linkedProperty.total_area_sqft
+                          ? `${Number(linkedProperty.total_area_sqft).toLocaleString()} sqft`
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">
+                        Total Seller Value:
+                      </span>
+                      <span className="font-medium">
+                        {linkedProperty.total_seller_value
+                          ? formatCurrency(linkedProperty.total_seller_value)
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Advance Paid:</span>
+                      <span className="font-medium">
+                        {formatCurrency(linkedProperty.advance_paid || 0)}
+                      </span>
+                    </div>
+                    {linkedProperty.broker_commission > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">
+                          Broker Commission:
+                        </span>
+                        <span className="font-medium">
+                          {formatCurrency(linkedProperty.broker_commission)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="sm:col-span-2 flex items-center gap-3">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={partner.is_self}
-                            onChange={(e) =>
-                              updatePartner(idx, "is_self", e.target.checked)
-                            }
-                            className="rounded"
-                          />
-                          <span className="text-sm text-slate-700">
-                            This is me (Self)
-                          </span>
-                        </label>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Notes
+                  </label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => set("notes", e.target.value)}
+                    rows={2}
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    placeholder="Any notes..."
+                  />
+                </div>
+
+                {isEditMode && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Status
+                    </label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => set("status", e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    >
+                      <option value="active">Active</option>
+                      <option value="settled">Settled</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Step 2: Partners (create mode only) */}
+            {!isEditMode && (
+              <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-base font-bold text-slate-800">
+                    Partners
+                  </h2>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span
+                      className={`font-medium ${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-emerald-600" : "text-orange-600"}`}
+                    >
+                      Total: {totalSharePct.toFixed(1)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={addPartner}
+                      className="text-indigo-600 hover:text-indigo-800 font-medium"
+                    >
+                      + Add Partner
+                    </button>
+                  </div>
+                </div>
+
+                {errors.partners && (
+                  <p className="text-rose-700 text-sm mb-3 bg-rose-50 border border-rose-200 rounded-xl p-2">
+                    ⚠ {errors.partners}
+                  </p>
+                )}
+
+                <div className="space-y-4">
+                  {partners.map((partner, idx) => (
+                    <div
+                      key={idx}
+                      className="border border-slate-200/60 rounded-xl p-4 relative"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-slate-700">
+                          Partner {idx + 1}
+                        </span>
+                        {partners.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removePartner(idx)}
+                            className="text-rose-500 hover:text-rose-700 text-xs"
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
 
-                      {!partner.is_self && (
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">
-                            Contact
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="sm:col-span-2 flex items-center gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={partner.is_self}
+                              onChange={(e) =>
+                                updatePartner(idx, "is_self", e.target.checked)
+                              }
+                              className="rounded"
+                            />
+                            <span className="text-sm text-slate-700">
+                              This is me (Self)
+                            </span>
                           </label>
-                          <select
-                            value={partner.contact_id}
+                        </div>
+
+                        {!partner.is_self && (
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-medium text-slate-500 mb-1">
+                              Contact
+                            </label>
+                            <select
+                              value={partner.contact_id}
+                              onChange={(e) =>
+                                updatePartner(idx, "contact_id", e.target.value)
+                              }
+                              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                            >
+                              <option value="">— Select Contact —</option>
+                              {contacts.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                  {c.phone ? ` (${c.phone})` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            Share % <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={partner.share_percentage}
                             onChange={(e) =>
-                              updatePartner(idx, "contact_id", e.target.value)
+                              updatePartner(
+                                idx,
+                                "share_percentage",
+                                e.target.value,
+                              )
                             }
                             className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                          >
-                            <option value="">— Select Contact —</option>
-                            {contacts.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                                {c.phone ? ` (${c.phone})` : ""}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="e.g. 40"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                          />
                         </div>
-                      )}
 
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">
-                          Share % <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          value={partner.share_percentage}
-                          onChange={(e) =>
-                            updatePartner(
-                              idx,
-                              "share_percentage",
-                              e.target.value,
-                            )
-                          }
-                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                          placeholder="e.g. 40"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                        />
-                      </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            Advance Contributed (₹){" "}
+                            <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={partner.advance_contributed}
+                            onChange={(e) =>
+                              updatePartner(
+                                idx,
+                                "advance_contributed",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                            placeholder="0"
+                            min="0"
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">
-                          Advance Contributed (₹){" "}
-                          <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          value={partner.advance_contributed}
-                          onChange={(e) =>
-                            updatePartner(
-                              idx,
-                              "advance_contributed",
-                              e.target.value,
-                            )
-                          }
-                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                          placeholder="0"
-                          min="0"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">
-                          Notes (optional)
-                        </label>
-                        <input
-                          type="text"
-                          value={partner.notes}
-                          onChange={(e) =>
-                            updatePartner(idx, "notes", e.target.value)
-                          }
-                          className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                          placeholder="Optional note for this partner"
-                        />
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">
+                            Notes (optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={partner.notes}
+                            onChange={(e) =>
+                              updatePartner(idx, "notes", e.target.value)
+                            }
+                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                            placeholder="Optional note for this partner"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
 
-              {/* Totals summary */}
-              <div className="mt-4 border-t border-slate-200 pt-3 text-sm flex flex-wrap gap-4">
-                <div
+                {/* Totals summary */}
+                <div className="mt-4 border-t border-slate-200 pt-3 text-sm flex flex-wrap gap-4">
+                  <div
                     className={`${Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE ? "text-emerald-600" : "text-orange-600"}`}
-                >
-                  Share Total: <strong>{totalSharePct.toFixed(2)}%</strong>
-                  {Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE
-                    ? " ✓"
-                    : ` (need ${(100 - totalSharePct).toFixed(2)}% more)`}
-                </div>
-                <div
-                  className={
-                    advanceMismatch ? "text-orange-600" : "text-slate-500"
-                  }
-                >
-                  Advance Total: <strong>{formatCurrency(totalAdvance)}</strong>
-                  {advanceMismatch &&
-                    ` ⚠ Property advance: ${formatCurrency(propertyAdvance)}`}
+                  >
+                    Share Total: <strong>{totalSharePct.toFixed(2)}%</strong>
+                    {Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE
+                      ? " ✓"
+                      : ` (need ${(100 - totalSharePct).toFixed(2)}% more)`}
+                  </div>
+                  <div
+                    className={
+                      advanceMismatch ? "text-orange-600" : "text-slate-500"
+                    }
+                  >
+                    Advance Total:{" "}
+                    <strong>{formatCurrency(totalAdvance)}</strong>
+                    {advanceMismatch &&
+                      ` ⚠ Property advance: ${formatCurrency(propertyAdvance)}`}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="flex gap-3 justify-end">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitMutation.isPending}
-              className="px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50 transition-all"
-            >
-              {submitMutation.isPending
-                ? "Saving..."
-                : isEditMode
-                  ? "Save Changes"
-                  : "Create Partnership"}
-            </button>
-          </div>
-        </form>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitMutation.isPending}
+                className="px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50 transition-all"
+              >
+                {submitMutation.isPending
+                  ? "Saving..."
+                  : isEditMode
+                    ? "Save Changes"
+                    : "Create Partnership"}
+              </button>
+            </div>
+          </form>
         </Card>
       </PageBody>
     </div>

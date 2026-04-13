@@ -126,13 +126,18 @@ function ContactForm() {
 
   if (isLoading) return <PageSkeleton />;
 
-  const labelClass = "text-[11px] font-semibold text-slate-500 uppercase tracking-widest";
+  const labelClass =
+    "text-[11px] font-semibold text-slate-500 uppercase tracking-widest";
 
   return (
     <div className="min-h-screen bg-slate-50">
       <PageHero
         title={isEditMode ? "Edit Contact" : "New Contact"}
-        subtitle={isEditMode ? "Update contact information" : "Add a new contact to your network"}
+        subtitle={
+          isEditMode
+            ? "Update contact information"
+            : "Add a new contact to your network"
+        }
         backTo="/contacts"
         compact
       />
@@ -219,10 +224,18 @@ function ContactForm() {
                   type="checkbox"
                   id="is_handshake"
                   checked={formData.is_handshake}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, is_handshake: e.target.checked }))}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      is_handshake: e.target.checked,
+                    }))
+                  }
                   className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                 />
-                <label htmlFor="is_handshake" className="text-sm font-medium text-slate-700">
+                <label
+                  htmlFor="is_handshake"
+                  className="text-sm font-medium text-slate-700"
+                >
                   Handshake Deal (Trust-based)
                 </label>
               </div>

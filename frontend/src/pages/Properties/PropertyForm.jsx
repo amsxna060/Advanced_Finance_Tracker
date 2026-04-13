@@ -24,8 +24,11 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
 
   let parsedRoads = [];
   try {
-    if (roads) parsedRoads = typeof roads === "string" ? JSON.parse(roads) : roads;
-  } catch { /* ignore */ }
+    if (roads)
+      parsedRoads = typeof roads === "string" ? JSON.parse(roads) : roads;
+  } catch {
+    /* ignore */
+  }
 
   const maxSide = Math.max(l, r, t, b, 1);
   const BASE_W = 200,
@@ -53,26 +56,128 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
   const points = `${x4},${y4} ${cx - topW / 2},${y1L} ${cx + topW / 2},${y1R} ${x3},${y4}`;
   const midY = (Math.min(y1L, y1R) + y4) / 2;
 
-  const hasRoadN = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "north");
-  const hasRoadS = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "south");
-  const hasRoadE = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "east");
-  const hasRoadW = parsedRoads.some((rd) => (rd.direction || "").toLowerCase() === "west");
+  const hasRoadN = parsedRoads.some(
+    (rd) => (rd.direction || "").toLowerCase() === "north",
+  );
+  const hasRoadS = parsedRoads.some(
+    (rd) => (rd.direction || "").toLowerCase() === "south",
+  );
+  const hasRoadE = parsedRoads.some(
+    (rd) => (rd.direction || "").toLowerCase() === "east",
+  );
+  const hasRoadW = parsedRoads.some(
+    (rd) => (rd.direction || "").toLowerCase() === "west",
+  );
 
   const roadRects = parsedRoads.map((rd, i) => {
     const dir = (rd.direction || "").toLowerCase();
     const w = parseFloat(rd.width_ft) || 20;
     const label = `Road ${w}ft`;
     if (dir === "north") {
-      return (<g key={i}><rect x={cx - topW / 2 - 5} y={Math.min(y1L, y1R) - ROAD_W - 2} width={topW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={cx} y={Math.min(y1L, y1R) - ROAD_W / 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text></g>);
+      return (
+        <g key={i}>
+          <rect
+            x={cx - topW / 2 - 5}
+            y={Math.min(y1L, y1R) - ROAD_W - 2}
+            width={topW + 10}
+            height={ROAD_W}
+            rx={3}
+            fill="#e2e8f0"
+            stroke="#94a3b8"
+            strokeWidth={1}
+          />
+          <text
+            x={cx}
+            y={Math.min(y1L, y1R) - ROAD_W / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fill="#475569"
+          >
+            {label}
+          </text>
+        </g>
+      );
     }
     if (dir === "south") {
-      return (<g key={i}><rect x={cx - botW / 2 - 5} y={y4 + 2} width={botW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={cx} y={y4 + ROAD_W / 2 + 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text></g>);
+      return (
+        <g key={i}>
+          <rect
+            x={cx - botW / 2 - 5}
+            y={y4 + 2}
+            width={botW + 10}
+            height={ROAD_W}
+            rx={3}
+            fill="#e2e8f0"
+            stroke="#94a3b8"
+            strokeWidth={1}
+          />
+          <text
+            x={cx}
+            y={y4 + ROAD_W / 2 + 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fill="#475569"
+          >
+            {label}
+          </text>
+        </g>
+      );
     }
     if (dir === "east") {
-      return (<g key={i}><rect x={Math.max(x3, cx + topW / 2) + 2} y={Math.min(y1R, y1L)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(90, ${Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}, ${midY})`}>{label}</text></g>);
+      return (
+        <g key={i}>
+          <rect
+            x={Math.max(x3, cx + topW / 2) + 2}
+            y={Math.min(y1R, y1L)}
+            width={ROAD_W}
+            height={plotH}
+            rx={3}
+            fill="#e2e8f0"
+            stroke="#94a3b8"
+            strokeWidth={1}
+          />
+          <text
+            x={Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}
+            y={midY}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fill="#475569"
+            transform={`rotate(90, ${Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}, ${midY})`}
+          >
+            {label}
+          </text>
+        </g>
+      );
     }
     if (dir === "west") {
-      return (<g key={i}><rect x={Math.min(x4, cx - topW / 2) - ROAD_W - 2} y={Math.min(y1L, y1R)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#94a3b8" strokeWidth={1} /><text x={Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(-90, ${Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}, ${midY})`}>{label}</text></g>);
+      return (
+        <g key={i}>
+          <rect
+            x={Math.min(x4, cx - topW / 2) - ROAD_W - 2}
+            y={Math.min(y1L, y1R)}
+            width={ROAD_W}
+            height={plotH}
+            rx={3}
+            fill="#e2e8f0"
+            stroke="#94a3b8"
+            strokeWidth={1}
+          />
+          <text
+            x={Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}
+            y={midY}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fill="#475569"
+            transform={`rotate(-90, ${Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}, ${midY})`}
+          >
+            {label}
+          </text>
+        </g>
+      );
     }
     return null;
   });
@@ -414,7 +519,11 @@ export default function PropertyForm() {
       <PageHero
         compact
         title={isEditMode ? "Edit Property Deal" : "New Property Deal"}
-        subtitle={isSite ? "Site — investment tracking only" : "Plot — middleman deal with partners"}
+        subtitle={
+          isSite
+            ? "Site — investment tracking only"
+            : "Plot — middleman deal with partners"
+        }
         backTo="/properties"
       />
       <PageBody className="max-w-4xl">
@@ -668,32 +777,57 @@ export default function PropertyForm() {
                       set("road_count", String(count));
                       try {
                         let existing = JSON.parse(formData.roads_json || "[]");
-                        while (existing.length < count) existing.push({ direction: "north", width_ft: "20" });
+                        while (existing.length < count)
+                          existing.push({ direction: "north", width_ft: "20" });
                         existing = existing.slice(0, count);
                         set("roads_json", JSON.stringify(existing));
-                      } catch { set("roads_json", JSON.stringify(Array.from({ length: count }, () => ({ direction: "north", width_ft: "20" })))); }
+                      } catch {
+                        set(
+                          "roads_json",
+                          JSON.stringify(
+                            Array.from({ length: count }, () => ({
+                              direction: "north",
+                              width_ft: "20",
+                            })),
+                          ),
+                        );
+                      }
                     }}
                     className="w-32 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                   >
                     {[0, 1, 2, 3, 4].map((n) => (
-                      <option key={n} value={n}>{n}</option>
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
                     ))}
                   </select>
                 </div>
                 {(() => {
                   let roads = [];
-                  try { roads = JSON.parse(formData.roads_json || "[]"); } catch { /* ignore */ }
+                  try {
+                    roads = JSON.parse(formData.roads_json || "[]");
+                  } catch {
+                    /* ignore */
+                  }
                   if (roads.length === 0) return null;
                   return (
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {roads.map((rd, idx) => (
-                        <div key={idx} className="flex gap-2 items-center bg-slate-50 rounded-xl p-2 border border-slate-200">
-                          <span className="text-xs font-medium text-slate-500 w-14">Road {idx + 1}</span>
+                        <div
+                          key={idx}
+                          className="flex gap-2 items-center bg-slate-50 rounded-xl p-2 border border-slate-200"
+                        >
+                          <span className="text-xs font-medium text-slate-500 w-14">
+                            Road {idx + 1}
+                          </span>
                           <select
                             value={rd.direction}
                             onChange={(e) => {
                               const copy = [...roads];
-                              copy[idx] = { ...copy[idx], direction: e.target.value };
+                              copy[idx] = {
+                                ...copy[idx],
+                                direction: e.target.value,
+                              };
                               set("roads_json", JSON.stringify(copy));
                             }}
                             className="border border-slate-200 rounded-xl px-2 py-1 text-sm"
@@ -708,7 +842,10 @@ export default function PropertyForm() {
                             value={rd.width_ft}
                             onChange={(e) => {
                               const copy = [...roads];
-                              copy[idx] = { ...copy[idx], width_ft: e.target.value };
+                              copy[idx] = {
+                                ...copy[idx],
+                                width_ft: e.target.value,
+                              };
                               set("roads_json", JSON.stringify(copy));
                             }}
                             className="w-20 border border-slate-200 rounded-xl px-2 py-1 text-sm"
@@ -894,9 +1031,7 @@ export default function PropertyForm() {
 
           {/* Notes */}
           <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
-            <h2 className="text-base font-bold text-slate-800 mb-4">
-              Notes
-            </h2>
+            <h2 className="text-base font-bold text-slate-800 mb-4">Notes</h2>
             {isEditMode && (
               <div className="mb-4">
                 <label className="block text-xs font-medium text-slate-500 mb-1">

@@ -31,18 +31,50 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const SUBCATEGORIES = {
-  "Grocery":       ["Vegetables & Fruits", "Dairy & Eggs", "Grains & Staples", "Grocery Apps"],
-  "Food & Dining": ["Restaurant", "Food Delivery", "Snacks & Coffee", "Fast Food", "Mess / Tiffin"],
-  "Travel":        ["Cab & Taxi", "Air Travel", "Rail Travel", "Local Transport", "Toll & Parking"],
-  "Medical":       ["Hospital", "Medicine / Pharmacy", "Diagnostic", "Dental"],
-  "Education":     ["School / College Fees", "Books & Stationery", "Online Courses", "Coaching"],
-  "Utilities":     ["Electricity", "Internet & Phone", "Gas", "Water", "DTH / Cable"],
-  "Shopping":      ["Online Shopping", "Clothing & Fashion", "Electronics", "Jewellery"],
-  "Entertainment": ["Movies", "Streaming", "Gaming", "Events"],
-  "Maintenance":   ["Vehicle Service", "Home Repair", "Appliance", "Painting / Renovation"],
-  "Personal":      ["Salon & Grooming", "Fitness", "Clothing"],
-  "Fuel":          ["Petrol", "Diesel", "CNG", "EV Charging"],
-  "Home":          ["Furniture", "Appliances", "Household Help", "Cleaning"],
+  Grocery: [
+    "Vegetables & Fruits",
+    "Dairy & Eggs",
+    "Grains & Staples",
+    "Grocery Apps",
+  ],
+  "Food & Dining": [
+    "Restaurant",
+    "Food Delivery",
+    "Snacks & Coffee",
+    "Fast Food",
+    "Mess / Tiffin",
+  ],
+  Travel: [
+    "Cab & Taxi",
+    "Air Travel",
+    "Rail Travel",
+    "Local Transport",
+    "Toll & Parking",
+  ],
+  Medical: ["Hospital", "Medicine / Pharmacy", "Diagnostic", "Dental"],
+  Education: [
+    "School / College Fees",
+    "Books & Stationery",
+    "Online Courses",
+    "Coaching",
+  ],
+  Utilities: ["Electricity", "Internet & Phone", "Gas", "Water", "DTH / Cable"],
+  Shopping: [
+    "Online Shopping",
+    "Clothing & Fashion",
+    "Electronics",
+    "Jewellery",
+  ],
+  Entertainment: ["Movies", "Streaming", "Gaming", "Events"],
+  Maintenance: [
+    "Vehicle Service",
+    "Home Repair",
+    "Appliance",
+    "Painting / Renovation",
+  ],
+  Personal: ["Salon & Grooming", "Fitness", "Clothing"],
+  Fuel: ["Petrol", "Diesel", "CNG", "EV Charging"],
+  Home: ["Furniture", "Appliances", "Household Help", "Cleaning"],
 };
 
 const defaultForm = {
@@ -90,7 +122,11 @@ function ExpenseList() {
   const { data: expenseData, isLoading } = useQuery({
     queryKey: ["expenses", filters, page],
     queryFn: async () => {
-      const params = { paginated: true, limit: PAGE_SIZE, skip: (page - 1) * PAGE_SIZE };
+      const params = {
+        paginated: true,
+        limit: PAGE_SIZE,
+        skip: (page - 1) * PAGE_SIZE,
+      };
       Object.entries(filters).forEach(([key, value]) => {
         if (value) params[key] = value;
       });
@@ -99,7 +135,9 @@ function ExpenseList() {
     },
   });
 
-  const expenses = Array.isArray(expenseData) ? expenseData : (expenseData?.items || []);
+  const expenses = Array.isArray(expenseData)
+    ? expenseData
+    : expenseData?.items || [];
   const totalCount = expenseData?.total || expenses.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -142,7 +180,11 @@ function ExpenseList() {
     let sub_category = form.sub_category;
 
     // Auto-categorize on save if category or sub_category not set
-    if (form.description && form.description.trim().length >= 3 && (!category || !sub_category)) {
+    if (
+      form.description &&
+      form.description.trim().length >= 3 &&
+      (!category || !sub_category)
+    ) {
       try {
         const res = await api.post("/api/expenses/suggest-category", {
           description: form.description,
@@ -263,42 +305,105 @@ function ExpenseList() {
         backTo="/dashboard"
         actions={
           user?.role === "admin" && (
-            <Button variant="white" onClick={openCreateModal}>+ Add Expense</Button>
+            <Button variant="white" onClick={openCreateModal}>
+              + Add Expense
+            </Button>
           )
         }
       >
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <HeroStat label="Total Expenses" value={formatCurrency(totals.total)} accent="rose" />
-          <HeroStat label="General" value={formatCurrency(totals.general)} accent="amber" />
-          <HeroStat label="Entries" value={String(totals.count)} accent="indigo" />
-          <HeroStat label="Categories" value={String(EXPENSE_CATEGORIES.length)} accent="violet" />
+          <HeroStat
+            label="Total Expenses"
+            value={formatCurrency(totals.total)}
+            accent="rose"
+          />
+          <HeroStat
+            label="General"
+            value={formatCurrency(totals.general)}
+            accent="amber"
+          />
+          <HeroStat
+            label="Entries"
+            value={String(totals.count)}
+            accent="indigo"
+          />
+          <HeroStat
+            label="Categories"
+            value={String(EXPENSE_CATEGORIES.length)}
+            accent="violet"
+          />
         </div>
       </PageHero>
       <PageBody>
         {/* Filters */}
         <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4 sm:p-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            <input type="text" value={filters.category}
-              onChange={(event) => { setPage(1); setFilters((prev) => ({ ...prev, category: event.target.value })); }}
+            <input
+              type="text"
+              value={filters.category}
+              onChange={(event) => {
+                setPage(1);
+                setFilters((prev) => ({
+                  ...prev,
+                  category: event.target.value,
+                }));
+              }}
               placeholder="Filter by category..."
-              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
-            <select value={filters.linked_type}
-              onChange={(event) => { setPage(1); setFilters((prev) => ({ ...prev, linked_type: event.target.value })); }}
-              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
+              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+            />
+            <select
+              value={filters.linked_type}
+              onChange={(event) => {
+                setPage(1);
+                setFilters((prev) => ({
+                  ...prev,
+                  linked_type: event.target.value,
+                }));
+              }}
+              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+            >
               <option value="">All Linked Types</option>
               <option value="general">General</option>
               <option value="loan">Loan</option>
               <option value="property">Property</option>
               <option value="partnership">Partnership</option>
             </select>
-            <input type="date" value={filters.from_date}
-              onChange={(event) => { setPage(1); setFilters((prev) => ({ ...prev, from_date: event.target.value })); }}
-              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
-            <input type="date" value={filters.to_date}
-              onChange={(event) => { setPage(1); setFilters((prev) => ({ ...prev, to_date: event.target.value })); }}
-              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
-            <button onClick={() => { setPage(1); setFilters({ category: "", linked_type: "", from_date: "", to_date: "" }); }}
-              className="px-3.5 py-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 text-sm font-medium transition-colors">
+            <input
+              type="date"
+              value={filters.from_date}
+              onChange={(event) => {
+                setPage(1);
+                setFilters((prev) => ({
+                  ...prev,
+                  from_date: event.target.value,
+                }));
+              }}
+              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+            />
+            <input
+              type="date"
+              value={filters.to_date}
+              onChange={(event) => {
+                setPage(1);
+                setFilters((prev) => ({
+                  ...prev,
+                  to_date: event.target.value,
+                }));
+              }}
+              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+            />
+            <button
+              onClick={() => {
+                setPage(1);
+                setFilters({
+                  category: "",
+                  linked_type: "",
+                  from_date: "",
+                  to_date: "",
+                });
+              }}
+              className="px-3.5 py-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 text-sm font-medium transition-colors"
+            >
               All Time
             </button>
           </div>
@@ -312,7 +417,9 @@ function ExpenseList() {
         ) : expenses.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-16 text-center">
             <div className="text-4xl mb-3">💸</div>
-            <p className="text-slate-400 text-sm">No expenses found for the selected filters.</p>
+            <p className="text-slate-400 text-sm">
+              No expenses found for the selected filters.
+            </p>
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
@@ -320,35 +427,78 @@ function ExpenseList() {
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Sub-Category</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">Linked To</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Mode</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden xl:table-cell">Description</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Category
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">
+                      Sub-Category
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">
+                      Linked To
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">
+                      Mode
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden xl:table-cell">
+                      Description
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {expenses.map((expense) => (
-                    <tr key={expense.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{formatDate(expense.expense_date)}</td>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{expense.category || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-slate-500 hidden lg:table-cell">{expense.sub_category || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600 capitalize hidden md:table-cell">
-                        {expense.linked_type || "general"}{expense.linked_id ? ` #${expense.linked_id}` : ""}
+                    <tr
+                      key={expense.id}
+                      className="hover:bg-slate-50/50 transition-colors"
+                    >
+                      <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                        {formatDate(expense.expense_date)}
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right whitespace-nowrap">{formatCurrency(expense.amount)}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600 capitalize hidden lg:table-cell">{expense.payment_mode || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate hidden xl:table-cell">{expense.description || "-"}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-slate-900">
+                        {expense.category || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-500 hidden lg:table-cell">
+                        {expense.sub_category || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 capitalize hidden md:table-cell">
+                        {expense.linked_type || "general"}
+                        {expense.linked_id ? ` #${expense.linked_id}` : ""}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right whitespace-nowrap">
+                        {formatCurrency(expense.amount)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 capitalize hidden lg:table-cell">
+                        {expense.payment_mode || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate hidden xl:table-cell">
+                        {expense.description || "-"}
+                      </td>
                       <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
                         {user?.role === "admin" && (
                           <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => openEditModal(expense)}
-                              className="text-indigo-600 hover:text-indigo-800 font-medium text-xs transition-colors">Edit</button>
-                            <button onClick={() => { if (window.confirm("Delete this expense?")) deleteMutation.mutate(expense.id); }}
-                              className="text-rose-500 hover:text-rose-700 font-medium text-xs transition-colors">Delete</button>
+                            <button
+                              onClick={() => openEditModal(expense)}
+                              className="text-indigo-600 hover:text-indigo-800 font-medium text-xs transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm("Delete this expense?"))
+                                  deleteMutation.mutate(expense.id);
+                              }}
+                              className="text-rose-500 hover:text-rose-700 font-medium text-xs transition-colors"
+                            >
+                              Delete
+                            </button>
                           </div>
                         )}
                       </td>
@@ -364,28 +514,52 @@ function ExpenseList() {
         {totalPages > 1 && (
           <div className="flex flex-col sm:flex-row items-center justify-between bg-white rounded-2xl border border-slate-200/60 shadow-sm px-4 py-3 gap-3">
             <div className="text-sm text-slate-500">
-              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount}
+              Showing {(page - 1) * PAGE_SIZE + 1}–
+              {Math.min(page * PAGE_SIZE, totalCount)} of {totalCount}
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={() => setPage(1)} disabled={page === 1}
-                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors">First</button>
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors">‹ Prev</button>
+              <button
+                onClick={() => setPage(1)}
+                disabled={page === 1}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+              >
+                ‹ Prev
+              </button>
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let start = Math.max(1, Math.min(page - 2, totalPages - 4));
                 const p = start + i;
                 if (p > totalPages) return null;
                 return (
-                  <button key={p} onClick={() => setPage(p)}
-                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${p === page ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "border-slate-200 hover:bg-slate-50"}`}>
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${p === page ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "border-slate-200 hover:bg-slate-50"}`}
+                  >
                     {p}
                   </button>
                 );
               })}
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors">Next ›</button>
-              <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors">Last</button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+              >
+                Next ›
+              </button>
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={page === totalPages}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+              >
+                Last
+              </button>
             </div>
           </div>
         )}
@@ -400,82 +574,202 @@ function ExpenseList() {
             </h2>
             <form onSubmit={submitExpense} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <select value={form.category}
-                  onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value, sub_category: "" }))}
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
+                <select
+                  value={form.category}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      category: event.target.value,
+                      sub_category: "",
+                    }))
+                  }
+                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                >
                   <option value="">Select Category</option>
-                  {EXPENSE_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                  {EXPENSE_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
                 </select>
-                <select value={form.sub_category}
-                  onChange={(event) => setForm((prev) => ({ ...prev, sub_category: event.target.value }))}
+                <select
+                  value={form.sub_category}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      sub_category: event.target.value,
+                    }))
+                  }
                   className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all disabled:bg-slate-50 disabled:text-slate-400"
-                  disabled={!form.category || !SUBCATEGORIES[form.category]}>
+                  disabled={!form.category || !SUBCATEGORIES[form.category]}
+                >
                   <option value="">Sub-Category (auto / manual)</option>
-                  {(SUBCATEGORIES[form.category] || []).map((sub) => <option key={sub} value={sub}>{sub}</option>)}
+                  {(SUBCATEGORIES[form.category] || []).map((sub) => (
+                    <option key={sub} value={sub}>
+                      {sub}
+                    </option>
+                  ))}
                 </select>
-                <input type="number" step="0.01" min="0" required placeholder="Amount" value={form.amount}
-                  onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))}
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
-                <input type="date" required value={form.expense_date}
-                  onChange={(event) => setForm((prev) => ({ ...prev, expense_date: event.target.value }))}
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
-                <select value={form.payment_mode}
-                  onChange={(event) => setForm((prev) => ({ ...prev, payment_mode: event.target.value }))}
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  placeholder="Amount"
+                  value={form.amount}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, amount: event.target.value }))
+                  }
+                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                />
+                <input
+                  type="date"
+                  required
+                  value={form.expense_date}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      expense_date: event.target.value,
+                    }))
+                  }
+                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                />
+                <select
+                  value={form.payment_mode}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      payment_mode: event.target.value,
+                    }))
+                  }
+                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                >
                   <option value="cash">Cash</option>
                   <option value="upi">UPI</option>
                   <option value="bank_transfer">Bank Transfer</option>
                   <option value="cheque">Cheque</option>
                 </select>
-                <select value={form.linked_type}
-                  onChange={(event) => setForm((prev) => ({ ...prev, linked_type: event.target.value, linked_id: "" }))}
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
+                <select
+                  value={form.linked_type}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      linked_type: event.target.value,
+                      linked_id: "",
+                    }))
+                  }
+                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                >
                   <option value="general">General</option>
                   <option value="loan">Loan</option>
                   <option value="property">Property</option>
                   <option value="partnership">Partnership</option>
                 </select>
                 {form.linked_type && form.linked_type !== "general" ? (
-                  <LinkedRecordSelect linkedType={form.linked_type} value={form.linked_id}
-                    onChange={(val) => setForm((prev) => ({ ...prev, linked_id: val }))} className="" />
-                ) : <div />}
+                  <LinkedRecordSelect
+                    linkedType={form.linked_type}
+                    value={form.linked_id}
+                    onChange={(val) =>
+                      setForm((prev) => ({ ...prev, linked_id: val }))
+                    }
+                    className=""
+                  />
+                ) : (
+                  <div />
+                )}
               </div>
-              <input type="url" placeholder="Receipt URL (optional)" value={form.receipt_url}
-                onChange={(event) => setForm((prev) => ({ ...prev, receipt_url: event.target.value }))}
-                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all" />
-              <select value={form.account_id}
-                onChange={(event) => setForm((prev) => ({ ...prev, account_id: event.target.value }))}
-                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all">
+              <input
+                type="url"
+                placeholder="Receipt URL (optional)"
+                value={form.receipt_url}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    receipt_url: event.target.value,
+                  }))
+                }
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+              />
+              <select
+                value={form.account_id}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    account_id: event.target.value,
+                  }))
+                }
+                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+              >
                 <option value="">-- No account (cash flow) --</option>
-                {(accountsList || []).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.account_type})</option>)}
+                {(accountsList || []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.account_type})
+                  </option>
+                ))}
               </select>
               <div className="space-y-2">
-                <textarea rows="3" placeholder="Type description, then click ✨ to auto-fill category" value={form.description}
-                  onChange={(event) => { setAutoFilled(false); setForm((prev) => ({ ...prev, description: event.target.value })); }}
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all resize-none" />
+                <textarea
+                  rows="3"
+                  placeholder="Type description, then click ✨ to auto-fill category"
+                  value={form.description}
+                  onChange={(event) => {
+                    setAutoFilled(false);
+                    setForm((prev) => ({
+                      ...prev,
+                      description: event.target.value,
+                    }));
+                  }}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all resize-none"
+                />
                 <div className="flex items-center gap-3">
-                  <button type="button" onClick={handleSuggest}
-                    disabled={isSuggesting || !form.description || form.description.trim().length < 3}
-                    className="px-4 py-1.5 bg-gradient-to-r from-violet-500 to-violet-600 text-white text-sm rounded-xl hover:from-violet-600 hover:to-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-violet-500/20 active:scale-[0.98]">
+                  <button
+                    type="button"
+                    onClick={handleSuggest}
+                    disabled={
+                      isSuggesting ||
+                      !form.description ||
+                      form.description.trim().length < 3
+                    }
+                    className="px-4 py-1.5 bg-gradient-to-r from-violet-500 to-violet-600 text-white text-sm rounded-xl hover:from-violet-600 hover:to-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-violet-500/20 active:scale-[0.98]"
+                  >
                     {isSuggesting ? "Thinking…" : "✨ Auto-fill Category"}
                   </button>
                   {autoFilled && (
-                    <span className="text-xs text-violet-600 font-medium">✓ Category auto-filled — review &amp; adjust if needed</span>
+                    <span className="text-xs text-violet-600 font-medium">
+                      ✓ Category auto-filled — review &amp; adjust if needed
+                    </span>
                   )}
                 </div>
               </div>
               {errorMessage && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {errorMessage}
+                </div>
               )}
               <div className="flex gap-3 pt-2">
-                <button type="button"
-                  onClick={() => { setShowModal(false); setEditingExpense(null); setForm(defaultForm); setErrorMessage(""); setAutoFilled(false); }}
-                  className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium text-sm transition-colors">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditingExpense(null);
+                    setForm(defaultForm);
+                    setErrorMessage("");
+                    setAutoFilled(false);
+                  }}
+                  className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium text-sm transition-colors"
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={expenseMutation.isPending}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 font-medium text-sm shadow-sm shadow-indigo-500/20 transition-all active:scale-[0.98]">
-                  {expenseMutation.isPending ? "Saving..." : editingExpense ? "Update Expense" : "Save Expense"}
+                <button
+                  type="submit"
+                  disabled={expenseMutation.isPending}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50 font-medium text-sm shadow-sm shadow-indigo-500/20 transition-all active:scale-[0.98]"
+                >
+                  {expenseMutation.isPending
+                    ? "Saving..."
+                    : editingExpense
+                      ? "Update Expense"
+                      : "Save Expense"}
                 </button>
               </div>
             </form>

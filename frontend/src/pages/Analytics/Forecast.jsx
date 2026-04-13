@@ -200,281 +200,285 @@ export default function Forecast() {
 
   return (
     <GreyedOut label="Under Review">
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-6xl mx-auto space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <button
-              onClick={() => navigate("/analytics")}
-              className="text-gray-600 hover:text-gray-900 mb-1 text-sm"
-            >
-              ← Back to Analytics
-            </button>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Cash Flow Forecast
-            </h1>
-            <p className="text-gray-500 text-sm mt-0.5">
-              Projected money movement — who owes you, what you owe
-            </p>
+      <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+        <div className="max-w-6xl mx-auto space-y-5">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <button
+                onClick={() => navigate("/analytics")}
+                className="text-gray-600 hover:text-gray-900 mb-1 text-sm"
+              >
+                ← Back to Analytics
+              </button>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Cash Flow Forecast
+              </h1>
+              <p className="text-gray-500 text-sm mt-0.5">
+                Projected money movement — who owes you, what you owe
+              </p>
+            </div>
+            <div className="text-xs text-gray-400">
+              As of {forecast.as_of_date}
+            </div>
           </div>
-          <div className="text-xs text-gray-400">
-            As of {forecast.as_of_date}
-          </div>
-        </div>
 
-        {/* Controls: presets + dates + direction */}
-        <div className="bg-white rounded-lg shadow p-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Period presets */}
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              {PERIOD_PRESETS.map((p) => (
+          {/* Controls: presets + dates + direction */}
+          <div className="bg-white rounded-lg shadow p-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Period presets */}
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                {PERIOD_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    onClick={() => handlePreset(p)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
+                      activePreset === p.key
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Direction toggle */}
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
                 <button
-                  key={p.key}
-                  onClick={() => handlePreset(p)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
-                    activePreset === p.key
-                      ? "bg-white text-indigo-700 shadow-sm"
+                  onClick={() => {
+                    setDirection("inflow");
+                    setTypeFilter("all");
+                  }}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
+                    direction === "inflow"
+                      ? "bg-green-600 text-white shadow-sm"
                       : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
-                  {p.label}
+                  Inflows
+                </button>
+                <button
+                  onClick={() => {
+                    setDirection("outflow");
+                    setTypeFilter("all");
+                  }}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
+                    direction === "outflow"
+                      ? "bg-red-600 text-white shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Outflows
+                </button>
+              </div>
+            </div>
+
+            {/* Date pickers */}
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                From
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => handleFromChange(e.target.value)}
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                To
+                <input
+                  type="date"
+                  value={toDate}
+                  min={fromDate}
+                  onChange={(e) => handleToChange(e.target.value)}
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </label>
+            </div>
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <SummaryCard
+                label={isIn ? "Total Inflow" : "Total Outflow"}
+                value={flow.total}
+                color={isIn ? "green" : "red"}
+              />
+              <SummaryCard
+                label="High Confidence"
+                value={flow.high}
+                color="emerald"
+              />
+              <SummaryCard
+                label="Medium Confidence"
+                value={flow.medium}
+                color="yellow"
+              />
+              <SummaryCard
+                label="Low Confidence"
+                value={flow.low}
+                color="gray"
+              />
+            </div>
+          </div>
+
+          {/* Filters row */}
+          <div className="flex flex-wrap gap-3">
+            {/* Confidence filter */}
+            <div className="flex gap-1 bg-white rounded-lg shadow p-1">
+              {["all", "high", "medium", "low"].map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setConfFilter(c)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition capitalize ${
+                    confFilter === c
+                      ? "bg-indigo-600 text-white"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {c === "all" ? "All Confidence" : c}
                 </button>
               ))}
             </div>
 
-            {/* Direction toggle */}
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              <button
-                onClick={() => {
-                  setDirection("inflow");
-                  setTypeFilter("all");
-                }}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-                  direction === "inflow"
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                Inflows
-              </button>
-              <button
-                onClick={() => {
-                  setDirection("outflow");
-                  setTypeFilter("all");
-                }}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-                  direction === "outflow"
-                    ? "bg-red-600 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                Outflows
-              </button>
+            {/* Type filter */}
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="bg-white rounded-lg shadow px-3 py-1.5 text-xs font-medium text-gray-700 border-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="all">All Types</option>
+              {allSourceTypes.map((s) => (
+                <option key={s} value={s}>
+                  {SOURCE_LABELS[s] || s}
+                </option>
+              ))}
+            </select>
+
+            <div className="ml-auto text-sm text-gray-500">
+              Showing {filtered.length} items · {formatCurrency(filteredTotal)}
             </div>
           </div>
 
-          {/* Date pickers */}
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-gray-500">
-              From
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => handleFromChange(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-gray-500">
-              To
-              <input
-                type="date"
-                value={toDate}
-                min={fromDate}
-                onChange={(e) => handleToChange(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
-            </label>
-          </div>
-
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <SummaryCard
-              label={isIn ? "Total Inflow" : "Total Outflow"}
-              value={flow.total}
-              color={isIn ? "green" : "red"}
-            />
-            <SummaryCard
-              label="High Confidence"
-              value={flow.high}
-              color="emerald"
-            />
-            <SummaryCard
-              label="Medium Confidence"
-              value={flow.medium}
-              color="yellow"
-            />
-            <SummaryCard label="Low Confidence" value={flow.low} color="gray" />
-          </div>
-        </div>
-
-        {/* Filters row */}
-        <div className="flex flex-wrap gap-3">
-          {/* Confidence filter */}
-          <div className="flex gap-1 bg-white rounded-lg shadow p-1">
-            {["all", "high", "medium", "low"].map((c) => (
-              <button
-                key={c}
-                onClick={() => setConfFilter(c)}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition capitalize ${
-                  confFilter === c
-                    ? "bg-indigo-600 text-white"
-                    : "text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                {c === "all" ? "All Confidence" : c}
-              </button>
-            ))}
-          </div>
-
-          {/* Type filter */}
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="bg-white rounded-lg shadow px-3 py-1.5 text-xs font-medium text-gray-700 border-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="all">All Types</option>
-            {allSourceTypes.map((s) => (
-              <option key={s} value={s}>
-                {SOURCE_LABELS[s] || s}
-              </option>
-            ))}
-          </select>
-
-          <div className="ml-auto text-sm text-gray-500">
-            Showing {filtered.length} items · {formatCurrency(filteredTotal)}
-          </div>
-        </div>
-
-        {/* Category breakdown */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
-            Breakdown by Type
-          </h3>
-          <div className="space-y-2">
-            {categories.map((cat) => (
-              <div key={cat.key} className="flex items-center gap-3">
-                <div className="w-24 text-xs text-gray-600 truncate">
-                  {cat.label}
-                </div>
-                <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-                  <div
-                    className={`${cat.color} h-full rounded-full transition-all`}
-                    style={{
-                      width: `${Math.min((cat.amount / flow.total) * 100, 100)}%`,
-                    }}
-                  />
-                </div>
-                <div className="w-24 text-right text-xs font-semibold text-gray-800">
-                  {formatCurrency(cat.amount)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Contact-wise list */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">
-            {isIn ? "From whom" : "To whom"} — {contactGroups.length} contact
-            {contactGroups.length !== 1 ? "s" : ""} / source
-            {contactGroups.length !== 1 ? "s" : ""}
-          </h3>
-
-          {contactGroups.length === 0 && (
-            <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500 text-sm">
-              No items match the current filters.
-            </div>
-          )}
-
-          {contactGroups.map((group) => (
-            <div key={group.contact} className="bg-white rounded-lg shadow">
-              {/* Contact header */}
-              <div className="flex items-center justify-between p-4 border-b">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-gray-900">
-                    {group.contact}
-                  </span>
-                  <span className="text-[10px] text-gray-400">
-                    {group.items.length} item
-                    {group.items.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <span
-                  className={`text-sm font-bold ${isIn ? "text-green-700" : "text-red-700"}`}
-                >
-                  {formatCurrency(group.total)}
-                </span>
-              </div>
-
-              {/* Items */}
-              <div className="divide-y">
-                {group.items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span
-                        className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium ${
-                          SOURCE_TAG[item.source] ||
-                          "text-gray-700 bg-gray-50 border-gray-200"
-                        }`}
-                      >
-                        {SOURCE_LABELS[item.source] || item.source}
-                      </span>
-                      <span
-                        className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          CONF_BADGE[item.confidence] || CONF_BADGE.low
-                        }`}
-                      >
-                        {item.confidence}
-                      </span>
-                      {item.is_overdue && (
-                        <span className="shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium text-red-700 bg-red-50 border-red-200">
-                          overdue
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-600 truncate">
-                        {item.label}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0 ml-2">
-                      {item.due_date && (
-                        <span className="text-[11px] text-gray-400 font-mono">
-                          {item.due_date}
-                        </span>
-                      )}
-                      <span className="text-xs font-semibold text-gray-800 w-20 text-right">
-                        {formatCurrency(item.amount)}
-                      </span>
-                      {item.loan_id && (
-                        <button
-                          onClick={() => navigate(`/loans/${item.loan_id}`)}
-                          className="text-[10px] text-blue-600 hover:underline"
-                        >
-                          →
-                        </button>
-                      )}
-                    </div>
+          {/* Category breakdown */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">
+              Breakdown by Type
+            </h3>
+            <div className="space-y-2">
+              {categories.map((cat) => (
+                <div key={cat.key} className="flex items-center gap-3">
+                  <div className="w-24 text-xs text-gray-600 truncate">
+                    {cat.label}
                   </div>
-                ))}
-              </div>
+                  <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+                    <div
+                      className={`${cat.color} h-full rounded-full transition-all`}
+                      style={{
+                        width: `${Math.min((cat.amount / flow.total) * 100, 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="w-24 text-right text-xs font-semibold text-gray-800">
+                    {formatCurrency(cat.amount)}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+
+          {/* Contact-wise list */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-gray-700">
+              {isIn ? "From whom" : "To whom"} — {contactGroups.length} contact
+              {contactGroups.length !== 1 ? "s" : ""} / source
+              {contactGroups.length !== 1 ? "s" : ""}
+            </h3>
+
+            {contactGroups.length === 0 && (
+              <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500 text-sm">
+                No items match the current filters.
+              </div>
+            )}
+
+            {contactGroups.map((group) => (
+              <div key={group.contact} className="bg-white rounded-lg shadow">
+                {/* Contact header */}
+                <div className="flex items-center justify-between p-4 border-b">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {group.contact}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {group.items.length} item
+                      {group.items.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <span
+                    className={`text-sm font-bold ${isIn ? "text-green-700" : "text-red-700"}`}
+                  >
+                    {formatCurrency(group.total)}
+                  </span>
+                </div>
+
+                {/* Items */}
+                <div className="divide-y">
+                  {group.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium ${
+                            SOURCE_TAG[item.source] ||
+                            "text-gray-700 bg-gray-50 border-gray-200"
+                          }`}
+                        >
+                          {SOURCE_LABELS[item.source] || item.source}
+                        </span>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            CONF_BADGE[item.confidence] || CONF_BADGE.low
+                          }`}
+                        >
+                          {item.confidence}
+                        </span>
+                        {item.is_overdue && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium text-red-700 bg-red-50 border-red-200">
+                            overdue
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-600 truncate">
+                          {item.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 ml-2">
+                        {item.due_date && (
+                          <span className="text-[11px] text-gray-400 font-mono">
+                            {item.due_date}
+                          </span>
+                        )}
+                        <span className="text-xs font-semibold text-gray-800 w-20 text-right">
+                          {formatCurrency(item.amount)}
+                        </span>
+                        {item.loan_id && (
+                          <button
+                            onClick={() => navigate(`/loans/${item.loan_id}`)}
+                            className="text-[10px] text-blue-600 hover:underline"
+                          >
+                            →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
     </GreyedOut>
   );
 }

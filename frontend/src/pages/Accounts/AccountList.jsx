@@ -97,7 +97,9 @@ export default function AccountList() {
     0,
   );
 
-  const activeAccounts = accounts.filter((a) => Number(a.current_balance) !== 0).length;
+  const activeAccounts = accounts.filter(
+    (a) => Number(a.current_balance) !== 0,
+  ).length;
   const accountTypes = new Set(accounts.map((a) => a.account_type)).size;
 
   return (
@@ -109,19 +111,47 @@ export default function AccountList() {
         actions={
           <>
             {accounts.length >= 2 && (
-              <Button variant="white" size="lg" onClick={() => setShowTransfer(true)}>⇄ Transfer</Button>
+              <Button
+                variant="white"
+                size="lg"
+                onClick={() => setShowTransfer(true)}
+              >
+                ⇄ Transfer
+              </Button>
             )}
             {isAdmin && (
-              <Button variant="white" size="lg" onClick={() => navigate("/accounts/new")}>+ New Account</Button>
+              <Button
+                variant="white"
+                size="lg"
+                onClick={() => navigate("/accounts/new")}
+              >
+                + New Account
+              </Button>
             )}
           </>
         }
       >
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-          <HeroStat label="Total Accounts" value={accounts.length} accent="indigo" />
-          <HeroStat label="Total Balance" value={formatCurrency(totalBalance)} accent="emerald" />
-          <HeroStat label="Active Accounts" value={activeAccounts} accent="teal" />
-          <HeroStat label="Account Types" value={accountTypes} accent="violet" />
+          <HeroStat
+            label="Total Accounts"
+            value={accounts.length}
+            accent="indigo"
+          />
+          <HeroStat
+            label="Total Balance"
+            value={formatCurrency(totalBalance)}
+            accent="emerald"
+          />
+          <HeroStat
+            label="Active Accounts"
+            value={activeAccounts}
+            accent="teal"
+          />
+          <HeroStat
+            label="Account Types"
+            value={accountTypes}
+            accent="violet"
+          />
         </div>
       </PageHero>
 
@@ -148,7 +178,9 @@ export default function AccountList() {
                     {TYPE_ICONS[a.account_type] || "💰"}
                   </div>
                   <div>
-                    <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">{a.name}</div>
+                    <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                      {a.name}
+                    </div>
                     <div className="text-xs text-slate-500">
                       {TYPE_LABELS[a.account_type] || a.account_type}
                       {a.bank_name ? ` · ${a.bank_name}` : ""}

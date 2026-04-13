@@ -35,8 +35,14 @@ export default function BeesiList() {
     );
   }
 
-  const totalInvested = beesis.reduce((s, b) => s + Number(b.summary?.total_invested || 0), 0);
-  const totalWithdrawn = beesis.reduce((s, b) => s + Number(b.summary?.total_withdrawn || 0), 0);
+  const totalInvested = beesis.reduce(
+    (s, b) => s + Number(b.summary?.total_invested || 0),
+    0,
+  );
+  const totalWithdrawn = beesis.reduce(
+    (s, b) => s + Number(b.summary?.total_withdrawn || 0),
+    0,
+  );
   const activeCount = beesis.filter((b) => b.status === "active").length;
 
   return (
@@ -46,7 +52,11 @@ export default function BeesiList() {
         subtitle="Track chit funds, rotating savings pools, and monthly installments"
         backTo="/dashboard"
         actions={
-          <Button variant="white" size="lg" onClick={() => navigate("/beesi/new")}>
+          <Button
+            variant="white"
+            size="lg"
+            onClick={() => navigate("/beesi/new")}
+          >
             + New Beesi
           </Button>
         }
@@ -54,8 +64,16 @@ export default function BeesiList() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
           <HeroStat label="Total Beesi" value={beesis.length} accent="indigo" />
           <HeroStat label="Active" value={activeCount} accent="emerald" />
-          <HeroStat label="Total Invested" value={formatCurrency(totalInvested)} accent="violet" />
-          <HeroStat label="Total Withdrawn" value={formatCurrency(totalWithdrawn)} accent="amber" />
+          <HeroStat
+            label="Total Invested"
+            value={formatCurrency(totalInvested)}
+            accent="violet"
+          />
+          <HeroStat
+            label="Total Withdrawn"
+            value={formatCurrency(totalWithdrawn)}
+            accent="amber"
+          />
         </div>
       </PageHero>
       <PageBody>
