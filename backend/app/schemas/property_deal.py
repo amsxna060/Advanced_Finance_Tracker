@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -7,27 +7,14 @@ from decimal import Decimal
 class PropertyDealCreate(BaseModel):
     title: str
     location: Optional[str] = None
-    property_type: Optional[str] = None
+    property_type: Optional[Literal["plot", "site"]] = None
     total_area_sqft: Optional[Decimal] = None
     deal_type: str = "middleman"
     seller_contact_id: Optional[int] = None
-    buyer_contact_id: Optional[int] = None
     seller_rate_per_sqft: Optional[Decimal] = None
-    buyer_rate_per_sqft: Optional[Decimal] = None
     total_seller_value: Optional[Decimal] = None
-    total_buyer_value: Optional[Decimal] = None
-    advance_paid: Decimal = Decimal("0")
-    advance_date: Optional[date] = None
-    deal_locked_date: Optional[date] = None
+    negotiating_date: Optional[date] = None
     expected_registry_date: Optional[date] = None
-    broker_name: Optional[str] = None
-    broker_commission: Decimal = Decimal("0")
-    gross_profit: Optional[Decimal] = None
-    net_profit: Optional[Decimal] = None
-    purchase_price: Optional[Decimal] = None
-    holding_cost: Decimal = Decimal("0")
-    sale_price: Optional[Decimal] = None
-    sale_date: Optional[date] = None
     notes: Optional[str] = None
     # Plot dimension fields (legacy)
     side_left_ft: Optional[Decimal] = None
@@ -42,7 +29,21 @@ class PropertyDealCreate(BaseModel):
     # Road info
     road_count: Optional[int] = None
     roads_json: Optional[str] = None
-    # Site-type investment fields
+    # Backward compat — accepted but ignored in new flow
+    buyer_contact_id: Optional[int] = None
+    buyer_rate_per_sqft: Optional[Decimal] = None
+    total_buyer_value: Optional[Decimal] = None
+    advance_paid: Decimal = Decimal("0")
+    advance_date: Optional[date] = None
+    deal_locked_date: Optional[date] = None
+    broker_name: Optional[str] = None
+    broker_commission: Decimal = Decimal("0")
+    gross_profit: Optional[Decimal] = None
+    net_profit: Optional[Decimal] = None
+    purchase_price: Optional[Decimal] = None
+    holding_cost: Decimal = Decimal("0")
+    sale_price: Optional[Decimal] = None
+    sale_date: Optional[date] = None
     my_investment: Optional[Decimal] = None
     my_share_percentage: Optional[Decimal] = None
     total_profit_received: Optional[Decimal] = None
@@ -53,28 +54,14 @@ class PropertyDealCreate(BaseModel):
 class PropertyDealUpdate(BaseModel):
     title: Optional[str] = None
     location: Optional[str] = None
-    property_type: Optional[str] = None
+    property_type: Optional[Literal["plot", "site"]] = None
     total_area_sqft: Optional[Decimal] = None
-    deal_type: Optional[str] = None
     seller_contact_id: Optional[int] = None
-    buyer_contact_id: Optional[int] = None
     seller_rate_per_sqft: Optional[Decimal] = None
-    buyer_rate_per_sqft: Optional[Decimal] = None
     total_seller_value: Optional[Decimal] = None
-    total_buyer_value: Optional[Decimal] = None
-    advance_paid: Optional[Decimal] = None
-    advance_date: Optional[date] = None
-    deal_locked_date: Optional[date] = None
+    negotiating_date: Optional[date] = None
     expected_registry_date: Optional[date] = None
     actual_registry_date: Optional[date] = None
-    broker_name: Optional[str] = None
-    broker_commission: Optional[Decimal] = None
-    gross_profit: Optional[Decimal] = None
-    net_profit: Optional[Decimal] = None
-    purchase_price: Optional[Decimal] = None
-    holding_cost: Optional[Decimal] = None
-    sale_price: Optional[Decimal] = None
-    sale_date: Optional[date] = None
     status: Optional[str] = None
     notes: Optional[str] = None
     # Plot dimension fields (legacy)
@@ -90,7 +77,22 @@ class PropertyDealUpdate(BaseModel):
     # Road info
     road_count: Optional[int] = None
     roads_json: Optional[str] = None
-    # Site-type investment fields
+    # Backward compat fields
+    deal_type: Optional[str] = None
+    buyer_contact_id: Optional[int] = None
+    buyer_rate_per_sqft: Optional[Decimal] = None
+    total_buyer_value: Optional[Decimal] = None
+    advance_paid: Optional[Decimal] = None
+    advance_date: Optional[date] = None
+    deal_locked_date: Optional[date] = None
+    broker_name: Optional[str] = None
+    broker_commission: Optional[Decimal] = None
+    gross_profit: Optional[Decimal] = None
+    net_profit: Optional[Decimal] = None
+    purchase_price: Optional[Decimal] = None
+    holding_cost: Optional[Decimal] = None
+    sale_price: Optional[Decimal] = None
+    sale_date: Optional[date] = None
     my_investment: Optional[Decimal] = None
     my_share_percentage: Optional[Decimal] = None
     total_profit_received: Optional[Decimal] = None
@@ -113,6 +115,7 @@ class PropertyDealOut(BaseModel):
     total_buyer_value: Optional[Decimal]
     advance_paid: Decimal
     advance_date: Optional[date]
+    negotiating_date: Optional[date] = None
     deal_locked_date: Optional[date]
     expected_registry_date: Optional[date]
     actual_registry_date: Optional[date]
@@ -161,6 +164,8 @@ class PropertyTransactionCreate(BaseModel):
     payment_mode: Optional[str] = None
     description: Optional[str] = None
     account_id: Optional[int] = None
+    received_by_member_id: Optional[int] = None
+    plot_buyer_id: Optional[int] = None
 
 
 class PropertyTransactionUpdate(BaseModel):
@@ -169,6 +174,8 @@ class PropertyTransactionUpdate(BaseModel):
     account_id: Optional[int] = None
     description: Optional[str] = None
     payment_mode: Optional[str] = None
+    received_by_member_id: Optional[int] = None
+    plot_buyer_id: Optional[int] = None
 
 
 class PropertySettleRequest(BaseModel):
@@ -197,6 +204,8 @@ class PropertyTransactionOut(BaseModel):
     payment_mode: Optional[str]
     description: Optional[str]
     account_id: Optional[int] = None
+    received_by_member_id: Optional[int] = None
+    plot_buyer_id: Optional[int] = None
     created_by: Optional[int]
     created_at: datetime
 
@@ -214,6 +223,11 @@ class SitePlotCreate(BaseModel):
     sold_price_per_sqft: Optional[Decimal] = None
     calculated_price: Optional[Decimal] = None
     buyer_name: Optional[str] = None
+    buyer_contact_id: Optional[int] = None
+    status: Optional[str] = None
+    advance_received: Optional[Decimal] = None
+    total_paid: Optional[Decimal] = None
+    registry_date: Optional[date] = None
     notes: Optional[str] = None
     sold_date: Optional[date] = None
 
@@ -230,8 +244,67 @@ class SitePlotOut(BaseModel):
     sold_price_per_sqft: Optional[Decimal]
     calculated_price: Optional[Decimal]
     buyer_name: Optional[str]
+    buyer_contact_id: Optional[int] = None
+    status: Optional[str] = None
+    advance_received: Optional[Decimal] = None
+    total_paid: Optional[Decimal] = None
+    registry_date: Optional[date] = None
     notes: Optional[str]
     sold_date: Optional[date]
+    created_by: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PlotBuyerCreate(BaseModel):
+    buyer_contact_id: Optional[int] = None
+    buyer_name: Optional[str] = None
+    area_sqft: Optional[Decimal] = None
+    rate_per_sqft: Optional[Decimal] = None
+    total_value: Optional[Decimal] = None
+    notes: Optional[str] = None
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+
+
+class PlotBuyerUpdate(BaseModel):
+    buyer_contact_id: Optional[int] = None
+    buyer_name: Optional[str] = None
+    area_sqft: Optional[Decimal] = None
+    rate_per_sqft: Optional[Decimal] = None
+    total_value: Optional[Decimal] = None
+    advance_received: Optional[Decimal] = None
+    total_paid: Optional[Decimal] = None
+    registry_date: Optional[date] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+
+
+class PlotBuyerOut(BaseModel):
+    id: int
+    property_deal_id: int
+    buyer_contact_id: Optional[int]
+    buyer_name: Optional[str]
+    area_sqft: Optional[Decimal]
+    rate_per_sqft: Optional[Decimal]
+    total_value: Optional[Decimal]
+    advance_received: Optional[Decimal]
+    total_paid: Optional[Decimal]
+    registry_date: Optional[date]
+    status: Optional[str]
+    notes: Optional[str]
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
     created_by: Optional[int]
     created_at: datetime
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import date, datetime
 from decimal import Decimal
@@ -55,15 +55,12 @@ class PartnershipMemberCreate(BaseModel):
     contact_id: Optional[int] = None
     is_self: bool = False
     share_percentage: Decimal
-    advance_contributed: Decimal = Decimal("0")
     total_received: Decimal = Decimal("0")
     notes: Optional[str] = None
-    advance_account_id: Optional[int] = None  # account to debit when is_self + advance > 0
 
 
 class PartnershipMemberUpdate(BaseModel):
     share_percentage: Optional[Decimal] = None
-    advance_contributed: Optional[Decimal] = None
     notes: Optional[str] = None
 
 
@@ -84,12 +81,16 @@ class PartnershipMemberOut(BaseModel):
 class PartnershipTransactionCreate(BaseModel):
     member_id: Optional[int] = None
     txn_type: str
-    amount: Decimal
+    amount: Decimal = Field(..., gt=0)
     txn_date: date
     payment_mode: Optional[str] = None
     description: Optional[str] = None
     account_id: Optional[int] = None
-    received_by_member_id: Optional[int] = None  # for buyer_payment_received: which partner got the money
+    received_by_member_id: Optional[int] = None
+    plot_buyer_id: Optional[int] = None
+    site_plot_id: Optional[int] = None
+    broker_name: Optional[str] = None
+    from_partnership_pot: bool = False
 
 
 class PartnershipTransactionOut(BaseModel):
@@ -103,6 +104,10 @@ class PartnershipTransactionOut(BaseModel):
     description: Optional[str]
     account_id: Optional[int] = None
     received_by_member_id: Optional[int] = None
+    plot_buyer_id: Optional[int] = None
+    site_plot_id: Optional[int] = None
+    broker_name: Optional[str] = None
+    from_partnership_pot: bool = False
     created_by: Optional[int]
     created_at: datetime
 
@@ -114,3 +119,41 @@ class PartnershipSettleRequest(BaseModel):
     total_received: Optional[Decimal] = None
     actual_end_date: Optional[date] = None
     notes: Optional[str] = None
+
+
+class CreateBuyerRequest(BaseModel):
+    """Quick-create a buyer contact from partnership page."""
+    name: str
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
+    # PlotBuyer / SitePlot fields
+    area_sqft: Optional[Decimal] = None
+    rate_per_sqft: Optional[Decimal] = None
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+
+
+class AddPlotRequest(BaseModel):
+    """Create a plot subdivision (PlotBuyer or SitePlot) without a buyer."""
+    plot_number: Optional[str] = None      # site plots only
+    area_sqft: Optional[Decimal] = None
+    rate_per_sqft: Optional[Decimal] = None
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+    notes: Optional[str] = None
+
+
+class AssignBuyerRequest(BaseModel):
+    """Assign a buyer contact to an existing PlotBuyer or SitePlot."""
+    plot_type: str  # "plot_buyer" or "site_plot"
+    plot_id: int
+    contact_id: Optional[int] = None  # existing contact — if provided, skip creation
+    # Quick-create contact fields (used when contact_id is None)
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None

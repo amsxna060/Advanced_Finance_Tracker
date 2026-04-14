@@ -163,9 +163,11 @@ export default function PartnershipList() {
                   </div>
                   <div>
                     <div className="text-xs font-medium text-slate-400">
-                      Partners
+                      Deal Value
                     </div>
-                    <div className="font-medium text-slate-900">—</div>
+                    <div className="font-medium text-slate-900">
+                      {p.total_deal_value ? formatCurrency(p.total_deal_value) : "—"}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs font-medium text-slate-400">

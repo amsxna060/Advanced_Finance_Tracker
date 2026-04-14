@@ -124,9 +124,6 @@ function PropertyList() {
               <option value="">All Types</option>
               <option value="plot">Plot</option>
               <option value="site">Site</option>
-              <option value="flat">Flat</option>
-              <option value="commercial">Commercial</option>
-              <option value="agricultural">Agricultural</option>
             </select>
             <button
               onClick={clearFilters}
@@ -168,14 +165,6 @@ function PropertyList() {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-5 text-sm">
-                  <div>
-                    <div className="text-xs font-medium text-slate-400">
-                      Deal Type
-                    </div>
-                    <div className="font-medium text-slate-900 capitalize mt-0.5">
-                      {property.deal_type.replaceAll("_", " ")}
-                    </div>
-                  </div>
                   <div>
                     <div className="text-xs font-medium text-slate-400">
                       Type

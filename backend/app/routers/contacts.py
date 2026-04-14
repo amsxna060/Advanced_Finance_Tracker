@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from typing import List, Optional
 from decimal import Decimal
 from datetime import date
@@ -60,14 +60,27 @@ def create_contact(
     current_user: User = Depends(require_admin)
 ):
     """Create a new contact"""
-    # Check if contact with same name already exists
-    existing = db.query(Contact).filter(
-        Contact.name == contact_data.name,
-        Contact.is_deleted == False
-    ).first()
-    
+    # Check duplicate: name + phone (when phone provided), else name + city
+    dedup_filters = [
+        Contact.is_deleted == False,
+        func.lower(Contact.name) == contact_data.name.strip().lower(),
+    ]
+    if contact_data.phone and contact_data.phone.strip():
+        dedup_filters.append(Contact.phone == contact_data.phone.strip())
+    elif contact_data.city and contact_data.city.strip():
+        dedup_filters.append(func.lower(Contact.city) == contact_data.city.strip().lower())
+    else:
+        # No phone AND no city — skip dedup (name alone is not enough)
+        dedup_filters = None
+
+    existing = None
+    if dedup_filters:
+        existing = db.query(Contact).filter(*dedup_filters).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Contact with this name already exists")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Contact '{existing.name}' (Phone: {existing.phone or 'N/A'}) already exists (ID {existing.id}). Use the existing contact instead.",
+        )
     
     new_contact = Contact(**contact_data.model_dump())
     db.add(new_contact)

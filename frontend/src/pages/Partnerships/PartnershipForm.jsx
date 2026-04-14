@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
@@ -20,6 +20,9 @@ const normalizeForForm = (partnership) => ({
   linked_property_deal_id: partnership.linked_property_deal_id
     ? String(partnership.linked_property_deal_id)
     : "",
+  total_deal_value: partnership.total_deal_value ? String(partnership.total_deal_value) : "",
+  start_date: partnership.start_date || "",
+  expected_end_date: partnership.expected_end_date || "",
   notes: partnership.notes || "",
   status: partnership.status || "active",
 });
@@ -33,6 +36,9 @@ export default function PartnershipForm() {
   const [formData, setFormData] = useState({
     title: "",
     linked_property_deal_id: "",
+    total_deal_value: "",
+    start_date: "",
+    expected_end_date: "",
     notes: "",
     status: "active",
   });
@@ -44,7 +50,6 @@ export default function PartnershipForm() {
       contact_id: "",
       is_self: false,
       share_percentage: "",
-      advance_contributed: "0",
       notes: "",
     },
   ]);
@@ -58,7 +63,6 @@ export default function PartnershipForm() {
         contact_id: "",
         is_self: false,
         share_percentage: "",
-        advance_contributed: "0",
         notes: "",
       },
     ]);
@@ -90,15 +94,15 @@ export default function PartnershipForm() {
     },
   });
 
-  // Load properties (only plot type, not settled)
+  // Load properties (plot or site, not settled)
   const { data: properties = [] } = useQuery({
     queryKey: ["properties", "for-partnership-form"],
     queryFn: async () => {
       const res = await api.get("/api/properties", {
-        params: { limit: 500, property_type: "plot" },
+        params: { limit: 500 },
       });
       return res.data.filter(
-        (p) => p.status !== "settled" && p.status !== "cancelled",
+        (p) => ["plot", "site"].includes(p.property_type) && p.status !== "settled" && p.status !== "cancelled",
       );
     },
   });
@@ -129,19 +133,17 @@ export default function PartnershipForm() {
   });
   const linkedProperty = linkedPropertyData?.property;
 
+  // Auto-populate total_deal_value from linked property
+  useEffect(() => {
+    if (linkedProperty?.total_seller_value && !formData.total_deal_value) {
+      set("total_deal_value", String(linkedProperty.total_seller_value));
+    }
+  }, [linkedProperty?.total_seller_value]);
+
   const totalSharePct = partners.reduce(
     (sum, p) => sum + (parseFloat(p.share_percentage) || 0),
     0,
   );
-  const totalAdvance = partners.reduce(
-    (sum, p) => sum + (parseFloat(p.advance_contributed) || 0),
-    0,
-  );
-  const propertyAdvance = parseFloat(linkedProperty?.advance_paid || 0);
-  const advanceMismatch =
-    linkedProperty &&
-    propertyAdvance > 0 &&
-    Math.abs(totalAdvance - propertyAdvance) > SHARE_PERCENTAGE_TOLERANCE;
 
   const submitMutation = useMutation({
     mutationFn: async ({ partnershipPayload, partnersToCreate }) => {
@@ -206,15 +208,13 @@ export default function PartnershipForm() {
       linked_property_deal_id: toNullableNumber(
         formData.linked_property_deal_id,
       ),
+      total_deal_value: toNullableNumber(formData.total_deal_value),
+      start_date: toNullableString(formData.start_date),
+      expected_end_date: toNullableString(formData.expected_end_date),
       notes: toNullableString(formData.notes),
     };
     if (isEditMode) {
       partnershipPayload.status = formData.status;
-    }
-
-    // For create: derive dates from linked property deal
-    if (!isEditMode && linkedProperty) {
-      partnershipPayload.start_date = linkedProperty.deal_locked_date || null;
     }
 
     const partnersToCreate = !isEditMode
@@ -224,7 +224,6 @@ export default function PartnershipForm() {
             contact_id: p.is_self ? null : toNullableNumber(p.contact_id),
             is_self: p.is_self,
             share_percentage: parseFloat(p.share_percentage) || 0,
-            advance_contributed: parseFloat(p.advance_contributed) || 0,
             notes: toNullableString(p.notes),
           }))
       : [];
@@ -274,7 +273,7 @@ export default function PartnershipForm() {
                   <label className="block text-xs font-medium text-slate-500 mb-1">
                     Linked Property Deal
                     <span className="text-xs text-slate-400 ml-2">
-                      (Plot deals only)
+                      (Plot & Site deals)
                     </span>
                   </label>
                   <select
@@ -298,6 +297,24 @@ export default function PartnershipForm() {
                       Linked property cannot be changed after creation.
                     </p>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Total Deal Value (₹)
+                    {linkedProperty?.total_seller_value && (
+                      <span className="ml-2 text-xs text-indigo-500 font-normal">auto-filled from property</span>
+                    )}
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.total_deal_value}
+                    onChange={(e) => set("total_deal_value", e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    placeholder="Total deal value"
+                    min="0"
+                    step="any"
+                  />
                 </div>
 
                 {/* Linked property info box */}
@@ -354,6 +371,31 @@ export default function PartnershipForm() {
                     className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     placeholder="Any notes..."
                   />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.start_date}
+                      onChange={(e) => set("start_date", e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      Expected End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.expected_end_date}
+                      onChange={(e) => set("expected_end_date", e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    />
+                  </div>
                 </div>
 
                 {isEditMode && (
@@ -489,27 +531,6 @@ export default function PartnershipForm() {
 
                         <div>
                           <label className="block text-xs font-medium text-slate-500 mb-1">
-                            Advance Contributed (₹){" "}
-                            <span className="text-rose-500">*</span>
-                          </label>
-                          <input
-                            type="number"
-                            value={partner.advance_contributed}
-                            onChange={(e) =>
-                              updatePartner(
-                                idx,
-                                "advance_contributed",
-                                e.target.value,
-                              )
-                            }
-                            className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                            placeholder="0"
-                            min="0"
-                          />
-                        </div>
-
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-slate-500 mb-1">
                             Notes (optional)
                           </label>
                           <input
@@ -536,16 +557,6 @@ export default function PartnershipForm() {
                     {Math.abs(totalSharePct - 100) < SHARE_PERCENTAGE_TOLERANCE
                       ? " ✓"
                       : ` (need ${(100 - totalSharePct).toFixed(2)}% more)`}
-                  </div>
-                  <div
-                    className={
-                      advanceMismatch ? "text-orange-600" : "text-slate-500"
-                    }
-                  >
-                    Advance Total:{" "}
-                    <strong>{formatCurrency(totalAdvance)}</strong>
-                    {advanceMismatch &&
-                      ` ⚠ Property advance: ${formatCurrency(propertyAdvance)}`}
                   </div>
                 </div>
               </div>

@@ -57,14 +57,23 @@ class PartnershipTransaction(Base):
     id = Column(Integer, primary_key=True, index=True)
     partnership_id = Column(Integer, ForeignKey("partnerships.id"), nullable=False)
     member_id = Column(Integer, ForeignKey("partnership_members.id"))
-    txn_type = Column(String(30), nullable=False)
-    # invested | received | expense | profit_distributed
+    txn_type = Column(String(50), nullable=False)
+    # advance_to_seller | remaining_to_seller | broker_commission | expense
+    # buyer_advance | buyer_payment | profit_received
+    # Legacy: invested | received | expense | profit_distributed | advance_given | broker_paid | buyer_payment_received | other_expense
     amount = Column(Numeric(15, 2), nullable=False)
     txn_date = Column(Date, nullable=False)
     payment_mode = Column(String(30))
     description = Column(Text)
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
     received_by_member_id = Column(Integer, ForeignKey("partnership_members.id"), nullable=True)
+    # Link transaction to a specific plot buyer or site plot
+    plot_buyer_id = Column(Integer, ForeignKey("plot_buyers.id"), nullable=True)
+    site_plot_id = Column(Integer, ForeignKey("site_plots.id"), nullable=True)
+    # Broker name for broker_commission transactions
+    broker_name = Column(String(255), nullable=True)
+    # Whether this was paid from partnership pot (not from any individual's account)
+    from_partnership_pot = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -73,3 +82,5 @@ class PartnershipTransaction(Base):
     received_by = relationship("PartnershipMember", foreign_keys=[received_by_member_id])
     creator = relationship("User", foreign_keys=[created_by])
     account = relationship("CashAccount", foreign_keys=[account_id])
+    plot_buyer = relationship("PlotBuyer", foreign_keys=[plot_buyer_id])
+    site_plot = relationship("SitePlot", foreign_keys=[site_plot_id])

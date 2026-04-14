@@ -10,11 +10,11 @@ class PropertyDeal(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     location = Column(Text)
-    property_type = Column(String(50))  # plot | site | flat | commercial | agricultural
+    property_type = Column(String(50))  # plot | site
     total_area_sqft = Column(Numeric(12, 2))
 
-    # Deal type
-    deal_type = Column(String(20), default="middleman")  # middleman | purchase_and_hold
+    # Deal type (kept for backward compat, new deals are always middleman)
+    deal_type = Column(String(20), default="middleman")
 
     # People
     seller_contact_id = Column(Integer, ForeignKey("contacts.id"))
@@ -31,6 +31,7 @@ class PropertyDeal(Base):
     advance_date = Column(Date)
 
     # Timeline
+    negotiating_date = Column(Date)  # When negotiation started
     deal_locked_date = Column(Date)
     expected_registry_date = Column(Date)
     actual_registry_date = Column(Date)
@@ -86,6 +87,7 @@ class PropertyDeal(Base):
     creator = relationship("User", foreign_keys=[created_by])
     transactions = relationship("PropertyTransaction", back_populates="property_deal")
     site_plots = relationship("SitePlot", back_populates="property_deal")
+    plot_buyers = relationship("PlotBuyer", back_populates="property_deal")
 
 
 class PropertyTransaction(Base):
@@ -101,12 +103,16 @@ class PropertyTransaction(Base):
     payment_mode = Column(String(30))
     description = Column(Text)
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
+    received_by_member_id = Column(Integer, ForeignKey("partnership_members.id"), nullable=True)
+    plot_buyer_id = Column(Integer, ForeignKey("plot_buyers.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     property_deal = relationship("PropertyDeal", back_populates="transactions")
     creator = relationship("User", foreign_keys=[created_by])
     account = relationship("CashAccount", foreign_keys=[account_id])
+    received_by = relationship("PartnershipMember", foreign_keys=[received_by_member_id])
+    plot_buyer = relationship("PlotBuyer", foreign_keys=[plot_buyer_id])
 
 
 class SitePlot(Base):
@@ -123,10 +129,45 @@ class SitePlot(Base):
     sold_price_per_sqft = Column(Numeric(12, 3))
     calculated_price = Column(Numeric(15, 3))
     buyer_name = Column(String(255))
+    buyer_contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=True)
+    status = Column(String(30), default="available")  # available | advance_received | sold | registered
+    advance_received = Column(Numeric(15, 2), default=0)
+    total_paid = Column(Numeric(15, 2), default=0)
+    registry_date = Column(Date, nullable=True)
     notes = Column(Text)
     sold_date = Column(Date)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     property_deal = relationship("PropertyDeal", back_populates="site_plots")
+    buyer_contact = relationship("Contact", foreign_keys=[buyer_contact_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class PlotBuyer(Base):
+    __tablename__ = "plot_buyers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_deal_id = Column(Integer, ForeignKey("property_deals.id"), nullable=False)
+    buyer_contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=True)
+    buyer_name = Column(String(255))
+    area_sqft = Column(Numeric(12, 3))
+    rate_per_sqft = Column(Numeric(12, 3))
+    total_value = Column(Numeric(15, 2))
+    advance_received = Column(Numeric(15, 2), default=0)
+    total_paid = Column(Numeric(15, 2), default=0)
+    registry_date = Column(Date, nullable=True)
+    status = Column(String(30), default="negotiating")
+    # negotiating | advance_received | registry_done | fully_paid
+    notes = Column(Text)
+    # Plot dimensions for when a plot is subdivided
+    side_north_ft = Column(Numeric(10, 3))
+    side_south_ft = Column(Numeric(10, 3))
+    side_east_ft = Column(Numeric(10, 3))
+    side_west_ft = Column(Numeric(10, 3))
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    property_deal = relationship("PropertyDeal", back_populates="plot_buyers")
+    buyer_contact = relationship("Contact", foreign_keys=[buyer_contact_id])
     creator = relationship("User", foreign_keys=[created_by])

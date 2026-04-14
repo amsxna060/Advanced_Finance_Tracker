@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, X } from "lucide-react";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
 import { PageHero, PageBody } from "../../components/ui";
@@ -13,14 +14,14 @@ const toNullableNumber = (value) => {
 
 const toNullableString = (value) => (value?.trim() ? value.trim() : null);
 
-function PlotDiagram({ left, right, top, bottom, area, roads }) {
-  const hasAny = left || right || top || bottom;
+function PlotDiagram({ north, south, east, west, area, roads }) {
+  const hasAny = north || south || east || west;
   if (!hasAny) return null;
 
-  const l = parseFloat(left) || 0;
-  const r = parseFloat(right) || 0;
-  const t = parseFloat(top) || 0;
-  const b = parseFloat(bottom) || 0;
+  const l = parseFloat(west) || 0;
+  const r = parseFloat(east) || 0;
+  const t = parseFloat(north) || 0;
+  const b = parseFloat(south) || 0;
 
   let parsedRoads = [];
   try {
@@ -205,7 +206,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {top ? `N: ${top} ft` : "—"}
+          {north ? `N: ${north} ft` : "—"}
         </text>
         <text
           x={cx}
@@ -214,7 +215,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {bottom ? `S: ${bottom} ft` : "—"}
+          {south ? `S: ${south} ft` : "—"}
         </text>
         <text
           x={Math.min(x4, cx - topW / 2) - (hasRoadW ? ROAD_W + 8 : 8)}
@@ -224,7 +225,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {left ? `W: ${left} ft` : "—"}
+          {west ? `W: ${west} ft` : "—"}
         </text>
         <text
           x={Math.max(x3, cx + topW / 2) + (hasRoadE ? ROAD_W + 8 : 8)}
@@ -234,7 +235,7 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
           fontSize={12}
           fill="#1d4ed8"
         >
-          {right ? `E: ${right} ft` : "—"}
+          {east ? `E: ${east} ft` : "—"}
         </text>
         {area && (
           <text
@@ -260,19 +261,17 @@ const EMPTY_FORM_PLOT = {
   property_type: "plot",
   deal_type: "middleman",
   total_area_sqft: "",
-  side_left_ft: "",
-  side_right_ft: "",
-  side_top_ft: "",
-  side_bottom_ft: "",
+  side_north_ft: "",
+  side_south_ft: "",
+  side_east_ft: "",
+  side_west_ft: "",
   road_count: "0",
   roads_json: "[]",
   seller_contact_id: "",
   seller_rate_per_sqft: "",
   total_seller_value: "",
-  deal_locked_date: "",
+  negotiating_date: new Date().toISOString().split("T")[0],
   expected_registry_date: "",
-  broker_name: "",
-  broker_commission: "0",
   notes: "",
   status: "negotiating",
   actual_registry_date: "",
@@ -285,7 +284,10 @@ const EMPTY_FORM_SITE = {
   deal_type: "middleman",
   total_area_sqft: "",
   total_seller_value: "",
-  my_share_percentage: "",
+  seller_contact_id: "",
+  seller_rate_per_sqft: "",
+  negotiating_date: new Date().toISOString().split("T")[0],
+  expected_registry_date: "",
   site_deal_start_date: "",
   notes: "",
   status: "negotiating",
@@ -300,12 +302,10 @@ function normalizeForForm(property) {
     total_area_sqft: property.total_area_sqft
       ? String(property.total_area_sqft)
       : "",
-    side_left_ft: property.side_left_ft ? String(property.side_left_ft) : "",
-    side_right_ft: property.side_right_ft ? String(property.side_right_ft) : "",
-    side_top_ft: property.side_top_ft ? String(property.side_top_ft) : "",
-    side_bottom_ft: property.side_bottom_ft
-      ? String(property.side_bottom_ft)
-      : "",
+    side_north_ft: property.side_north_ft ? String(property.side_north_ft) : (property.side_top_ft ? String(property.side_top_ft) : ""),
+    side_south_ft: property.side_south_ft ? String(property.side_south_ft) : (property.side_bottom_ft ? String(property.side_bottom_ft) : ""),
+    side_east_ft: property.side_east_ft ? String(property.side_east_ft) : (property.side_right_ft ? String(property.side_right_ft) : ""),
+    side_west_ft: property.side_west_ft ? String(property.side_west_ft) : (property.side_left_ft ? String(property.side_left_ft) : ""),
     road_count: property.road_count != null ? String(property.road_count) : "0",
     roads_json: property.roads_json || "[]",
     seller_contact_id: property.seller_contact_id
@@ -317,19 +317,12 @@ function normalizeForForm(property) {
     total_seller_value: property.total_seller_value
       ? String(property.total_seller_value)
       : "",
-    deal_locked_date: property.deal_locked_date || "",
+    negotiating_date: property.negotiating_date || "",
     expected_registry_date: property.expected_registry_date || "",
     actual_registry_date: property.actual_registry_date || "",
-    broker_name: property.broker_name || "",
-    broker_commission: property.broker_commission
-      ? String(property.broker_commission)
-      : "0",
     notes: property.notes || "",
     status: property.status || "negotiating",
     // site fields
-    my_share_percentage: property.my_share_percentage
-      ? String(property.my_share_percentage)
-      : "",
     site_deal_start_date: property.site_deal_start_date || "",
   };
   return base;
@@ -342,25 +335,29 @@ function buildPayload(formData, isEditMode) {
     title: formData.title.trim(),
     location: toNullableString(formData.location),
     property_type: formData.property_type,
-    deal_type: formData.deal_type,
     notes: toNullableString(formData.notes),
   };
+  // Only send deal_type for new properties (always middleman); skip on edits to avoid overwriting
+  if (!isEditMode) {
+    payload.deal_type = formData.deal_type;
+  }
 
   if (isSite) {
     payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
-    payload.my_share_percentage = toNullableNumber(
-      formData.my_share_percentage,
-    );
+    payload.seller_contact_id = toNullableNumber(formData.seller_contact_id);
+    payload.seller_rate_per_sqft = toNullableNumber(formData.seller_rate_per_sqft);
+    payload.negotiating_date = toNullableString(formData.negotiating_date);
+    payload.expected_registry_date = toNullableString(formData.expected_registry_date);
     payload.site_deal_start_date = toNullableString(
       formData.site_deal_start_date,
     );
   } else {
     payload.total_area_sqft = toNullableNumber(formData.total_area_sqft);
-    payload.side_left_ft = toNullableNumber(formData.side_left_ft);
-    payload.side_right_ft = toNullableNumber(formData.side_right_ft);
-    payload.side_top_ft = toNullableNumber(formData.side_top_ft);
-    payload.side_bottom_ft = toNullableNumber(formData.side_bottom_ft);
+    payload.side_north_ft = toNullableNumber(formData.side_north_ft);
+    payload.side_south_ft = toNullableNumber(formData.side_south_ft);
+    payload.side_east_ft = toNullableNumber(formData.side_east_ft);
+    payload.side_west_ft = toNullableNumber(formData.side_west_ft);
     payload.road_count = toNullableNumber(formData.road_count);
     payload.roads_json = formData.roads_json || null;
     payload.seller_contact_id = toNullableNumber(formData.seller_contact_id);
@@ -368,13 +365,11 @@ function buildPayload(formData, isEditMode) {
       formData.seller_rate_per_sqft,
     );
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
-    payload.deal_locked_date = toNullableString(formData.deal_locked_date);
+    payload.deal_locked_date = toNullableString(formData.negotiating_date);
+    payload.negotiating_date = toNullableString(formData.negotiating_date);
     payload.expected_registry_date = toNullableString(
       formData.expected_registry_date,
     );
-    payload.broker_name = toNullableString(formData.broker_name);
-    payload.broker_commission =
-      toNullableNumber(formData.broker_commission) ?? 0;
     if (isEditMode) {
       payload.actual_registry_date = toNullableString(
         formData.actual_registry_date,
@@ -383,7 +378,7 @@ function buildPayload(formData, isEditMode) {
   }
 
   if (isEditMode) {
-    payload.status = formData.status;
+    // Don't send status — it's auto-derived from partnership state
   }
 
   return payload;
@@ -406,6 +401,33 @@ export default function PropertyForm() {
       return res.data;
     },
   });
+
+  // Quick seller contact creation
+  const [showSellerCreate, setShowSellerCreate] = useState(false);
+  const [sellerForm, setSellerForm] = useState({ name: "", phone: "", city: "" });
+  const createSellerMutation = useMutation({
+    mutationFn: async (payload) => {
+      const res = await api.post("/api/contacts", payload);
+      return res.data;
+    },
+    onSuccess: (newContact) => {
+      queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      set("seller_contact_id", String(newContact.id));
+      setShowSellerCreate(false);
+      setSellerForm({ name: "", phone: "", city: "" });
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to create contact"),
+  });
+  const handleCreateSeller = () => {
+    if (!sellerForm.name.trim()) return;
+    createSellerMutation.mutate({
+      name: sellerForm.name.trim(),
+      phone: sellerForm.phone.trim() || null,
+      city: sellerForm.city.trim() || null,
+      contact_type: "individual",
+      relationship_type: "seller",
+    });
+  };
 
   // Load existing deal for edit mode
   useQuery({
@@ -455,9 +477,8 @@ export default function PropertyForm() {
   const set = (field, value) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value };
-      // Auto-calc total_seller_value for plot
+      // Auto-calc total_seller_value for plot and site
       if (
-        updated.property_type === "plot" &&
         (field === "seller_rate_per_sqft" || field === "total_area_sqft")
       ) {
         const rate = parseFloat(updated.seller_rate_per_sqft);
@@ -494,8 +515,6 @@ export default function PropertyForm() {
     const errs = {};
     if (!formData.title.trim()) errs.title = "Title is required";
     if (formData.property_type === "site") {
-      if (!formData.my_share_percentage)
-        errs.my_share_percentage = "Share % is required";
       if (!formData.site_deal_start_date)
         errs.site_deal_start_date = "Deal start date is required";
     } else {
@@ -565,21 +584,6 @@ export default function PropertyForm() {
                 />
               </div>
 
-              {/* Deal Type */}
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Deal Type
-                </label>
-                <select
-                  value={formData.deal_type}
-                  onChange={(e) => set("deal_type", e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                >
-                  <option value="middleman">Middleman</option>
-                  <option value="purchase_and_hold">Purchase &amp; Hold</option>
-                </select>
-              </div>
-
               {/* Property Type */}
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">
@@ -610,6 +614,45 @@ export default function PropertyForm() {
                 Site Details
               </h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* Seller Contact */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Seller Contact
+                  </label>
+                  <div className="flex gap-2 items-start">
+                    <select
+                      value={formData.seller_contact_id}
+                      onChange={(e) => set("seller_contact_id", e.target.value)}
+                      className="flex-1 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    >
+                      <option value="">— Select seller —</option>
+                      {contacts.filter(c => c.relationship_type === "seller" || c.relationship_type === "borrower" || !c.relationship_type).map(c => (
+                        <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowSellerCreate(!showSellerCreate)}
+                      className="shrink-0 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-indigo-600 transition-all"
+                      title={showSellerCreate ? "Cancel" : "New Seller"}
+                    >
+                      {showSellerCreate ? <X size={16} /> : <Plus size={16} />}
+                    </button>
+                  </div>
+                  {showSellerCreate && (
+                    <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200/60 space-y-2">
+                      <div className="grid grid-cols-3 gap-2">
+                        <input type="text" placeholder="Name *" value={sellerForm.name} onChange={e => setSellerForm(p => ({...p, name: e.target.value}))} className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm" />
+                        <input type="text" placeholder="Phone" value={sellerForm.phone} onChange={e => setSellerForm(p => ({...p, phone: e.target.value}))} className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm" />
+                        <input type="text" placeholder="City" value={sellerForm.city} onChange={e => setSellerForm(p => ({...p, city: e.target.value}))} className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm" />
+                      </div>
+                      <button type="button" onClick={handleCreateSeller} disabled={!sellerForm.name.trim() || createSellerMutation.isPending} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 disabled:opacity-50">
+                        {createSellerMutation.isPending ? "Creating..." : "Create & Select"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
                     Total Area (sqft)
@@ -620,6 +663,20 @@ export default function PropertyForm() {
                     onChange={(e) => set("total_area_sqft", e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     placeholder="e.g. 50000"
+                    min="0"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Seller Rate (₹/sqft)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.seller_rate_per_sqft}
+                    onChange={(e) => set("seller_rate_per_sqft", e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    placeholder="e.g. 150"
                     min="0"
                   />
                 </div>
@@ -640,27 +697,6 @@ export default function PropertyForm() {
 
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
-                    My Share % <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.my_share_percentage}
-                    onChange={(e) => set("my_share_percentage", e.target.value)}
-                    className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${errors.my_share_percentage ? "border-rose-400" : "border-slate-200"}`}
-                    placeholder="e.g. 10"
-                    min="0"
-                    max="100"
-                    step="0.001"
-                  />
-                  {errors.my_share_percentage && (
-                    <p className="text-rose-600 text-xs mt-1">
-                      {errors.my_share_percentage}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
                     Deal Start Date <span className="text-rose-500">*</span>
                   </label>
                   <input
@@ -676,6 +712,30 @@ export default function PropertyForm() {
                       {errors.site_deal_start_date}
                     </p>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Negotiating Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.negotiating_date}
+                    onChange={(e) => set("negotiating_date", e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Expected Registry Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.expected_registry_date}
+                    onChange={(e) => set("expected_registry_date", e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  />
                 </div>
               </div>
             </div>
@@ -713,8 +773,8 @@ export default function PropertyForm() {
                     </label>
                     <input
                       type="number"
-                      value={formData.side_left_ft}
-                      onChange={(e) => set("side_left_ft", e.target.value)}
+                      value={formData.side_west_ft}
+                      onChange={(e) => set("side_west_ft", e.target.value)}
                       className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="West"
                       min="0"
@@ -727,8 +787,8 @@ export default function PropertyForm() {
                     </label>
                     <input
                       type="number"
-                      value={formData.side_right_ft}
-                      onChange={(e) => set("side_right_ft", e.target.value)}
+                      value={formData.side_east_ft}
+                      onChange={(e) => set("side_east_ft", e.target.value)}
                       className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="East"
                       min="0"
@@ -741,8 +801,8 @@ export default function PropertyForm() {
                     </label>
                     <input
                       type="number"
-                      value={formData.side_top_ft}
-                      onChange={(e) => set("side_top_ft", e.target.value)}
+                      value={formData.side_north_ft}
+                      onChange={(e) => set("side_north_ft", e.target.value)}
                       className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="North"
                       min="0"
@@ -755,8 +815,8 @@ export default function PropertyForm() {
                     </label>
                     <input
                       type="number"
-                      value={formData.side_bottom_ft}
-                      onChange={(e) => set("side_bottom_ft", e.target.value)}
+                      value={formData.side_south_ft}
+                      onChange={(e) => set("side_south_ft", e.target.value)}
                       className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                       placeholder="South"
                       min="0"
@@ -861,10 +921,10 @@ export default function PropertyForm() {
                 })()}
 
                 <PlotDiagram
-                  left={formData.side_left_ft}
-                  right={formData.side_right_ft}
-                  top={formData.side_top_ft}
-                  bottom={formData.side_bottom_ft}
+                  north={formData.side_north_ft}
+                  south={formData.side_south_ft}
+                  east={formData.side_east_ft}
+                  west={formData.side_west_ft}
                   area={formData.total_area_sqft}
                   roads={formData.roads_json}
                 />
@@ -880,19 +940,64 @@ export default function PropertyForm() {
                     <label className="block text-xs font-medium text-slate-500 mb-1">
                       Seller Contact
                     </label>
-                    <select
-                      value={formData.seller_contact_id}
-                      onChange={(e) => set("seller_contact_id", e.target.value)}
-                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                    >
-                      <option value="">— Select Seller —</option>
-                      {contacts.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                          {c.phone ? ` (${c.phone})` : ""}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex gap-2">
+                      <select
+                        value={formData.seller_contact_id}
+                        onChange={(e) => set("seller_contact_id", e.target.value)}
+                        className="flex-1 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                      >
+                        <option value="">— Select Seller —</option>
+                        {contacts.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.phone ? ` (${c.phone})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setShowSellerCreate(!showSellerCreate)}
+                        className="px-3 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm hover:bg-emerald-100 flex items-center gap-1 whitespace-nowrap"
+                      >
+                        {showSellerCreate ? <X size={14} /> : <Plus size={14} />}
+                        {showSellerCreate ? "Cancel" : "New"}
+                      </button>
+                    </div>
+                    {showSellerCreate && (
+                      <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200/60 space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            value={sellerForm.name}
+                            onChange={(e) => setSellerForm(p => ({ ...p, name: e.target.value }))}
+                            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                            placeholder="Name *"
+                          />
+                          <input
+                            type="text"
+                            value={sellerForm.phone}
+                            onChange={(e) => setSellerForm(p => ({ ...p, phone: e.target.value }))}
+                            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                            placeholder="Phone"
+                          />
+                          <input
+                            type="text"
+                            value={sellerForm.city}
+                            onChange={(e) => setSellerForm(p => ({ ...p, city: e.target.value }))}
+                            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                            placeholder="City"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCreateSeller}
+                          disabled={!sellerForm.name.trim() || createSellerMutation.isPending}
+                          className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-50"
+                        >
+                          {createSellerMutation.isPending ? "Creating..." : "Create & Select"}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -947,12 +1052,12 @@ export default function PropertyForm() {
 
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">
-                      Deal Locked Date
+                      Negotiating Date
                     </label>
                     <input
                       type="date"
-                      value={formData.deal_locked_date}
-                      onChange={(e) => set("deal_locked_date", e.target.value)}
+                      value={formData.negotiating_date}
+                      onChange={(e) => set("negotiating_date", e.target.value)}
                       className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     />
                   </div>
@@ -989,43 +1094,6 @@ export default function PropertyForm() {
                 </div>
               </div>
 
-              {/* Section 4: Broker Details (only for middleman) */}
-              {formData.deal_type === "middleman" && (
-                <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 sm:p-6">
-                  <h2 className="text-base font-bold text-slate-800 mb-4">
-                    Broker Details
-                  </h2>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">
-                        Broker Name
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.broker_name}
-                        onChange={(e) => set("broker_name", e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                        placeholder="e.g. Ramesh Broker"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">
-                        Broker Commission (₹)
-                      </label>
-                      <input
-                        type="number"
-                        value={formData.broker_commission}
-                        onChange={(e) =>
-                          set("broker_commission", e.target.value)
-                        }
-                        className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                        placeholder="0"
-                        min="0"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </>
           )}
 
@@ -1034,21 +1102,8 @@ export default function PropertyForm() {
             <h2 className="text-base font-bold text-slate-800 mb-4">Notes</h2>
             {isEditMode && (
               <div className="mb-4">
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Status
-                </label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => set("status", e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                >
-                  <option value="negotiating">Negotiating</option>
-                  <option value="advance_given">Advance Given</option>
-                  <option value="buyer_found">Buyer Found</option>
-                  <option value="registry_done">Registry Done</option>
-                  <option value="settled">Settled</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
+                <p className="text-xs text-slate-400">Status: <span className="font-medium text-slate-700">{formData.status?.replace(/_/g, ' ')}</span></p>
+                <p className="text-xs text-slate-400 mt-0.5">Status is auto-managed by the system based on partnership state.</p>
               </div>
             )}
             <textarea
