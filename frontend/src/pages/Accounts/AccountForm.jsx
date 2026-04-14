@@ -10,6 +10,8 @@ const INITIAL = {
   bank_name: "",
   account_number: "",
   opening_balance: "0",
+  credit_limit: "",
+  billing_cycle_date: "",
   notes: "",
 };
 
@@ -34,6 +36,8 @@ export default function AccountForm() {
         bank_name: d.bank_name || "",
         account_number: d.account_number || "",
         opening_balance: d.opening_balance || "0",
+        credit_limit: d.credit_limit != null ? String(d.credit_limit) : "",
+        billing_cycle_date: d.billing_cycle_date != null ? String(d.billing_cycle_date) : "",
         notes: d.notes || "",
       });
       return d;
@@ -58,7 +62,13 @@ export default function AccountForm() {
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
-    mutation.mutate({ ...form, opening_balance: Number(form.opening_balance) });
+    const payload = {
+      ...form,
+      opening_balance: Number(form.opening_balance),
+      credit_limit: form.account_type === "credit_card" && form.credit_limit ? Number(form.credit_limit) : null,
+      billing_cycle_date: form.account_type === "credit_card" && form.billing_cycle_date ? Number(form.billing_cycle_date) : null,
+    };
+    mutation.mutate(payload);
   };
 
   return (
@@ -107,6 +117,7 @@ export default function AccountForm() {
                 <option value="current">Current Account</option>
                 <option value="wallet">Digital Wallet (UPI/Paytm etc.)</option>
                 <option value="fixed_deposit">Fixed Deposit</option>
+                <option value="credit_card">Credit Card</option>
               </select>
             </div>
 
@@ -152,6 +163,39 @@ export default function AccountForm() {
                 Balance at the time of adding this account
               </p>
             </div>
+
+            {form.account_type === "credit_card" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Credit Limit (₹)
+                  </label>
+                  <input
+                    name="credit_limit"
+                    type="number"
+                    value={form.credit_limit}
+                    onChange={handleChange}
+                    placeholder="e.g. 200000"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Billing Cycle Date (day of month)
+                  </label>
+                  <input
+                    name="billing_cycle_date"
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={form.billing_cycle_date}
+                    onChange={handleChange}
+                    placeholder="e.g. 15"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">

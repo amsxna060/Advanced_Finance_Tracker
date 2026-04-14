@@ -6,6 +6,7 @@ from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.expense import Expense
 from app.models.category_learning import CategoryLearning
+from app.models.category_limit import CategoryLimit
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.obligation import MoneyObligation, ObligationSettlement
@@ -24,6 +25,7 @@ __all__ = [
     "PartnershipTransaction",
     "Expense",
     "CategoryLearning",
+    "CategoryLimit",
     "Beesi",
     "BeesiInstallment",
     "BeesiWithdrawal",

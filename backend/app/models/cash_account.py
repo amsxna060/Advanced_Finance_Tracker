@@ -19,10 +19,12 @@ class CashAccount(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)             # e.g. "Cash in Hand", "HDFC #4567"
-    account_type = Column(String(30), nullable=False)      # cash | savings | current | wallet | fixed_deposit
+    account_type = Column(String(30), nullable=False)      # cash | savings | current | wallet | fixed_deposit | credit_card
     bank_name = Column(String(255))
     account_number = Column(String(100))
     opening_balance = Column(Numeric(15, 2), default=0)    # Balance when account was first added
+    credit_limit = Column(Numeric(15, 2), nullable=True)   # Credit card limit (only for credit_card type)
+    billing_cycle_date = Column(Integer, nullable=True)     # Day of month (1-31) for credit card billing cycle
     notes = Column(Text)
 
     is_deleted = Column(Boolean, default=False)

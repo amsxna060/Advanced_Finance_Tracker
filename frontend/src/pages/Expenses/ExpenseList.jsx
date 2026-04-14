@@ -6,6 +6,14 @@ import { formatCurrency, formatDate } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 import LinkedRecordSelect from "../../components/LinkedRecordSelect";
 import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
+import {
+  Flame,
+  TrendingDown,
+  Crown,
+  Target,
+  ArrowUpRight,
+  ArrowDownRight,
+} from "lucide-react";
 
 const EXPENSE_CATEGORIES = [
   "Home",
@@ -149,6 +157,42 @@ function ExpenseList() {
     },
   });
 
+  // Fetch budget vs actual for current month (for budget standing stat)
+  const { data: budgetData } = useQuery({
+    queryKey: ["budget-vs-actual"],
+    queryFn: async () => {
+      const res = await api.get("/api/category-limits/budget-vs-actual");
+      return res.data;
+    },
+  });
+
+  // Fetch analytics for previous period comparison
+  const { data: prevPeriodData } = useQuery({
+    queryKey: ["expenses-prev-period", filters.from_date, filters.to_date],
+    enabled: Boolean(filters.from_date && filters.to_date),
+    queryFn: async () => {
+      if (!filters.from_date || !filters.to_date) return null;
+      const from = new Date(filters.from_date);
+      const to = new Date(filters.to_date);
+      const daysInRange = Math.max(1, Math.ceil((to - from) / 86400000) + 1);
+      const prevTo = new Date(from);
+      prevTo.setDate(prevTo.getDate() - 1);
+      const prevFrom = new Date(prevTo);
+      prevFrom.setDate(prevFrom.getDate() - daysInRange + 1);
+      const params = {
+        paginated: true,
+        limit: 1,
+        skip: 0,
+        from_date: prevFrom.toISOString().split("T")[0],
+        to_date: prevTo.toISOString().split("T")[0],
+      };
+      const res = await api.get("/api/expenses/analytics/summary", {
+        params: { from_date: params.from_date, to_date: params.to_date },
+      });
+      return { total: Number(res.data?.grand_total || 0) };
+    },
+  });
+
   const handleSuggest = async () => {
     if (!form.description || form.description.trim().length < 3) return;
     setIsSuggesting(true);
@@ -256,6 +300,7 @@ function ExpenseList() {
   });
 
   const totals = useMemo(() => {
+    const byCat = {};
     return expenses.reduce(
       (acc, expense) => {
         const amount = Number(expense.amount || 0);
@@ -264,11 +309,42 @@ function ExpenseList() {
         if (expense.linked_type === "general" || !expense.linked_type) {
           acc.general += amount;
         }
+        const cat = expense.category || "Uncategorized";
+        byCat[cat] = (byCat[cat] || 0) + amount;
+        acc.byCat = byCat;
         return acc;
       },
-      { total: 0, general: 0, count: 0 },
+      { total: 0, general: 0, count: 0, byCat: {} },
     );
   }, [expenses]);
+
+  // Derived hero stats
+  const daysInRange = useMemo(() => {
+    if (!filters.from_date || !filters.to_date) return 30;
+    const from = new Date(filters.from_date);
+    const to = new Date(filters.to_date);
+    return Math.max(1, Math.ceil((to - from) / 86400000) + 1);
+  }, [filters.from_date, filters.to_date]);
+
+  const dailyBurnRate = totals.total / daysInRange;
+
+  const highestBurner = useMemo(() => {
+    const cats = Object.entries(totals.byCat || {});
+    if (cats.length === 0) return null;
+    cats.sort((a, b) => b[1] - a[1]);
+    return { name: cats[0][0], amount: cats[0][1] };
+  }, [totals.byCat]);
+
+  const budgetStanding = useMemo(() => {
+    if (budgetData && budgetData.total_budget > 0) {
+      return { type: "budget", pct: budgetData.pct_used || 0 };
+    }
+    if (prevPeriodData && prevPeriodData.total > 0) {
+      const change = ((totals.total - prevPeriodData.total) / prevPeriodData.total) * 100;
+      return { type: "comparison", pct: change };
+    }
+    return { type: "none" };
+  }, [budgetData, prevPeriodData, totals.total]);
 
   const openCreateModal = () => {
     setEditingExpense(null);
@@ -312,26 +388,63 @@ function ExpenseList() {
         }
       >
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <HeroStat
-            label="Total Expenses"
-            value={formatCurrency(totals.total)}
-            accent="rose"
-          />
-          <HeroStat
-            label="General"
-            value={formatCurrency(totals.general)}
-            accent="amber"
-          />
-          <HeroStat
-            label="Entries"
-            value={String(totals.count)}
-            accent="indigo"
-          />
-          <HeroStat
-            label="Categories"
-            value={String(EXPENSE_CATEGORIES.length)}
-            accent="violet"
-          />
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <Flame className="w-4 h-4 text-rose-300" />
+              <span className="text-xs font-medium text-white/70">Total Period Expense</span>
+            </div>
+            <div className="text-xl font-bold text-white">{formatCurrency(totals.total)}</div>
+            <div className="text-xs text-white/50 mt-0.5">{totals.count} entries · {daysInRange} days</div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingDown className="w-4 h-4 text-amber-300" />
+              <span className="text-xs font-medium text-white/70">Daily Burn Rate</span>
+            </div>
+            <div className="text-xl font-bold text-white">{formatCurrency(dailyBurnRate)}</div>
+            <div className="text-xs text-white/50 mt-0.5">avg per day</div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <Crown className="w-4 h-4 text-violet-300" />
+              <span className="text-xs font-medium text-white/70">Highest Burner</span>
+            </div>
+            {highestBurner ? (
+              <>
+                <div className="text-xl font-bold text-white">{formatCurrency(highestBurner.amount)}</div>
+                <div className="text-xs text-white/50 mt-0.5">{highestBurner.name}</div>
+              </>
+            ) : (
+              <div className="text-xl font-bold text-white/40">—</div>
+            )}
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <Target className="w-4 h-4 text-teal-300" />
+              <span className="text-xs font-medium text-white/70">
+                {budgetStanding.type === "budget" ? "Budget Used" : "vs Previous Period"}
+              </span>
+            </div>
+            {budgetStanding.type === "budget" ? (
+              <>
+                <div className="text-xl font-bold text-white">{budgetStanding.pct.toFixed(1)}%</div>
+                <div className="text-xs text-white/50 mt-0.5">of monthly budget</div>
+              </>
+            ) : budgetStanding.type === "comparison" ? (
+              <>
+                <div className={`text-xl font-bold flex items-center gap-1 ${budgetStanding.pct > 0 ? "text-rose-300" : "text-emerald-300"}`}>
+                  {budgetStanding.pct > 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                  {Math.abs(budgetStanding.pct).toFixed(1)}%
+                </div>
+                <div className="text-xs text-white/50 mt-0.5">{budgetStanding.pct > 0 ? "higher" : "lower"} than prev period</div>
+              </>
+            ) : (
+              <>
+                <div className="text-xl font-bold text-white/40">—</div>
+                <div className="text-xs text-white/50 mt-0.5">Set budget to track</div>
+              </>
+            )}
+          </div>
         </div>
       </PageHero>
       <PageBody>

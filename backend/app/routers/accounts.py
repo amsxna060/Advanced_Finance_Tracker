@@ -50,6 +50,8 @@ def _account_dict(account: CashAccount, include_transactions: bool = False) -> d
         "account_number": account.account_number,
         "opening_balance": _d(account.opening_balance),
         "current_balance": _current_balance(account),
+        "credit_limit": _d(account.credit_limit) if account.credit_limit is not None else None,
+        "billing_cycle_date": account.billing_cycle_date,
         "notes": account.notes,
         "created_at": account.created_at.isoformat() if account.created_at else None,
     }
@@ -105,6 +107,8 @@ def create_account(
         bank_name=payload.get("bank_name"),
         account_number=payload.get("account_number"),
         opening_balance=Decimal(str(payload.get("opening_balance", 0))),
+        credit_limit=Decimal(str(payload["credit_limit"])) if payload.get("credit_limit") is not None else None,
+        billing_cycle_date=payload.get("billing_cycle_date"),
         notes=payload.get("notes"),
         created_by=current_user.id,
     )
@@ -146,6 +150,10 @@ def update_account(
             setattr(account, field, payload[field])
     if "opening_balance" in payload:
         account.opening_balance = Decimal(str(payload["opening_balance"]))
+    if "credit_limit" in payload:
+        account.credit_limit = Decimal(str(payload["credit_limit"])) if payload["credit_limit"] is not None else None
+    if "billing_cycle_date" in payload:
+        account.billing_cycle_date = payload["billing_cycle_date"]
 
     db.commit()
     db.refresh(account)

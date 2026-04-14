@@ -5,22 +5,73 @@ import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
+import {
+  Wallet,
+  Landmark,
+  CreditCard,
+  Smartphone,
+  Lock,
+  Building2,
+  ArrowLeftRight,
+  Plus,
+  TrendingUp,
+  ShieldCheck,
+  Percent,
+  DollarSign,
+} from "lucide-react";
 
-const TYPE_ICONS = {
-  cash: "💵",
-  savings: "🏦",
-  current: "🏢",
-  wallet: "📱",
-  fixed_deposit: "🔒",
+const CARD_CONFIG = {
+  cash: {
+    icon: Wallet,
+    label: "Cash",
+    gradient: "from-emerald-600 via-emerald-700 to-teal-800",
+    hoverGlow: "hover:shadow-emerald-500/30",
+    chipColor: "bg-emerald-400/30",
+    textAccent: "text-emerald-200",
+  },
+  savings: {
+    icon: Landmark,
+    label: "Savings",
+    gradient: "from-blue-700 via-indigo-800 to-blue-900",
+    hoverGlow: "hover:shadow-blue-500/30",
+    chipColor: "bg-blue-400/30",
+    textAccent: "text-blue-200",
+  },
+  current: {
+    icon: Building2,
+    label: "Current",
+    gradient: "from-slate-600 via-slate-700 to-slate-800",
+    hoverGlow: "hover:shadow-slate-500/30",
+    chipColor: "bg-slate-400/30",
+    textAccent: "text-slate-300",
+  },
+  wallet: {
+    icon: Smartphone,
+    label: "Wallet",
+    gradient: "from-violet-600 via-purple-700 to-violet-800",
+    hoverGlow: "hover:shadow-violet-500/30",
+    chipColor: "bg-violet-400/30",
+    textAccent: "text-violet-200",
+  },
+  fixed_deposit: {
+    icon: Lock,
+    label: "FD",
+    gradient: "from-amber-600 via-amber-700 to-orange-800",
+    hoverGlow: "hover:shadow-amber-500/30",
+    chipColor: "bg-amber-400/30",
+    textAccent: "text-amber-200",
+  },
+  credit_card: {
+    icon: CreditCard,
+    label: "Credit Card",
+    gradient: "from-gray-800 via-gray-900 to-black",
+    hoverGlow: "hover:shadow-gray-600/40",
+    chipColor: "bg-gray-500/30",
+    textAccent: "text-gray-300",
+  },
 };
 
-const TYPE_LABELS = {
-  cash: "Cash",
-  savings: "Savings",
-  current: "Current",
-  wallet: "Wallet",
-  fixed_deposit: "FD",
-};
+const FALLBACK_CONFIG = CARD_CONFIG.cash;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -97,10 +148,22 @@ export default function AccountList() {
     0,
   );
 
-  const activeAccounts = accounts.filter(
-    (a) => Number(a.current_balance) !== 0,
-  ).length;
-  const accountTypes = new Set(accounts.map((a) => a.account_type)).size;
+  // Separate assets vs liabilities (credit cards)
+  const assets = accounts.filter((a) => a.account_type !== "credit_card");
+  const creditCards = accounts.filter((a) => a.account_type === "credit_card");
+
+  const totalAssets = assets.reduce((s, a) => s + Number(a.current_balance || 0), 0);
+  // Credit card balance is typically negative (debit = spending), so current_balance shows how much is owed
+  const totalCCDebt = creditCards.reduce((s, a) => s + Math.abs(Math.min(0, Number(a.current_balance || 0))), 0);
+  const netWorth = totalAssets - totalCCDebt;
+
+  const liquidity = accounts
+    .filter((a) => a.account_type === "cash" || a.account_type === "savings" || a.account_type === "wallet")
+    .reduce((s, a) => s + Number(a.current_balance || 0), 0);
+
+  const totalCreditLimit = creditCards.reduce((s, a) => s + Number(a.credit_limit || 0), 0);
+  const availableCredit = totalCreditLimit - totalCCDebt;
+  const debtRatio = totalCreditLimit > 0 ? (totalCCDebt / totalCreditLimit) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -116,7 +179,8 @@ export default function AccountList() {
                 size="lg"
                 onClick={() => setShowTransfer(true)}
               >
-                ⇄ Transfer
+                <ArrowLeftRight className="w-4 h-4 mr-1.5 inline" />
+                Transfer
               </Button>
             )}
             {isAdmin && (
@@ -125,33 +189,56 @@ export default function AccountList() {
                 size="lg"
                 onClick={() => navigate("/accounts/new")}
               >
-                + New Account
+                <Plus className="w-4 h-4 mr-1.5 inline" />
+                New Account
               </Button>
             )}
           </>
         }
       >
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-          <HeroStat
-            label="Total Accounts"
-            value={accounts.length}
-            accent="indigo"
-          />
-          <HeroStat
-            label="Total Balance"
-            value={formatCurrency(totalBalance)}
-            accent="emerald"
-          />
-          <HeroStat
-            label="Active Accounts"
-            value={activeAccounts}
-            accent="teal"
-          />
-          <HeroStat
-            label="Account Types"
-            value={accountTypes}
-            accent="violet"
-          />
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="w-4 h-4 text-emerald-300" />
+              <span className="text-xs font-medium text-white/70">Net Worth</span>
+            </div>
+            <div className={`text-xl font-bold ${netWorth >= 0 ? "text-white" : "text-rose-300"}`}>
+              {formatCurrency(netWorth)}
+            </div>
+            <div className="text-xs text-white/50 mt-0.5">Assets − Liabilities</div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign className="w-4 h-4 text-blue-300" />
+              <span className="text-xs font-medium text-white/70">Liquidity</span>
+            </div>
+            <div className="text-xl font-bold text-white">{formatCurrency(liquidity)}</div>
+            <div className="text-xs text-white/50 mt-0.5">Cash + Savings + Wallets</div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldCheck className="w-4 h-4 text-teal-300" />
+              <span className="text-xs font-medium text-white/70">Available Credit</span>
+            </div>
+            <div className="text-xl font-bold text-white">
+              {creditCards.length > 0 ? formatCurrency(availableCredit) : "—"}
+            </div>
+            <div className="text-xs text-white/50 mt-0.5">
+              {creditCards.length > 0 ? `of ${formatCurrency(totalCreditLimit)} limit` : "No credit cards"}
+            </div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+            <div className="flex items-center gap-2 mb-1">
+              <Percent className="w-4 h-4 text-amber-300" />
+              <span className="text-xs font-medium text-white/70">Debt Ratio</span>
+            </div>
+            <div className={`text-xl font-bold ${debtRatio > 70 ? "text-rose-300" : debtRatio > 40 ? "text-amber-300" : "text-emerald-300"}`}>
+              {creditCards.length > 0 ? `${debtRatio.toFixed(1)}%` : "—"}
+            </div>
+            <div className="text-xs text-white/50 mt-0.5">
+              {creditCards.length > 0 ? "credit utilization" : "No credit cards"}
+            </div>
+          </div>
         </div>
       </PageHero>
 
@@ -166,39 +253,91 @@ export default function AccountList() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {accounts.map((a) => (
-              <div
-                key={a.id}
-                onClick={() => navigate(`/accounts/${a.id}`)}
-                className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-5 hover:border-slate-300 hover:shadow-md transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="text-2xl">
-                    {TYPE_ICONS[a.account_type] || "💰"}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                      {a.name}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {TYPE_LABELS[a.account_type] || a.account_type}
-                      {a.bank_name ? ` · ${a.bank_name}` : ""}
-                    </div>
-                  </div>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {accounts.map((a) => {
+              const cfg = CARD_CONFIG[a.account_type] || FALLBACK_CONFIG;
+              const Icon = cfg.icon;
+              const bal = Number(a.current_balance || 0);
+              const isCreditCard = a.account_type === "credit_card";
+              const maskedNum = a.account_number
+                ? `•••• ${a.account_number.slice(-4)}`
+                : null;
+
+              return (
                 <div
-                  className={`text-2xl font-bold ${Number(a.current_balance) >= 0 ? "text-teal-700" : "text-rose-600"}`}
+                  key={a.id}
+                  onClick={() => navigate(`/accounts/${a.id}`)}
+                  className={`
+                    relative overflow-hidden rounded-2xl p-5 cursor-pointer
+                    bg-gradient-to-br ${cfg.gradient}
+                    shadow-lg ${cfg.hoverGlow} hover:shadow-xl
+                    hover:scale-[1.02] hover:backdrop-blur-md
+                    transition-all duration-300 ease-out group
+                    border border-white/10
+                    min-h-[170px] flex flex-col justify-between
+                  `}
                 >
-                  {formatCurrency(a.current_balance)}
-                </div>
-                {a.account_number && (
-                  <div className="text-xs text-slate-400 mt-1">
-                    ••••{a.account_number.slice(-4)}
+                  {/* Glassmorphism overlay on hover */}
+                  <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 backdrop-blur-0 group-hover:backdrop-blur-[2px] transition-all duration-300 rounded-2xl pointer-events-none" />
+
+                  {/* Decorative circles */}
+                  <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/5 rounded-full pointer-events-none" />
+                  <div className="absolute -bottom-6 -left-6 w-24 h-24 bg-white/5 rounded-full pointer-events-none" />
+
+                  {/* Top: Type + Chip */}
+                  <div className="relative flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`p-2 rounded-lg ${cfg.chipColor}`}>
+                        <Icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-white/90">{a.name}</div>
+                        <div className={`text-[11px] ${cfg.textAccent}`}>
+                          {cfg.label}
+                          {a.bank_name ? ` · ${a.bank_name}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Card chip graphic for bank/credit cards */}
+                    {a.account_type !== "cash" && (
+                      <div className="w-10 h-7 rounded-md bg-gradient-to-br from-yellow-300/60 to-yellow-500/40 border border-yellow-400/30 flex items-center justify-center">
+                        <div className="w-4 h-4 border border-yellow-400/50 rounded-sm" />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* Balance */}
+                  <div className="relative mt-auto pt-3">
+                    {maskedNum && (
+                      <div className="text-xs text-white/40 font-mono tracking-widest mb-1">
+                        {maskedNum}
+                      </div>
+                    )}
+                    <div className={`text-2xl font-bold tracking-tight ${bal < 0 ? "text-rose-300" : "text-white"}`}>
+                      {formatCurrency(bal)}
+                    </div>
+                    {isCreditCard && a.credit_limit && (
+                      <div className="mt-1.5">
+                        <div className="flex justify-between text-[10px] text-white/50 mb-0.5">
+                          <span>Used</span>
+                          <span>{formatCurrency(Number(a.credit_limit))} limit</span>
+                        </div>
+                        <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              Math.abs(bal) / Number(a.credit_limit) > 0.7
+                                ? "bg-rose-400"
+                                : "bg-teal-400"
+                            }`}
+                            style={{ width: `${Math.min(100, (Math.abs(bal) / Number(a.credit_limit)) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </PageBody>
