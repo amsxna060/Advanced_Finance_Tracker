@@ -45,6 +45,8 @@ function ObligationList() {
   const [contactSearch, setContactSearch] = useState("");
   const [showContactDropdown, setShowContactDropdown] = useState(false);
   const contactSearchRef = useRef(null);
+  const [editingObligation, setEditingObligation] = useState(null);
+  const [groupByContact, setGroupByContact] = useState(false);
 
   const { data: obligations = [], isLoading } = useQuery({
     queryKey: ["obligations", filters],
@@ -99,6 +101,25 @@ function ObligationList() {
       ),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, payload }) =>
+      (await api.put(`/api/obligations/${id}`, payload)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["obligations"] });
+      queryClient.invalidateQueries({ queryKey: ["obligations-summary"] });
+      setShowModal(false);
+      setEditingObligation(null);
+      setForm(defaultForm);
+      setErrorMessage("");
+      setContactSearch("");
+      setShowContactDropdown(false);
+    },
+    onError: (e) =>
+      setErrorMessage(
+        e.response?.data?.detail || "Failed to update obligation",
+      ),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id) => api.delete(`/api/obligations/${id}`),
     onSuccess: () => {
@@ -148,7 +169,7 @@ function ObligationList() {
 
   const handleCreate = (e) => {
     e.preventDefault();
-    createMutation.mutate({
+    const payload = {
       ...form,
       amount: parseFloat(form.amount),
       contact_id: parseInt(form.contact_id),
@@ -156,7 +177,40 @@ function ObligationList() {
       linked_id: form.linked_id ? parseInt(form.linked_id) : null,
       due_date: form.due_date || null,
       account_id: form.account_id ? parseInt(form.account_id) : null,
+    };
+    if (editingObligation) {
+      updateMutation.mutate({
+        id: editingObligation.id,
+        payload: {
+          amount: payload.amount,
+          reason: payload.reason || null,
+          due_date: payload.due_date,
+          notes: payload.notes || null,
+        },
+      });
+    } else {
+      createMutation.mutate(payload);
+    }
+  };
+
+  const openEditObligation = (ob) => {
+    setEditingObligation(ob);
+    const contact = contacts.find((c) => c.id === ob.contact_id);
+    setForm({
+      obligation_type: ob.obligation_type,
+      contact_id: String(ob.contact_id || ""),
+      amount: String(ob.amount),
+      reason: ob.reason || "",
+      linked_type: ob.linked_type || "",
+      linked_id: ob.linked_id ? String(ob.linked_id) : "",
+      due_date: ob.due_date || "",
+      account_id: "",
+      notes: ob.notes || "",
     });
+    setContactSearch(contact?.name || "");
+    setShowContactDropdown(false);
+    setErrorMessage("");
+    setShowModal(true);
   };
 
   const handleSettle = (e) => {
@@ -199,10 +253,12 @@ function ObligationList() {
           <Button
             variant="white"
             onClick={() => {
+              setEditingObligation(null);
               setShowModal(true);
               setErrorMessage("");
               setContactSearch("");
               setShowContactDropdown(false);
+              setForm(defaultForm);
             }}
           >
             + New Obligation
@@ -311,6 +367,22 @@ function ObligationList() {
           </div>
         </div>
 
+        {/* Group by Contact toggle */}
+        <div className="flex items-center justify-end">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span className="text-sm text-slate-500">Group by Contact</span>
+            <button
+              type="button"
+              onClick={() => setGroupByContact((v) => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${groupByContact ? "bg-indigo-500" : "bg-slate-200"}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${groupByContact ? "translate-x-6" : "translate-x-1"}`}
+              />
+            </button>
+          </label>
+        </div>
+
         {/* List */}
         {isLoading ? (
           <div className="flex justify-center py-16">
@@ -354,176 +426,185 @@ function ObligationList() {
                     <span>Showing settled obligations</span>
                   </div>
                 )}
-                {visible.map(({ obligation: ob, contact }) => {
-                  const remaining =
-                    parseFloat(ob.amount) - parseFloat(ob.amount_settled);
-                  const isExpanded = expandedId === ob.id;
-                  return (
-                    <div
-                      key={ob.id}
-                      className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden hover:border-slate-300 transition-colors"
-                    >
+                {(() => {
+                  const renderCard = ({ obligation: ob, contact }) => {
+                    const remaining = parseFloat(ob.amount) - parseFloat(ob.amount_settled);
+                    const pct = parseFloat(ob.amount) > 0 ? (parseFloat(ob.amount_settled) / parseFloat(ob.amount)) * 100 : 0;
+                    const isExpanded = expandedId === ob.id;
+                    return (
                       <div
-                        className="p-4 sm:p-5 cursor-pointer hover:bg-slate-50/50 flex items-center justify-between transition-colors"
-                        onClick={() => setExpandedId(isExpanded ? null : ob.id)}
+                        key={ob.id}
+                        className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden hover:border-slate-300 transition-colors"
                       >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span
-                              className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${ob.obligation_type === "receivable" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}
-                            >
-                              {ob.obligation_type === "receivable"
-                                ? "▲ Receivable"
-                                : "▼ Payable"}
-                            </span>
-                            <span
-                              className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${statusColor(ob.status)}`}
-                            >
-                              {ob.status}
-                            </span>
-                            {ob.linked_type && (
-                              <span className="text-xs text-slate-400">
-                                via {ob.linked_type} #{ob.linked_id}
-                              </span>
-                            )}
+                        <div
+                          className="p-4 sm:p-5 cursor-pointer hover:bg-slate-50/50 transition-colors"
+                          onClick={() => setExpandedId(isExpanded ? null : ob.id)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span
+                                  className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${ob.obligation_type === "receivable" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}
+                                >
+                                  {ob.obligation_type === "receivable" ? "▲ Receivable" : "▼ Payable"}
+                                </span>
+                                <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${statusColor(ob.status)}`}>
+                                  {ob.status}
+                                </span>
+                                {ob.linked_type && (
+                                  <span className="text-xs text-slate-400">via {ob.linked_type} #{ob.linked_id}</span>
+                                )}
+                              </div>
+                              {!groupByContact && (
+                                <p className="font-semibold text-slate-900 mt-1.5">
+                                  {ob.contact_id === null ? "Self (You)" : contact?.name || "Unknown"}
+                                </p>
+                              )}
+                              {ob.reason && <p className="text-sm text-slate-500 truncate">{ob.reason}</p>}
+                            </div>
+                            <div className="text-right ml-4 flex-shrink-0">
+                              <p className="text-lg font-bold text-slate-900">{formatCurrency(ob.amount)}</p>
+                              {ob.amount_settled > 0 && (
+                                <p className="text-xs text-slate-400">Settled: {formatCurrency(ob.amount_settled)}</p>
+                              )}
+                              {remaining > 0 && ob.status !== "settled" && (
+                                <p className="text-xs font-medium text-amber-600">Due: {formatCurrency(remaining)}</p>
+                              )}
+                            </div>
                           </div>
-                          <p className="font-semibold text-slate-900 mt-1.5">
-                            {ob.contact_id === null
-                              ? "Self (You)"
-                              : contact?.name || "Unknown"}
-                          </p>
-                          {ob.reason && (
-                            <p className="text-sm text-slate-500 truncate">
-                              {ob.reason}
-                            </p>
+                          {/* Progress bar for partial obligations */}
+                          {ob.status === "partial" && (
+                            <div className="mt-3">
+                              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                <span>{pct.toFixed(0)}% settled</span>
+                                <span>{formatCurrency(remaining)} remaining</span>
+                              </div>
+                              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-500"
+                                  style={{ width: `${Math.min(pct, 100)}%` }}
+                                />
+                              </div>
+                            </div>
                           )}
                         </div>
-                        <div className="text-right ml-4 flex-shrink-0">
-                          <p className="text-lg font-bold text-slate-900">
-                            {formatCurrency(ob.amount)}
-                          </p>
-                          {ob.amount_settled > 0 && (
-                            <p className="text-xs text-slate-400">
-                              Settled: {formatCurrency(ob.amount_settled)}
-                            </p>
-                          )}
-                          {remaining > 0 && ob.status !== "settled" && (
-                            <p className="text-xs font-medium text-amber-600">
-                              Due: {formatCurrency(remaining)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
 
-                      {isExpanded && (
-                        <div className="border-t border-slate-100 px-4 sm:px-5 py-4 bg-slate-50/50 space-y-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                            {ob.due_date && (
+                        {isExpanded && (
+                          <div className="border-t border-slate-100 px-4 sm:px-5 py-4 bg-slate-50/50 space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                              {ob.due_date && (
+                                <div>
+                                  <span className="text-xs font-medium text-slate-400">Due:</span>{" "}
+                                  <span className="text-slate-700">{formatDate(ob.due_date)}</span>
+                                </div>
+                              )}
+                              {ob.notes && (
+                                <div className="col-span-2">
+                                  <span className="text-xs font-medium text-slate-400">Notes:</span>{" "}
+                                  <span className="text-slate-700">{ob.notes}</span>
+                                </div>
+                              )}
                               <div>
-                                <span className="text-xs font-medium text-slate-400">
-                                  Due:
-                                </span>{" "}
-                                <span className="text-slate-700">
-                                  {formatDate(ob.due_date)}
-                                </span>
+                                <span className="text-xs font-medium text-slate-400">Created:</span>{" "}
+                                <span className="text-slate-700">{formatDate(ob.created_at)}</span>
                               </div>
-                            )}
-                            {ob.notes && (
-                              <div className="col-span-2">
-                                <span className="text-xs font-medium text-slate-400">
-                                  Notes:
-                                </span>{" "}
-                                <span className="text-slate-700">
-                                  {ob.notes}
-                                </span>
-                              </div>
-                            )}
-                            <div>
-                              <span className="text-xs font-medium text-slate-400">
-                                Created:
-                              </span>{" "}
-                              <span className="text-slate-700">
-                                {formatDate(ob.created_at)}
-                              </span>
                             </div>
-                          </div>
 
-                          {detailData?.settlements?.length > 0 && (
-                            <div>
-                              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                                Settlements
-                              </h4>
-                              <div className="space-y-1.5">
-                                {detailData.settlements.map((s) => (
-                                  <div
-                                    key={s.id}
-                                    className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2.5 border border-slate-200/60"
-                                  >
-                                    <div>
-                                      <span className="font-medium text-slate-900">
-                                        {formatCurrency(s.amount)}
-                                      </span>
-                                      <span className="text-slate-400 ml-2 text-xs">
-                                        {formatDate(s.settlement_date)}
-                                      </span>
-                                      {s.payment_mode && (
-                                        <span className="text-xs text-slate-400 ml-2">
-                                          ({s.payment_mode})
-                                        </span>
-                                      )}
+                            {detailData?.settlements?.length > 0 && (
+                              <div>
+                                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Settlements</h4>
+                                <div className="space-y-1.5">
+                                  {detailData.settlements.map((s) => (
+                                    <div
+                                      key={s.id}
+                                      className="flex items-center justify-between text-sm bg-white rounded-xl px-3 py-2.5 border border-slate-200/60"
+                                    >
+                                      <div>
+                                        <span className="font-medium text-slate-900">{formatCurrency(s.amount)}</span>
+                                        <span className="text-slate-400 ml-2 text-xs">{formatDate(s.settlement_date)}</span>
+                                        {s.payment_mode && <span className="text-xs text-slate-400 ml-2">({s.payment_mode})</span>}
+                                      </div>
+                                      {s.notes && <span className="text-xs text-slate-400">{s.notes}</span>}
                                     </div>
-                                    {s.notes && (
-                                      <span className="text-xs text-slate-400">
-                                        {s.notes}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            )}
 
-                          <div className="flex gap-2 pt-1">
-                            {ob.status !== "settled" && (
+                            <div className="flex gap-2 pt-1">
+                              {ob.status !== "settled" && (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openSettle(ob); }}
+                                    className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-4 py-1.5 rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                                  >
+                                    Record Settlement
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openEditObligation(ob); }}
+                                    className="bg-indigo-50 text-indigo-600 border border-indigo-200/60 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-indigo-100 transition-colors"
+                                  >
+                                    Edit
+                                  </button>
+                                </>
+                              )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  openSettle(ob);
+                                  if (window.confirm("Delete this obligation?")) deleteMutation.mutate(ob.id);
                                 }}
-                                className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-4 py-1.5 rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                                className="bg-rose-50 text-rose-600 border border-rose-200/60 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-rose-100 transition-colors"
                               >
-                                Record Settlement
+                                Delete
                               </button>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm("Delete this obligation?"))
-                                  deleteMutation.mutate(ob.id);
-                              }}
-                              className="bg-rose-50 text-rose-600 border border-rose-200/60 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-rose-100 transition-colors"
-                            >
-                              Delete
-                            </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        )}
+                      </div>
+                    );
+                  };
+
+                  if (groupByContact) {
+                    const groups = {};
+                    visible.forEach((item) => {
+                      const name = item.contact?.name || "Unknown";
+                      if (!groups[name]) groups[name] = [];
+                      groups[name].push(item);
+                    });
+                    return Object.entries(groups)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([contactName, items]) => {
+                        const groupReceivable = items.reduce((s, i) => (i.obligation.obligation_type === "receivable" ? s + parseFloat(i.obligation.amount) - parseFloat(i.obligation.amount_settled) : s), 0);
+                        const groupPayable = items.reduce((s, i) => (i.obligation.obligation_type === "payable" ? s + parseFloat(i.obligation.amount) - parseFloat(i.obligation.amount_settled) : s), 0);
+                        return (
+                          <div key={contactName} className="space-y-2">
+                            <div className="flex items-center justify-between px-1 pt-2">
+                              <h3 className="text-sm font-bold text-slate-700">👤 {contactName}</h3>
+                              <div className="flex gap-3 text-xs">
+                                {groupReceivable > 0 && <span className="text-emerald-600 font-medium">▲ {formatCurrency(groupReceivable)}</span>}
+                                {groupPayable > 0 && <span className="text-rose-600 font-medium">▼ {formatCurrency(groupPayable)}</span>}
+                              </div>
+                            </div>
+                            {items.map(renderCard)}
+                          </div>
+                        );
+                      });
+                  }
+                  return visible.map(renderCard);
+                })()}
               </div>
             );
           })()
         )}
       </PageBody>
 
-      {/* Create Modal */}
+      {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 max-w-lg w-full max-h-[90vh] overflow-y-auto animate-slideUp">
             <div className="p-6">
               <h2 className="text-lg font-bold text-slate-900 mb-5">
-                New Obligation
+                {editingObligation ? "Edit Obligation" : "New Obligation"}
               </h2>
               {errorMessage && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 mb-4">
@@ -758,6 +839,7 @@ function ObligationList() {
                     type="button"
                     onClick={() => {
                       setShowModal(false);
+                      setEditingObligation(null);
                       setForm(defaultForm);
                       setContactSearch("");
                       setShowContactDropdown(false);
@@ -768,10 +850,10 @@ function ObligationList() {
                   </button>
                   <button
                     type="submit"
-                    disabled={createMutation.isPending}
+                    disabled={createMutation.isPending || updateMutation.isPending}
                     className="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl hover:from-indigo-600 hover:to-indigo-700 text-sm font-medium shadow-sm shadow-indigo-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
                   >
-                    {createMutation.isPending ? "Saving…" : "Create"}
+                    {(createMutation.isPending || updateMutation.isPending) ? "Saving…" : editingObligation ? "Update" : "Create"}
                   </button>
                 </div>
               </form>

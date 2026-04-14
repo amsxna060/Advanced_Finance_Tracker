@@ -15,71 +15,23 @@ import {
   ArrowDownRight,
 } from "lucide-react";
 
-const EXPENSE_CATEGORIES = [
-  "Home",
-  "Market",
-  "Grocery",
-  "Medical",
-  "Personal",
-  "Business",
-  "Travel",
-  "Education",
-  "Rent",
-  "Utilities",
-  "Insurance",
-  "Legal",
-  "Registration",
-  "Fuel",
-  "Maintenance",
-  "Food & Dining",
-  "Shopping",
-  "Entertainment",
-  "Commission",
-  "Miscellaneous",
+const FALLBACK_CATEGORIES = [
+  "Home", "Market", "Grocery", "Medical", "Personal", "Business",
+  "Travel", "Education", "Rent", "Utilities", "Insurance", "Legal",
+  "Registration", "Fuel", "Maintenance", "Food & Dining", "Shopping",
+  "Entertainment", "Commission", "Miscellaneous",
 ];
 
-const SUBCATEGORIES = {
-  Grocery: [
-    "Vegetables & Fruits",
-    "Dairy & Eggs",
-    "Grains & Staples",
-    "Grocery Apps",
-  ],
-  "Food & Dining": [
-    "Restaurant",
-    "Food Delivery",
-    "Snacks & Coffee",
-    "Fast Food",
-    "Mess / Tiffin",
-  ],
-  Travel: [
-    "Cab & Taxi",
-    "Air Travel",
-    "Rail Travel",
-    "Local Transport",
-    "Toll & Parking",
-  ],
+const FALLBACK_SUBCATEGORIES = {
+  Grocery: ["Vegetables & Fruits", "Dairy & Eggs", "Grains & Staples", "Grocery Apps"],
+  "Food & Dining": ["Restaurant", "Food Delivery", "Snacks & Coffee", "Fast Food", "Mess / Tiffin"],
+  Travel: ["Cab & Taxi", "Air Travel", "Rail Travel", "Local Transport", "Toll & Parking"],
   Medical: ["Hospital", "Medicine / Pharmacy", "Diagnostic", "Dental"],
-  Education: [
-    "School / College Fees",
-    "Books & Stationery",
-    "Online Courses",
-    "Coaching",
-  ],
+  Education: ["School / College Fees", "Books & Stationery", "Online Courses", "Coaching"],
   Utilities: ["Electricity", "Internet & Phone", "Gas", "Water", "DTH / Cable"],
-  Shopping: [
-    "Online Shopping",
-    "Clothing & Fashion",
-    "Electronics",
-    "Jewellery",
-  ],
+  Shopping: ["Online Shopping", "Clothing & Fashion", "Electronics", "Jewellery"],
   Entertainment: ["Movies", "Streaming", "Gaming", "Events"],
-  Maintenance: [
-    "Vehicle Service",
-    "Home Repair",
-    "Appliance",
-    "Painting / Renovation",
-  ],
+  Maintenance: ["Vehicle Service", "Home Repair", "Appliance", "Painting / Renovation"],
   Personal: ["Salon & Grooming", "Fitness", "Clothing"],
   Fuel: ["Petrol", "Diesel", "CNG", "EV Charging"],
   Home: ["Furniture", "Appliances", "Household Help", "Cleaning"],
@@ -126,6 +78,9 @@ function ExpenseList() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [autoFilled, setAutoFilled] = useState(false);
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [budgetForm, setBudgetForm] = useState({ category: "", monthly_limit: "" });
+  const [budgetError, setBudgetError] = useState("");
 
   const { data: expenseData, isLoading } = useQuery({
     queryKey: ["expenses", filters, page],
@@ -157,12 +112,65 @@ function ExpenseList() {
     },
   });
 
+  // Fetch categories from API (tree structure)
+  const { data: apiCategoryTree = [] } = useQuery({
+    queryKey: ["categories-tree"],
+    queryFn: async () => (await api.get("/api/categories", { params: { tree: true } })).data,
+  });
+
+  // Derive category lists from API data, with fallback to hardcoded
+  const EXPENSE_CATEGORIES = useMemo(() => {
+    if (apiCategoryTree.length > 0) return apiCategoryTree.map((c) => c.name);
+    return FALLBACK_CATEGORIES;
+  }, [apiCategoryTree]);
+
+  const SUBCATEGORIES = useMemo(() => {
+    if (apiCategoryTree.length > 0) {
+      const map = {};
+      apiCategoryTree.forEach((parent) => {
+        if (parent.children?.length > 0) {
+          map[parent.name] = parent.children.map((ch) => ch.name);
+        }
+      });
+      return map;
+    }
+    return FALLBACK_SUBCATEGORIES;
+  }, [apiCategoryTree]);
+
   // Fetch budget vs actual for current month (for budget standing stat)
   const { data: budgetData } = useQuery({
     queryKey: ["budget-vs-actual"],
     queryFn: async () => {
       const res = await api.get("/api/category-limits/budget-vs-actual");
       return res.data;
+    },
+  });
+
+  // Fetch existing category limits for budget modal
+  const { data: categoryLimits = [] } = useQuery({
+    queryKey: ["category-limits"],
+    queryFn: async () => (await api.get("/api/category-limits")).data,
+  });
+
+  const budgetMutation = useMutation({
+    mutationFn: async (payload) =>
+      (await api.post("/api/category-limits", payload)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["category-limits"] });
+      queryClient.invalidateQueries({ queryKey: ["budget-vs-actual"] });
+      setBudgetForm({ category: "", monthly_limit: "" });
+      setBudgetError("");
+    },
+    onError: (e) =>
+      setBudgetError(e.response?.data?.detail || "Failed to save budget"),
+  });
+
+  const deleteBudgetMutation = useMutation({
+    mutationFn: async (category) =>
+      (await api.delete(`/api/category-limits/${encodeURIComponent(category)}`)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["category-limits"] });
+      queryClient.invalidateQueries({ queryKey: ["budget-vs-actual"] });
     },
   });
 
@@ -381,9 +389,14 @@ function ExpenseList() {
         backTo="/dashboard"
         actions={
           user?.role === "admin" && (
-            <Button variant="white" onClick={openCreateModal}>
-              + Add Expense
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="white" onClick={() => { setShowBudgetModal(true); setBudgetError(""); }}>
+                🎯 Set Budget
+              </Button>
+              <Button variant="white" onClick={openCreateModal}>
+                + Add Expense
+              </Button>
+            </div>
           )
         }
       >
@@ -886,6 +899,94 @@ function ExpenseList() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Budget Modal */}
+      {showBudgetModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 max-w-lg w-full max-h-[90vh] overflow-y-auto animate-slideUp">
+            <div className="p-6">
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Set Monthly Budget</h2>
+              <p className="text-sm text-slate-400 mb-5">Set spending limits per category to track your budget.</p>
+              {budgetError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 mb-4">
+                  {budgetError}
+                </div>
+              )}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!budgetForm.category || !budgetForm.monthly_limit) return;
+                  budgetMutation.mutate({
+                    category: budgetForm.category,
+                    monthly_limit: parseFloat(budgetForm.monthly_limit),
+                  });
+                }}
+                className="flex gap-2 mb-4"
+              >
+                <select
+                  value={budgetForm.category}
+                  onChange={(e) => setBudgetForm({ ...budgetForm, category: e.target.value })}
+                  className="flex-1 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  required
+                >
+                  <option value="">Select Category</option>
+                  {EXPENSE_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  required
+                  placeholder="Monthly limit"
+                  value={budgetForm.monthly_limit}
+                  onChange={(e) => setBudgetForm({ ...budgetForm, monthly_limit: e.target.value })}
+                  className="w-36 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                />
+                <button
+                  type="submit"
+                  disabled={budgetMutation.isPending}
+                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
+                >
+                  {budgetMutation.isPending ? "…" : "Save"}
+                </button>
+              </form>
+              {/* Existing limits */}
+              {categoryLimits.length > 0 ? (
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Limits</h4>
+                  {categoryLimits.map((cl) => (
+                    <div key={cl.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-200/60">
+                      <div>
+                        <span className="text-sm font-medium text-slate-700">{cl.category}</span>
+                        <span className="text-sm text-slate-400 ml-2">{formatCurrency(cl.monthly_limit)}/mo</span>
+                      </div>
+                      <button
+                        onClick={() => deleteBudgetMutation.mutate(cl.category)}
+                        className="text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-4">No budgets set yet. Add one above.</p>
+              )}
+              <div className="flex justify-end pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowBudgetModal(false)}
+                  className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 text-sm font-medium transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

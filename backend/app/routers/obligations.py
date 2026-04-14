@@ -166,8 +166,30 @@ def update_obligation(
     if not ob:
         raise HTTPException(status_code=404, detail="Obligation not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_fields = data.model_dump(exclude_unset=True)
+
+    # If amount is being changed, validate against already-settled amount
+    if "amount" in update_fields and update_fields["amount"] is not None:
+        new_amount = _D(update_fields["amount"])
+        settled = _D(ob.amount_settled)
+        if new_amount < settled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot reduce amount below already settled amount ({settled})",
+            )
+
+    for field, value in update_fields.items():
         setattr(ob, field, value)
+
+    # Recalculate status based on current amount vs settled
+    settled = _D(ob.amount_settled)
+    total = _D(ob.amount)
+    if settled >= total:
+        ob.status = "settled"
+    elif settled > 0:
+        ob.status = "partial"
+    else:
+        ob.status = "pending"
 
     db.commit()
     db.refresh(ob)

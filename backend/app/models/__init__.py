@@ -7,6 +7,7 @@ from app.models.partnership import Partnership, PartnershipMember, PartnershipTr
 from app.models.expense import Expense
 from app.models.category_learning import CategoryLearning
 from app.models.category_limit import CategoryLimit
+from app.models.category import Category
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.obligation import MoneyObligation, ObligationSettlement
@@ -26,6 +27,7 @@ __all__ = [
     "Expense",
     "CategoryLearning",
     "CategoryLimit",
+    "Category",
     "Beesi",
     "BeesiInstallment",
     "BeesiWithdrawal",
