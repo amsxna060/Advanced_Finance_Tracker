@@ -23,7 +23,7 @@ from app.models.expense import Expense
 from app.models.contact import Contact
 from app.models.obligation import MoneyObligation
 from app.models.user import User
-from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments, _build_calendar_periods, _calc_period_interest
+from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments, _build_monthly_periods, _calc_period_interest
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
