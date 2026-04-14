@@ -26,11 +26,10 @@ import PartnershipDetail from "./pages/Partnerships/PartnershipDetail";
 import PartnershipForm from "./pages/Partnerships/PartnershipForm";
 import ExpenseList from "./pages/Expenses/ExpenseList";
 import Reports from "./pages/Reports/Reports";
-import Analytics from "./pages/Analytics/Analytics";
 import Forecast from "./pages/Analytics/Forecast";
-import Assets from "./pages/Analytics/Assets";
 import ExpenseAnalytics from "./pages/Analytics/ExpenseAnalytics";
-import MoneyFlowAnalytics from "./pages/Analytics/MoneyFlowAnalytics";
+import Reconciliation from "./pages/Analytics/Reconciliation";
+import NetWorth from "./pages/Analytics/NetWorth";
 import BeesiList from "./pages/Beesi/BeesiList";
 import BeesiForm from "./pages/Beesi/BeesiForm";
 import BeesiDetail from "./pages/Beesi/BeesiDetail";
@@ -258,13 +257,7 @@ function App() {
             />
             <Route
               path="/analytics"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Analytics />
-                  </Layout>
-                </ProtectedRoute>
-              }
+              element={<Navigate to="/forecast" replace />}
             />
             <Route
               path="/forecast"
@@ -272,16 +265,6 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Forecast />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/assets"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Assets />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -297,14 +280,32 @@ function App() {
               }
             />
             <Route
-              path="/money-flow"
+              path="/reconciliation"
               element={
                 <ProtectedRoute>
                   <Layout>
-                    <MoneyFlowAnalytics />
+                    <Reconciliation />
                   </Layout>
                 </ProtectedRoute>
               }
+            />
+            <Route
+              path="/net-worth"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <NetWorth />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/assets"
+              element={<Navigate to="/net-worth" replace />}
+            />
+            <Route
+              path="/money-flow"
+              element={<Navigate to="/forecast" replace />}
             />
             <Route
               path="/beesi"

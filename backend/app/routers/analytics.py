@@ -1793,3 +1793,623 @@ def analytics_money_flow(
         },
         "recent_transactions": recent[:50],
     }
+
+
+# ── SMART FORECAST — Tiered probability, liquidity runway, mode separation ──
+
+@router.get("/smart-forecast")
+def smart_forecast(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Smart forecast with 15/30/90-day horizons, probability tiers,
+    liquidity runway indicator, and Cash vs Bank separation.
+    """
+    from collections import defaultdict
+
+    today = date.today()
+    horizons = {
+        "15d": today + timedelta(days=15),
+        "30d": today + timedelta(days=30),
+        "90d": today + timedelta(days=90),
+    }
+
+    # ── Gather current liquid balances ──
+    accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+    cash_balance = Decimal("0")
+    bank_balance = Decimal("0")
+    account_balances = []
+    for acct in accounts:
+        running = _D(acct.opening_balance)
+        for t in (acct.transactions or []):
+            if t.txn_type == "credit":
+                running += _D(t.amount)
+            else:
+                running -= _D(t.amount)
+        is_cash = acct.account_type == "cash"
+        if is_cash:
+            cash_balance += running
+        else:
+            bank_balance += running
+        account_balances.append({
+            "id": acct.id, "name": acct.name, "type": acct.account_type,
+            "balance": float(running), "mode": "cash" if is_cash else "bank",
+        })
+
+    total_liquid = cash_balance + bank_balance
+
+    # ── Reuse forecast logic ──
+    active_loans = db.query(Loan).filter(
+        Loan.is_deleted == False, Loan.status == "active",
+    ).all()
+    loans_given = [l for l in active_loans if l.loan_direction == "given"]
+    loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
+
+    def _contact(loan):
+        if loan.contact:
+            return loan.contact.name
+        return loan.institution_name or f"Contact #{loan.contact_id}"
+
+    _loan_last_pay = {}
+    for loan in loans_given:
+        for p in (loan.payments or []):
+            if p.payment_date:
+                existing = _loan_last_pay.get(loan.id)
+                if existing is None or p.payment_date > existing:
+                    _loan_last_pay[loan.id] = p.payment_date
+
+    def _payment_conf(loan_id):
+        last = _loan_last_pay.get(loan_id)
+        if not last:
+            return "low"
+        days_since = (today - last).days
+        return "high" if days_since <= 30 else ("medium" if days_since <= 60 else "low")
+
+    def _rem_principal(loan):
+        principal = _D(loan.principal_amount)
+        paid = sum(_D(p.allocated_to_principal) for p in (loan.payments or []) if p.allocated_to_principal)
+        return max(principal - paid, Decimal("0"))
+
+    all_items = []
+
+    # Loan inflows — given loans
+    for loan in loans_given:
+        name = _contact(loan)
+        conf = "high" if loan.loan_type in ("emi", "short_term") else _payment_conf(loan.id)
+
+        if loan.loan_type == "emi":
+            schedule = get_emi_schedule_with_payments(loan, db)
+            for entry in schedule:
+                dd = entry["due_date"]
+                if dd < today or dd > horizons["90d"]:
+                    continue
+                if entry["status"] == "paid":
+                    continue
+                remaining = float(entry["outstanding"])
+                if remaining > 0:
+                    all_items.append({
+                        "direction": "inflow", "source": "Loan", "sub_source": "EMI Receipt",
+                        "contact": name, "contact_id": loan.contact_id,
+                        "amount": remaining, "due_date": dd.isoformat(),
+                        "label": f"EMI #{entry['emi_number']} from {name}",
+                        "tier": 1, "confidence": conf, "mode": "bank",
+                    })
+
+        elif loan.loan_type == "interest_only":
+            rate = _D(loan.interest_rate)
+            if rate <= 0:
+                continue
+            outstanding = calculate_outstanding(loan.id, today, db)
+            overdue = outstanding["interest_outstanding"]
+            if overdue > Decimal("0"):
+                is_overdue_long = (today - (_loan_last_pay.get(loan.id) or today)).days > 90
+                all_items.append({
+                    "direction": "inflow", "source": "Loan", "sub_source": "Interest (Overdue)",
+                    "contact": name, "contact_id": loan.contact_id,
+                    "amount": float(overdue.quantize(Decimal("0.01"))),
+                    "due_date": None, "label": f"Overdue interest from {name}",
+                    "tier": 3 if is_overdue_long else 2,
+                    "confidence": "low" if is_overdue_long else conf,
+                    "mode": "bank", "is_overdue": True,
+                })
+            if conf == "high":
+                days_90 = (horizons["90d"] - today).days
+                fut_int = float(_calc_period_interest(
+                    _D(loan.principal_amount), rate, today, days_90,
+                ).quantize(Decimal("0.01")))
+                if fut_int > 0:
+                    all_items.append({
+                        "direction": "inflow", "source": "Loan", "sub_source": "Interest (Upcoming)",
+                        "contact": name, "contact_id": loan.contact_id,
+                        "amount": fut_int, "due_date": horizons["90d"].isoformat(),
+                        "label": f"Interest from {name} (next 90d)",
+                        "tier": 2, "confidence": "medium", "mode": "bank",
+                    })
+            if loan.expected_end_date and loan.expected_end_date <= horizons["90d"]:
+                rem = _rem_principal(loan)
+                if rem > 0:
+                    is_past = loan.expected_end_date < today
+                    all_items.append({
+                        "direction": "inflow", "source": "Loan", "sub_source": "Principal Return",
+                        "contact": name, "contact_id": loan.contact_id,
+                        "amount": float(rem), "due_date": loan.expected_end_date.isoformat(),
+                        "label": f"Principal from {name}",
+                        "tier": 3, "confidence": "low", "mode": "bank",
+                        **({"is_overdue": True} if is_past else {}),
+                    })
+
+        elif loan.loan_type == "short_term":
+            rem = _rem_principal(loan)
+            if rem <= 0:
+                continue
+            end = loan.expected_end_date or loan.interest_free_till
+            if end and end <= horizons["90d"]:
+                is_past = end < today
+                all_items.append({
+                    "direction": "inflow", "source": "Loan", "sub_source": "Short-term Return",
+                    "contact": name, "contact_id": loan.contact_id,
+                    "amount": float(rem), "due_date": end.isoformat(),
+                    "label": f"Short-term return from {name}",
+                    "tier": 2 if not is_past else 3,
+                    "confidence": "high" if not is_past else "low",
+                    "mode": "bank",
+                    **({"is_overdue": True} if is_past else {}),
+                })
+
+    # Loan outflows — taken loans (our obligations — Tier 1)
+    for loan in loans_taken:
+        name = _contact(loan)
+        if loan.loan_type == "emi":
+            schedule = get_emi_schedule_with_payments(loan, db)
+            next_added = False
+            for entry in schedule:
+                dd = entry["due_date"]
+                if entry["status"] == "paid":
+                    continue
+                remaining = float(entry["outstanding"])
+                if remaining <= 0:
+                    continue
+                if dd < today:
+                    all_items.append({
+                        "direction": "outflow", "source": "Loan", "sub_source": "EMI Payment",
+                        "contact": name, "contact_id": loan.contact_id,
+                        "amount": remaining, "due_date": dd.isoformat(),
+                        "label": f"Overdue EMI to {name}",
+                        "tier": 1, "confidence": "high", "mode": "bank", "is_overdue": True,
+                    })
+                elif not next_added and dd <= horizons["90d"]:
+                    all_items.append({
+                        "direction": "outflow", "source": "Loan", "sub_source": "EMI Payment",
+                        "contact": name, "contact_id": loan.contact_id,
+                        "amount": remaining, "due_date": dd.isoformat(),
+                        "label": f"EMI to {name}",
+                        "tier": 1, "confidence": "high", "mode": "bank",
+                    })
+                    next_added = True
+
+        elif loan.loan_type == "interest_only":
+            rate = _D(loan.interest_rate)
+            if rate <= 0:
+                continue
+            outstanding = calculate_outstanding(loan.id, today, db)
+            overdue = outstanding["interest_outstanding"]
+            if overdue > Decimal("0"):
+                all_items.append({
+                    "direction": "outflow", "source": "Loan", "sub_source": "Interest Due",
+                    "contact": name, "contact_id": loan.contact_id,
+                    "amount": float(overdue.quantize(Decimal("0.01"))),
+                    "due_date": None, "label": f"Overdue interest to {name}",
+                    "tier": 1, "confidence": "high", "mode": "bank", "is_overdue": True,
+                })
+            days_90 = (horizons["90d"] - today).days
+            fut_int = float(_calc_period_interest(
+                _D(loan.principal_amount), rate, today, days_90,
+            ).quantize(Decimal("0.01")))
+            if fut_int > 0:
+                all_items.append({
+                    "direction": "outflow", "source": "Loan", "sub_source": "Interest (Upcoming)",
+                    "contact": name, "contact_id": loan.contact_id,
+                    "amount": fut_int, "due_date": horizons["90d"].isoformat(),
+                    "label": f"Interest to {name} (next 90d)",
+                    "tier": 1, "confidence": "high", "mode": "bank",
+                })
+
+    # Obligations
+    obls = db.query(MoneyObligation).filter(
+        MoneyObligation.is_deleted == False,
+        MoneyObligation.status.in_(["pending", "partial"]),
+    ).all()
+    for obl in obls:
+        remaining = _D(obl.amount) - _D(obl.amount_settled)
+        if remaining <= Decimal("0"):
+            continue
+        c = db.query(Contact).filter(Contact.id == obl.contact_id).first() if obl.contact_id else None
+        cname = c.name if c else "Unknown"
+        is_overdue = obl.due_date and obl.due_date < today
+        days_overdue = (today - obl.due_date).days if is_overdue else 0
+        tier = 3 if days_overdue > 90 else (2 if obl.obligation_type == "receivable" else 1)
+        src = obl.linked_type.capitalize() if obl.linked_type and obl.linked_type != "other" else "Obligation"
+
+        all_items.append({
+            "direction": "inflow" if obl.obligation_type == "receivable" else "outflow",
+            "source": src, "sub_source": obl.obligation_type.capitalize(),
+            "contact": cname, "contact_id": obl.contact_id,
+            "amount": float(remaining),
+            "due_date": obl.due_date.isoformat() if obl.due_date else None,
+            "label": obl.reason or obl.obligation_type.capitalize(),
+            "tier": tier,
+            "confidence": "low" if days_overdue > 90 else ("medium" if obl.obligation_type == "receivable" else "high"),
+            "mode": "cash",
+            **({"is_overdue": True} if is_overdue else {}),
+        })
+
+    # Properties
+    properties = db.query(PropertyDeal).filter(
+        PropertyDeal.is_deleted == False,
+        PropertyDeal.status.notin_(["settled", "cancelled"]),
+    ).all()
+    for prop in properties:
+        buyer_val = _D(prop.total_buyer_value)
+        if buyer_val <= 0:
+            continue
+        advance = _D(prop.advance_paid)
+        net_profit = buyer_val - _D(prop.total_seller_value) - _D(prop.broker_commission) - _D(getattr(prop, "other_expenses", None) or 0)
+        my_return = advance + net_profit
+        if my_return > 0:
+            all_items.append({
+                "direction": "inflow", "source": "Property", "sub_source": "Deal Proceeds",
+                "contact": prop.title, "contact_id": None,
+                "amount": float(my_return), "due_date": None,
+                "label": f"{prop.title}: Advance + Profit",
+                "tier": 3, "confidence": "low", "mode": "bank",
+            })
+
+    # ── Aggregate by horizon ──
+    def _horizon_summary(items_list, horizon_date):
+        filtered = [i for i in items_list if not i.get("due_date") or i["due_date"] <= horizon_date.isoformat()]
+        inflows = [i for i in filtered if i["direction"] == "inflow"]
+        outflows = [i for i in filtered if i["direction"] == "outflow"]
+
+        def _by_tier(lst, t):
+            return sum(i["amount"] for i in lst if i["tier"] == t)
+
+        def _by_source(lst):
+            groups = defaultdict(float)
+            for i in lst:
+                groups[i["source"]] += i["amount"]
+            return [{"source": k, "amount": round(v, 2)} for k, v in sorted(groups.items(), key=lambda x: -x[1])]
+
+        def _by_mode(lst):
+            modes = defaultdict(float)
+            for i in lst:
+                modes[i.get("mode", "bank")] += i["amount"]
+            return {k: round(v, 2) for k, v in modes.items()}
+
+        total_in = sum(i["amount"] for i in inflows)
+        total_out = sum(i["amount"] for i in outflows)
+
+        return {
+            "total_inflow": round(total_in, 2),
+            "total_outflow": round(total_out, 2),
+            "net_flow": round(total_in - total_out, 2),
+            "inflow_by_tier": {
+                "t1": round(_by_tier(inflows, 1), 2),
+                "t2": round(_by_tier(inflows, 2), 2),
+                "t3": round(_by_tier(inflows, 3), 2),
+            },
+            "outflow_by_tier": {
+                "t1": round(_by_tier(outflows, 1), 2),
+                "t2": round(_by_tier(outflows, 2), 2),
+                "t3": round(_by_tier(outflows, 3), 2),
+            },
+            "inflow_by_source": _by_source(inflows),
+            "outflow_by_source": _by_source(outflows),
+            "inflow_by_mode": _by_mode(inflows),
+            "outflow_by_mode": _by_mode(outflows),
+        }
+
+    h15 = _horizon_summary(all_items, horizons["15d"])
+    h30 = _horizon_summary(all_items, horizons["30d"])
+    h90 = _horizon_summary(all_items, horizons["90d"])
+
+    # Liquidity runway
+    guaranteed_30d = h30["outflow_by_tier"]["t1"]
+    daily_burn = guaranteed_30d / 30 if guaranteed_30d > 0 else Decimal("0")
+    runway_months = float(total_liquid / Decimal(str(max(float(daily_burn) * 30, 1)))) if daily_burn > 0 else 99
+    runway_ok = float(total_liquid) >= guaranteed_30d
+
+    # Timeline: daily net flow for 90 days
+    timeline = []
+    running = float(total_liquid)
+    day_map = defaultdict(lambda: {"inflow": 0.0, "outflow": 0.0})
+    for item in all_items:
+        d = item.get("due_date")
+        if d and today.isoformat() <= d <= horizons["90d"].isoformat():
+            if item["direction"] == "inflow":
+                day_map[d]["inflow"] += item["amount"]
+            else:
+                day_map[d]["outflow"] += item["amount"]
+
+    for i in range(91):
+        day = today + timedelta(days=i)
+        ds = day.isoformat()
+        day_in = day_map[ds]["inflow"]
+        day_out = day_map[ds]["outflow"]
+        running += day_in - day_out
+        if i % 3 == 0 or day_in > 0 or day_out > 0:
+            timeline.append({
+                "date": ds,
+                "day_label": day.strftime("%d %b"),
+                "inflow": round(day_in, 2),
+                "outflow": round(day_out, 2),
+                "net": round(day_in - day_out, 2),
+                "running_balance": round(running, 2),
+            })
+
+    return {
+        "as_of_date": today.isoformat(),
+        "balances": {
+            "cash": float(cash_balance),
+            "bank": float(bank_balance),
+            "total_liquid": float(total_liquid),
+            "accounts": account_balances,
+        },
+        "liquidity_runway": {
+            "ok": runway_ok,
+            "liquid_balance": float(total_liquid),
+            "guaranteed_30d_outflow": guaranteed_30d,
+            "coverage_ratio": round(float(total_liquid) / max(guaranteed_30d, 0.01), 2),
+            "runway_months": round(min(runway_months, 99), 1),
+        },
+        "horizons": {"15d": h15, "30d": h30, "90d": h90},
+        "timeline": timeline,
+        "items": sorted(all_items, key=lambda x: (
+            0 if x.get("is_overdue") else 1,
+            x["tier"],
+            x.get("due_date") or "9999-12-31",
+        )),
+    }
+
+
+# ── AI EXPENSE ANALYSIS ─────────────────────────────────────────────────────
+
+@router.post("/ai-expense-analysis")
+def ai_expense_analysis(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Analyze expenses using smart heuristic engine.
+    Accepts: { "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
+    Returns: flagged unusual spending, category suggestions, financial insights.
+    """
+    from fastapi import HTTPException as _HTTPExc
+    from collections import defaultdict
+
+    from_date_str = payload.get("from_date")
+    to_date_str = payload.get("to_date")
+
+    if not from_date_str or not to_date_str:
+        raise _HTTPExc(status_code=400, detail="from_date and to_date are required")
+
+    from_dt = date.fromisoformat(from_date_str)
+    to_dt = date.fromisoformat(to_date_str)
+
+    expenses = (
+        db.query(Expense)
+        .filter(Expense.expense_date >= from_dt, Expense.expense_date <= to_dt)
+        .order_by(Expense.expense_date.asc())
+        .all()
+    )
+
+    if not expenses:
+        return {
+            "status": "no_data",
+            "message": "No expenses found in the selected date range.",
+            "flags": [], "suggestions": [], "insights": [],
+        }
+
+    total = Decimal("0")
+    by_cat = defaultdict(lambda: {"total": Decimal("0"), "count": 0, "items": []})
+    by_month = defaultdict(lambda: Decimal("0"))
+    largest = None
+
+    for exp in expenses:
+        amt = _D(exp.amount)
+        total += amt
+        cat = exp.category or "Uncategorized"
+        by_cat[cat]["total"] += amt
+        by_cat[cat]["count"] += 1
+        by_cat[cat]["items"].append({
+            "amount": float(amt), "date": exp.expense_date.isoformat(),
+            "description": exp.description or "", "sub_category": exp.sub_category or "",
+        })
+        mk = exp.expense_date.strftime("%Y-%m")
+        by_month[mk] += amt
+        if largest is None or amt > _D(largest["amount"]):
+            largest = {"amount": float(amt), "date": exp.expense_date.isoformat(),
+                       "description": exp.description or "", "category": cat}
+
+    num_expenses = len(expenses)
+    avg_per_expense = total / max(num_expenses, 1)
+    num_days = max((to_dt - from_dt).days, 1)
+    daily_avg = total / num_days
+
+    # ── Flags ──
+    flags = []
+    threshold_3x = float(avg_per_expense * 3)
+    for exp in expenses:
+        if float(_D(exp.amount)) > threshold_3x:
+            flags.append({
+                "type": "high_amount", "severity": "warning",
+                "title": f"Unusually high expense: \u20b9{float(_D(exp.amount)):,.0f}",
+                "detail": f"{exp.description or exp.category or 'Unknown'} on {exp.expense_date.isoformat()} \u2014 {float(_D(exp.amount) / avg_per_expense):.1f}x your average.",
+            })
+
+    for cat, data in by_cat.items():
+        pct = float(data["total"] / total * 100) if total > 0 else 0
+        if pct > 40 and data["count"] > 2:
+            flags.append({
+                "type": "concentration", "severity": "info",
+                "title": f"High concentration in '{cat}' ({pct:.0f}%)",
+                "detail": f"\u20b9{float(data['total']):,.0f} across {data['count']} transactions.",
+            })
+
+    uncat = by_cat.get("Uncategorized")
+    if uncat and uncat["count"] > 0:
+        flags.append({
+            "type": "uncategorized", "severity": "info",
+            "title": f"{uncat['count']} uncategorized expense(s)",
+            "detail": f"\u20b9{float(uncat['total']):,.0f} is untagged.",
+        })
+
+    sorted_months = sorted(by_month.items())
+    for i in range(1, len(sorted_months)):
+        prev_amt = sorted_months[i - 1][1]
+        curr_amt = sorted_months[i][1]
+        if prev_amt > 0 and curr_amt > prev_amt * Decimal("1.5"):
+            increase_pct = float((curr_amt - prev_amt) / prev_amt * 100)
+            flags.append({
+                "type": "spike", "severity": "warning",
+                "title": f"Spending spike in {sorted_months[i][0]}",
+                "detail": f"\u20b9{float(curr_amt):,.0f} vs \u20b9{float(prev_amt):,.0f} previous month (+{increase_pct:.0f}%).",
+            })
+
+    # ── Suggestions ──
+    suggestions = []
+    for cat, data in by_cat.items():
+        items_no_sub = [i for i in data["items"] if not i["sub_category"]]
+        if len(items_no_sub) > 2:
+            suggestions.append({
+                "category": cat,
+                "suggestion": f"{len(items_no_sub)} items in '{cat}' lack sub-categories.",
+            })
+
+    # ── Insights ──
+    insights = []
+    insights.append({
+        "icon": "\U0001f4ca", "title": "Spending Overview",
+        "text": f"You spent \u20b9{float(total):,.0f} across {num_expenses} transactions over {num_days} days. That's \u20b9{float(daily_avg):,.0f}/day.",
+    })
+    if largest:
+        insights.append({
+            "icon": "\U0001f4b8", "title": "Biggest Expense",
+            "text": f"\u20b9{largest['amount']:,.0f} on {largest['date']} \u2014 {largest['description'] or largest['category']}.",
+        })
+    top_cats = sorted(by_cat.items(), key=lambda x: x[1]["total"], reverse=True)[:3]
+    insights.append({
+        "icon": "\U0001f3f7\ufe0f", "title": "Top Categories",
+        "text": ", ".join([f"{c} (\u20b9{float(d['total']):,.0f})" for c, d in top_cats]),
+    })
+    if len(sorted_months) >= 2:
+        last_m = sorted_months[-1]
+        prev_m = sorted_months[-2]
+        diff = float(last_m[1] - prev_m[1])
+        insights.append({
+            "icon": "\U0001f4c8" if diff > 0 else "\U0001f4c9",
+            "title": "Monthly Trend",
+            "text": f"Spending went {'up' if diff > 0 else 'down'} by \u20b9{abs(diff):,.0f} from {prev_m[0]} to {last_m[0]}.",
+        })
+
+    return {
+        "status": "ok",
+        "analyzed_at": date.today().isoformat(),
+        "period": {"from": from_date_str, "to": to_date_str},
+        "summary": {
+            "total": float(total),
+            "count": num_expenses,
+            "daily_avg": float(daily_avg.quantize(Decimal("0.01"))),
+            "categories_used": len(by_cat),
+        },
+        "flags": flags, "suggestions": suggestions, "insights": insights,
+    }
+
+
+# ── RECONCILIATION & LEDGER ─────────────────────────────────────────────────
+
+@router.get("/reconciliation")
+def reconciliation_ledger(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    account_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Transaction ledger with reconciliation: running balance, unlinked items flagged.
+    """
+    today = date.today()
+    start = date.fromisoformat(from_date) if from_date else today - timedelta(days=30)
+    end = date.fromisoformat(to_date) if to_date else today
+
+    accts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+    acct_map = {a.id: a for a in accts}
+
+    q = db.query(AccountTransaction).filter(
+        AccountTransaction.txn_date >= start,
+        AccountTransaction.txn_date <= end,
+    )
+    if account_id:
+        q = q.filter(AccountTransaction.account_id == account_id)
+
+    txns = q.order_by(AccountTransaction.txn_date.asc(), AccountTransaction.id.asc()).all()
+
+    opening_balances = {}
+    for acct in accts:
+        if account_id and acct.id != account_id:
+            continue
+        running = _D(acct.opening_balance)
+        for t in (acct.transactions or []):
+            if t.txn_date < start:
+                running += _D(t.amount) if t.txn_type == "credit" else -_D(t.amount)
+        opening_balances[acct.id] = float(running)
+
+    ledger = []
+    running_map = dict(opening_balances)
+    unlinked_count = 0
+    total_credits = Decimal("0")
+    total_debits = Decimal("0")
+
+    for t in txns:
+        amt = _D(t.amount)
+        acct_name = acct_map[t.account_id].name if t.account_id in acct_map else "Unknown"
+        prev_bal = running_map.get(t.account_id, 0.0)
+        if t.txn_type == "credit":
+            new_bal = prev_bal + float(amt)
+            total_credits += amt
+        else:
+            new_bal = prev_bal - float(amt)
+            total_debits += amt
+        running_map[t.account_id] = new_bal
+
+        is_unlinked = not t.linked_type or t.linked_type == "manual"
+        if is_unlinked:
+            unlinked_count += 1
+
+        ledger.append({
+            "id": t.id, "date": t.txn_date.isoformat(),
+            "account": acct_name, "account_id": t.account_id,
+            "type": t.txn_type, "amount": float(amt),
+            "description": t.description or "", "source": t.linked_type or "unlinked",
+            "linked_id": t.linked_id, "payment_mode": t.payment_mode or "",
+            "reference": t.reference_number or "",
+            "running_balance": round(new_bal, 2),
+            "is_unlinked": is_unlinked,
+        })
+
+    return {
+        "period": {"from": start.isoformat(), "to": end.isoformat()},
+        "accounts": [{"id": a.id, "name": a.name, "type": a.account_type} for a in accts],
+        "opening_balances": opening_balances,
+        "closing_balances": running_map,
+        "summary": {
+            "total_credits": float(total_credits),
+            "total_debits": float(total_debits),
+            "net": float(total_credits - total_debits),
+            "transaction_count": len(ledger),
+            "unlinked_count": unlinked_count,
+        },
+        "ledger": ledger,
+    }

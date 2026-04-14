@@ -1,500 +1,347 @@
 import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar, Legend,
+} from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
-import { GreyedOut } from "../../components/ui";
 
-const PERIOD_PRESETS = [
-  { key: "15", label: "15 Days", days: 15 },
-  { key: "30", label: "30 Days", days: 30 },
-  { key: "60", label: "60 Days", days: 60 },
-  { key: "90", label: "90 Days", days: 90 },
-  { key: "365", label: "1 Year", days: 365 },
-];
-
-const CONF_BADGE = {
-  high: "bg-green-100 text-green-800",
-  medium: "bg-yellow-100 text-yellow-800",
-  low: "bg-gray-100 text-gray-600",
+const TIER_META = {
+  t1: { label: "T1 — Guaranteed", color: "#10b981", bg: "bg-emerald-50 border-emerald-200 text-emerald-800" },
+  t2: { label: "T2 — High Prob", color: "#f59e0b", bg: "bg-amber-50 border-amber-200 text-amber-800" },
+  t3: { label: "T3 — High Risk", color: "#ef4444", bg: "bg-red-50 border-red-200 text-red-800" },
 };
 
-const SOURCE_LABELS = {
-  emi_receipt: "EMI",
-  interest_receipt: "Interest",
-  principal_return: "Principal",
-  property: "Property",
-  obligation_receivable: "Receivable",
-  emi_payment: "EMI",
-  interest_payment: "Interest",
-  principal_payment: "Principal",
-  obligation_payable: "Payable",
+const SOURCE_LABEL = {
+  loan_emi: "EMI", loan_interest: "Interest", loan_principal: "Principal",
+  obligation: "Obligation", property: "Property", beesi: "Beesi",
 };
 
-const SOURCE_TAG = {
-  emi_receipt: "text-green-700 bg-green-50 border-green-200",
-  interest_receipt: "text-emerald-700 bg-emerald-50 border-emerald-200",
-  principal_return: "text-teal-700 bg-teal-50 border-teal-200",
-  property: "text-purple-700 bg-purple-50 border-purple-200",
-  obligation_receivable: "text-indigo-700 bg-indigo-50 border-indigo-200",
-  emi_payment: "text-red-700 bg-red-50 border-red-200",
-  interest_payment: "text-orange-700 bg-orange-50 border-orange-200",
-  principal_payment: "text-rose-700 bg-rose-50 border-rose-200",
-  obligation_payable: "text-pink-700 bg-pink-50 border-pink-200",
-};
-
-function fmtDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function addDays(d, n) {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
+function tierBadge(tier) {
+  const m = TIER_META[`t${tier}`] || TIER_META.t3;
+  return <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded border ${m.bg}`}>{m.label}</span>;
 }
 
 export default function Forecast() {
-  const navigate = useNavigate();
-  const today = useMemo(() => fmtDate(new Date()), []);
+  const [horizon, setHorizon] = useState("30d");
 
-  const [fromDate, setFromDate] = useState(today);
-  const [toDate, setToDate] = useState(fmtDate(addDays(new Date(), 30)));
-  const [activePreset, setActivePreset] = useState("30");
-  const [direction, setDirection] = useState("inflow");
-  const [confFilter, setConfFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-
-  const { data: forecast, isLoading } = useQuery({
-    queryKey: ["analytics-forecast", fromDate, toDate],
-    queryFn: async () =>
-      (
-        await api.get("/api/analytics/forecast", {
-          params: { from_date: fromDate, to_date: toDate },
-        })
-      ).data,
+  const { data, isLoading } = useQuery({
+    queryKey: ["smart-forecast"],
+    queryFn: async () => (await api.get("/api/analytics/smart-forecast")).data,
   });
 
-  const handlePreset = (preset) => {
-    setActivePreset(preset.key);
-    setToDate(fmtDate(addDays(new Date(fromDate), preset.days)));
-  };
+  const hData = data?.horizons?.[horizon];
+  const items = data?.items || [];
+  const timeline = data?.timeline || [];
 
-  const handleFromChange = (val) => {
-    setFromDate(val);
-    setActivePreset(null);
-  };
+  // filter items by horizon
+  const filteredItems = useMemo(() => {
+    if (!data) return [];
+    const days = parseInt(horizon);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + days);
+    const cutStr = cutoff.toISOString().split("T")[0];
+    return items.filter((i) => !i.due_date || i.due_date <= cutStr);
+  }, [items, horizon, data]);
 
-  const handleToChange = (val) => {
-    setToDate(val);
-    setActivePreset(null);
-  };
+  const inflows = filteredItems.filter((i) => i.direction === "inflow");
+  const outflows = filteredItems.filter((i) => i.direction === "outflow");
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600" />
       </div>
     );
   }
 
-  if (!forecast) return null;
+  if (!data) return null;
 
-  const flow = forecast[direction];
-  if (!flow) return null;
-
-  // Get unique source types in current direction for filter dropdown
-  const allSourceTypes = [...new Set(flow.items.map((i) => i.source))];
-
-  // Apply filters
-  let filtered = flow.items;
-  if (confFilter !== "all") {
-    filtered = filtered.filter((i) => i.confidence === confFilter);
-  }
-  if (typeFilter !== "all") {
-    filtered = filtered.filter((i) => i.source === typeFilter);
-  }
-
-  // Group by contact
-  const groups = {};
-  for (const it of filtered) {
-    const key = it.contact || "Unknown";
-    if (!groups[key])
-      groups[key] = {
-        contact: key,
-        contactId: it.contact_id,
-        items: [],
-        total: 0,
-      };
-    groups[key].items.push(it);
-    groups[key].total += it.amount;
-  }
-  const contactGroups = Object.values(groups).sort((a, b) => b.total - a.total);
-  const filteredTotal = filtered.reduce((s, i) => s + i.amount, 0);
-
-  // Category breakdown for the bar chart
-  const categories =
-    direction === "inflow"
-      ? [
-          {
-            key: "emi_receipts",
-            label: "EMI Receipts",
-            amount: flow.emi_receipts,
-            color: "bg-green-500",
-          },
-          {
-            key: "interest_receipts",
-            label: "Interest",
-            amount: flow.interest_receipts,
-            color: "bg-emerald-500",
-          },
-          {
-            key: "principal_returns",
-            label: "Principal",
-            amount: flow.principal_returns,
-            color: "bg-teal-500",
-          },
-          {
-            key: "property",
-            label: "Property",
-            amount: flow.property,
-            color: "bg-purple-500",
-          },
-          {
-            key: "receivables",
-            label: "Receivables",
-            amount: flow.receivables,
-            color: "bg-indigo-500",
-          },
-        ].filter((c) => c.amount > 0)
-      : [
-          {
-            key: "emi_payments",
-            label: "EMI Payments",
-            amount: flow.emi_payments,
-            color: "bg-red-500",
-          },
-          {
-            key: "interest_payments",
-            label: "Interest",
-            amount: flow.interest_payments,
-            color: "bg-orange-500",
-          },
-          {
-            key: "principal_payments",
-            label: "Principal",
-            amount: flow.principal_payments,
-            color: "bg-rose-500",
-          },
-          {
-            key: "payables",
-            label: "Payables",
-            amount: flow.payables,
-            color: "bg-pink-500",
-          },
-        ].filter((c) => c.amount > 0);
-
-  const isIn = direction === "inflow";
+  const { balances, liquidity_runway: lr } = data;
 
   return (
-    <GreyedOut label="Under Review">
-      <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-        <div className="max-w-6xl mx-auto space-y-5">
-          {/* Header */}
-          <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Forecast & Liquidity</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Smart cash-flow projection with probability tiers &middot; As of {data.as_of_date}
+          </p>
+        </div>
+
+        {/* Liquidity Runway Banner */}
+        <div className={`rounded-xl border p-5 ${lr.ok ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+          <div className="flex flex-wrap items-center gap-6">
             <div>
-              <button
-                onClick={() => navigate("/analytics")}
-                className="text-gray-600 hover:text-gray-900 mb-1 text-sm"
-              >
-                ← Back to Analytics
-              </button>
-              <h1 className="text-2xl font-bold text-gray-900">
-                Cash Flow Forecast
-              </h1>
-              <p className="text-gray-500 text-sm mt-0.5">
-                Projected money movement — who owes you, what you owe
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Liquidity Status</p>
+              <p className={`text-2xl font-extrabold mt-1 ${lr.ok ? "text-emerald-700" : "text-red-700"}`}>
+                {lr.ok ? "Healthy" : "At Risk"}
               </p>
             </div>
-            <div className="text-xs text-gray-400">
-              As of {forecast.as_of_date}
+            <div className="h-12 border-l border-slate-200 hidden sm:block" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 flex-1">
+              <MiniStat label="Liquid Balance" value={formatCurrency(lr.liquid_balance)} />
+              <MiniStat label="30-Day Guaranteed Outflow" value={formatCurrency(lr.guaranteed_30d_outflow)} />
+              <MiniStat label="Coverage Ratio" value={`${lr.coverage_ratio}x`} />
+              <MiniStat label="Runway" value={lr.runway_months >= 99 ? "∞" : `${lr.runway_months} mo`} />
             </div>
           </div>
-
-          {/* Controls: presets + dates + direction */}
-          <div className="bg-white rounded-lg shadow p-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Period presets */}
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-                {PERIOD_PRESETS.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => handlePreset(p)}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${
-                      activePreset === p.key
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-gray-600 hover:text-gray-900"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Direction toggle */}
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-                <button
-                  onClick={() => {
-                    setDirection("inflow");
-                    setTypeFilter("all");
-                  }}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-                    direction === "inflow"
-                      ? "bg-green-600 text-white shadow-sm"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  Inflows
-                </button>
-                <button
-                  onClick={() => {
-                    setDirection("outflow");
-                    setTypeFilter("all");
-                  }}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-                    direction === "outflow"
-                      ? "bg-red-600 text-white shadow-sm"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  Outflows
-                </button>
-              </div>
+          {/* Bar indicator */}
+          <div className="mt-3">
+            <div className="h-2.5 bg-white/60 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${lr.ok ? "bg-emerald-500" : "bg-red-500"}`}
+                style={{ width: `${Math.min(lr.coverage_ratio * 100 / 3, 100)}%` }}
+              />
             </div>
-
-            {/* Date pickers */}
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-1.5 text-xs text-gray-500">
-                From
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => handleFromChange(e.target.value)}
-                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </label>
-              <label className="flex items-center gap-1.5 text-xs text-gray-500">
-                To
-                <input
-                  type="date"
-                  value={toDate}
-                  min={fromDate}
-                  onChange={(e) => handleToChange(e.target.value)}
-                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </label>
-            </div>
-
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <SummaryCard
-                label={isIn ? "Total Inflow" : "Total Outflow"}
-                value={flow.total}
-                color={isIn ? "green" : "red"}
-              />
-              <SummaryCard
-                label="High Confidence"
-                value={flow.high}
-                color="emerald"
-              />
-              <SummaryCard
-                label="Medium Confidence"
-                value={flow.medium}
-                color="yellow"
-              />
-              <SummaryCard
-                label="Low Confidence"
-                value={flow.low}
-                color="gray"
-              />
+            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>0x</span><span>1x</span><span>2x</span><span>3x+</span>
             </div>
           </div>
+        </div>
 
-          {/* Filters row */}
-          <div className="flex flex-wrap gap-3">
-            {/* Confidence filter */}
-            <div className="flex gap-1 bg-white rounded-lg shadow p-1">
-              {["all", "high", "medium", "low"].map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setConfFilter(c)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition capitalize ${
-                    confFilter === c
-                      ? "bg-indigo-600 text-white"
-                      : "text-gray-600 hover:bg-gray-100"
-                  }`}
-                >
-                  {c === "all" ? "All Confidence" : c}
-                </button>
-              ))}
-            </div>
+        {/* Balance Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <BalanceCard label="Cash" value={balances.cash} icon="💵" color="emerald" />
+          <BalanceCard label="Bank" value={balances.bank} icon="🏦" color="blue" />
+          <BalanceCard label="Total Liquid" value={balances.total_liquid} icon="💰" color="indigo" />
+          <BalanceCard label="Accounts" value={balances.accounts?.length || 0} icon="📋" color="slate" isCurrency={false} />
+        </div>
 
-            {/* Type filter */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="bg-white rounded-lg shadow px-3 py-1.5 text-xs font-medium text-gray-700 border-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All Types</option>
-              {allSourceTypes.map((s) => (
-                <option key={s} value={s}>
-                  {SOURCE_LABELS[s] || s}
-                </option>
-              ))}
-            </select>
-
-            <div className="ml-auto text-sm text-gray-500">
-              Showing {filtered.length} items · {formatCurrency(filteredTotal)}
-            </div>
-          </div>
-
-          {/* Category breakdown */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
-              Breakdown by Type
-            </h3>
-            <div className="space-y-2">
-              {categories.map((cat) => (
-                <div key={cat.key} className="flex items-center gap-3">
-                  <div className="w-24 text-xs text-gray-600 truncate">
-                    {cat.label}
-                  </div>
-                  <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-                    <div
-                      className={`${cat.color} h-full rounded-full transition-all`}
-                      style={{
-                        width: `${Math.min((cat.amount / flow.total) * 100, 100)}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="w-24 text-right text-xs font-semibold text-gray-800">
-                    {formatCurrency(cat.amount)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Contact-wise list */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700">
-              {isIn ? "From whom" : "To whom"} — {contactGroups.length} contact
-              {contactGroups.length !== 1 ? "s" : ""} / source
-              {contactGroups.length !== 1 ? "s" : ""}
-            </h3>
-
-            {contactGroups.length === 0 && (
-              <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500 text-sm">
-                No items match the current filters.
-              </div>
-            )}
-
-            {contactGroups.map((group) => (
-              <div key={group.contact} className="bg-white rounded-lg shadow">
-                {/* Contact header */}
-                <div className="flex items-center justify-between p-4 border-b">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900">
-                      {group.contact}
-                    </span>
-                    <span className="text-[10px] text-gray-400">
-                      {group.items.length} item
-                      {group.items.length !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <span
-                    className={`text-sm font-bold ${isIn ? "text-green-700" : "text-red-700"}`}
-                  >
-                    {formatCurrency(group.total)}
-                  </span>
-                </div>
-
-                {/* Items */}
-                <div className="divide-y">
-                  {group.items.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span
-                          className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium ${
-                            SOURCE_TAG[item.source] ||
-                            "text-gray-700 bg-gray-50 border-gray-200"
-                          }`}
-                        >
-                          {SOURCE_LABELS[item.source] || item.source}
-                        </span>
-                        <span
-                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            CONF_BADGE[item.confidence] || CONF_BADGE.low
-                          }`}
-                        >
-                          {item.confidence}
-                        </span>
-                        {item.is_overdue && (
-                          <span className="shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-medium text-red-700 bg-red-50 border-red-200">
-                            overdue
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-600 truncate">
-                          {item.label}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0 ml-2">
-                        {item.due_date && (
-                          <span className="text-[11px] text-gray-400 font-mono">
-                            {item.due_date}
-                          </span>
-                        )}
-                        <span className="text-xs font-semibold text-gray-800 w-20 text-right">
-                          {formatCurrency(item.amount)}
-                        </span>
-                        {item.loan_id && (
-                          <button
-                            onClick={() => navigate(`/loans/${item.loan_id}`)}
-                            className="text-[10px] text-blue-600 hover:underline"
-                          >
-                            →
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+        {/* Horizon Toggle */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-slate-600">Horizon:</span>
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+            {["15d", "30d", "90d"].map((h) => (
+              <button key={h} onClick={() => setHorizon(h)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
+                  horizon === h ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                }`}>
+                {h.replace("d", " Days")}
+              </button>
             ))}
+          </div>
+          {hData && (
+            <div className="ml-auto flex items-center gap-6 text-sm">
+              <span className="text-emerald-700 font-semibold">↑ {formatCurrency(hData.total_inflow)}</span>
+              <span className="text-red-600 font-semibold">↓ {formatCurrency(hData.total_outflow)}</span>
+              <span className={`font-bold ${hData.net_flow >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                Net: {formatCurrency(hData.net_flow)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Tier Breakdown */}
+        {hData && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <TierCard title="Inflows" tiers={hData.inflow_by_tier} sources={hData.inflow_by_source} modes={hData.inflow_by_mode} isIn />
+            <TierCard title="Outflows" tiers={hData.outflow_by_tier} sources={hData.outflow_by_source} modes={hData.outflow_by_mode} />
+          </div>
+        )}
+
+        {/* Timeline Chart */}
+        {timeline.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+              90-Day Running Balance
+            </h2>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeline} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.12} />
+                  <XAxis dataKey="day_label" tick={{ fontSize: 10, fill: "#94a3b8" }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }}
+                    tickFormatter={(v) => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                  <Tooltip content={<TimelineTooltip />} />
+                  <Area type="monotone" dataKey="running_balance" stroke="#6366f1" strokeWidth={2}
+                    fill="url(#balGrad)" name="Balance" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Daily Flow Bar Chart */}
+        {timeline.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+              Daily Cash Flow
+            </h2>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={timeline.filter((t) => t.inflow > 0 || t.outflow > 0)}
+                  margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.12} />
+                  <XAxis dataKey="day_label" tick={{ fontSize: 10, fill: "#94a3b8" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }}
+                    tickFormatter={(v) => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
+                  <Tooltip formatter={(v) => formatCurrency(v)}
+                    contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0", fontSize: "13px" }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="inflow" fill="#10b981" radius={[4, 4, 0, 0]} name="Inflow" />
+                  <Bar dataKey="outflow" fill="#ef4444" radius={[4, 4, 0, 0]} name="Outflow" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Items List */}
+        <div className="bg-white rounded-xl border border-slate-200">
+          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
+              Forecast Items ({filteredItems.length})
+            </h2>
+            <div className="flex items-center gap-3 text-xs text-slate-500">
+              <span className="text-emerald-600 font-medium">{inflows.length} inflows</span>
+              <span className="text-red-600 font-medium">{outflows.length} outflows</span>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
+            {filteredItems.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm">No forecast items</div>
+            ) : (
+              filteredItems.map((item, i) => (
+                <div key={i} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 ${
+                  item.is_overdue ? "bg-red-50/50" : ""
+                }`}>
+                  <div className={`w-1.5 h-8 rounded-full shrink-0 ${
+                    item.direction === "inflow" ? "bg-emerald-400" : "bg-red-400"
+                  }`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {tierBadge(item.tier)}
+                      <span className="text-xs font-medium text-slate-700 truncate">
+                        {item.contact || item.sub_source || item.source}
+                      </span>
+                      {item.is_overdue && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium rounded border bg-red-50 border-red-200 text-red-700">overdue</span>
+                      )}
+                      <span className="text-[10px] text-slate-400 capitalize">{SOURCE_LABEL[item.source] || item.source}</span>
+                      {item.mode && (
+                        <span className={`text-[10px] px-1 py-0.5 rounded ${
+                          item.mode === "cash" ? "bg-green-50 text-green-600" : "bg-blue-50 text-blue-600"
+                        }`}>{item.mode}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-sm font-bold ${item.direction === "inflow" ? "text-emerald-700" : "text-red-700"}`}>
+                      {item.direction === "inflow" ? "+" : "−"}{formatCurrency(item.amount)}
+                    </p>
+                    {item.due_date && (
+                      <p className="text-[10px] text-slate-400 font-mono">{item.due_date}</p>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
-    </GreyedOut>
+    </div>
   );
 }
 
-function SummaryCard({ label, value, color }) {
-  const styles = {
-    green: "bg-green-50 border-green-200 text-green-800",
-    red: "bg-red-50 border-red-200 text-red-800",
-    emerald: "bg-emerald-50 border-emerald-200 text-emerald-800",
-    yellow: "bg-yellow-50 border-yellow-200 text-yellow-800",
-    gray: "bg-gray-50 border-gray-200 text-gray-800",
+/* ── Sub Components ────────────────────────────────────────────────── */
+
+function TimelineTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-lg text-xs">
+      <p className="font-semibold text-slate-700 mb-1">{d.day_label}</p>
+      {d.inflow > 0 && <p className="text-emerald-600">↑ Inflow: {formatCurrency(d.inflow)}</p>}
+      {d.outflow > 0 && <p className="text-red-600">↓ Outflow: {formatCurrency(d.outflow)}</p>}
+      <p className="text-indigo-600 font-semibold mt-1">Balance: {formatCurrency(d.running_balance)}</p>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div>
+      <p className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</p>
+      <p className="text-base font-bold text-slate-900 mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+function BalanceCard({ label, value, icon, color, isCurrency = true }) {
+  const colors = {
+    emerald: "bg-emerald-50 border-emerald-200",
+    blue: "bg-blue-50 border-blue-200",
+    indigo: "bg-indigo-50 border-indigo-200",
+    slate: "bg-slate-50 border-slate-200",
   };
   return (
-    <div className={`rounded-lg border p-3 ${styles[color] || styles.gray}`}>
-      <p className="text-[11px] opacity-70">{label}</p>
-      <p className="text-lg font-bold mt-0.5">{formatCurrency(value)}</p>
+    <div className={`rounded-xl border p-4 ${colors[color] || colors.slate}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-lg">{icon}</span>
+        <span className="text-xs text-slate-500 font-medium">{label}</span>
+      </div>
+      <p className="text-xl font-bold text-slate-900 mt-2">
+        {isCurrency ? formatCurrency(value) : value}
+      </p>
+    </div>
+  );
+}
+
+function TierCard({ title, tiers, sources, modes, isIn }) {
+  const total = (tiers?.t1 || 0) + (tiers?.t2 || 0) + (tiers?.t3 || 0);
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3">
+        {title} — {formatCurrency(total)}
+      </h3>
+      <div className="space-y-2 mb-4">
+        {Object.entries(TIER_META).map(([key, meta]) => {
+          const val = tiers?.[key] || 0;
+          const pct = total > 0 ? (val / total * 100) : 0;
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="text-xs w-28 text-slate-600">{meta.label}</span>
+              <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: meta.color }} />
+              </div>
+              <span className="text-xs font-semibold text-slate-800 w-24 text-right">{formatCurrency(val)}</span>
+            </div>
+          );
+        })}
+      </div>
+      {/* By source */}
+      {sources?.length > 0 && (
+        <div className="border-t border-slate-100 pt-3 space-y-1">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">By Source</p>
+          {sources.map((s) => (
+            <div key={s.source} className="flex justify-between text-xs">
+              <span className="text-slate-600 capitalize">{SOURCE_LABEL[s.source] || s.source}</span>
+              <span className="font-medium text-slate-800">{formatCurrency(s.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* By mode */}
+      {modes && Object.keys(modes).length > 0 && (
+        <div className="border-t border-slate-100 pt-3 mt-3 flex gap-4">
+          {Object.entries(modes).map(([mode, amt]) => (
+            <div key={mode} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
+              mode === "cash" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"
+            }`}>
+              {mode}: {formatCurrency(amt)}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
