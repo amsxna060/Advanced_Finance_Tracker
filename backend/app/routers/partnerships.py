@@ -1129,6 +1129,23 @@ def create_buyer_for_partnership(
         if existing_buyers > 0:
             raise HTTPException(status_code=400, detail="This plot already has a buyer. A plot can only have one buyer.")
 
+    # Area allocation check: reject if new area exceeds remaining available area
+    if buyer_data.area_sqft and prop.total_area_sqft:
+        if prop.property_type == "plot":
+            used_area = db.query(func.coalesce(func.sum(PlotBuyer.area_sqft), 0)).filter(
+                PlotBuyer.property_deal_id == prop.id,
+            ).scalar() or Decimal("0")
+        else:
+            used_area = db.query(func.coalesce(func.sum(SitePlot.area_sqft), 0)).filter(
+                SitePlot.property_deal_id == prop.id,
+            ).scalar() or Decimal("0")
+        remaining = _decimal(prop.total_area_sqft) - _decimal(used_area)
+        if _decimal(buyer_data.area_sqft) > remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Area exceeds available space. Remaining: {remaining:.2f} sq ft, requested: {buyer_data.area_sqft} sq ft.",
+            )
+
     # Dedup check: name + phone, or name + city, skip if neither
     dedup_q = db.query(Contact).filter(
         Contact.is_deleted == False,
@@ -1244,6 +1261,23 @@ def add_plot_to_partnership(
     if not prop:
         raise HTTPException(status_code=404, detail="Linked property not found")
 
+    # Area allocation check: reject if new area exceeds remaining available area
+    if plot_data.area_sqft and prop.total_area_sqft:
+        if prop.property_type == "plot":
+            used_area = db.query(func.coalesce(func.sum(PlotBuyer.area_sqft), 0)).filter(
+                PlotBuyer.property_deal_id == prop.id,
+            ).scalar() or Decimal("0")
+        else:
+            used_area = db.query(func.coalesce(func.sum(SitePlot.area_sqft), 0)).filter(
+                SitePlot.property_deal_id == prop.id,
+            ).scalar() or Decimal("0")
+        remaining = _decimal(prop.total_area_sqft) - _decimal(used_area)
+        if _decimal(plot_data.area_sqft) > remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Area exceeds available space. Remaining: {remaining:.2f} sq ft, requested: {plot_data.area_sqft} sq ft.",
+            )
+
     if prop.property_type == "plot":
         total_val = (
             _decimal(plot_data.area_sqft) * _decimal(plot_data.rate_per_sqft)
@@ -1352,6 +1386,8 @@ def assign_buyer_to_plot(
         ).first()
         if not buyer:
             raise HTTPException(status_code=404, detail="Plot not found")
+        if buyer.status not in ("available", "negotiating"):
+            raise HTTPException(status_code=400, detail="Cannot reassign buyer: payments have already been recorded for this plot.")
         buyer.buyer_contact_id = contact.id
         buyer.buyer_name = contact.name
         if buyer.status == "available":
@@ -1363,6 +1399,8 @@ def assign_buyer_to_plot(
         ).first()
         if not sp:
             raise HTTPException(status_code=404, detail="Site plot not found")
+        if sp.status not in ("available", "negotiating"):
+            raise HTTPException(status_code=400, detail="Cannot reassign buyer: payments have already been recorded for this plot.")
         sp.buyer_contact_id = contact.id
         sp.buyer_name = contact.name
         if sp.status == "available":

@@ -348,6 +348,9 @@ export default function PartnershipDetail() {
   };
 
   const handleCreateBuyer = () => {
+    if (buyerForm.area_sqft && remainingArea !== null && parseFloat(buyerForm.area_sqft) > remainingArea) {
+      return alert(`Area exceeds available space. Remaining: ${remainingArea.toFixed(2)} sq ft.`);
+    }
     createBuyerMutation.mutate({
       name: buyerForm.name.trim(),
       phone: buyerForm.phone?.trim() || null,
@@ -363,6 +366,9 @@ export default function PartnershipDetail() {
   };
 
   const handleAddPlot = () => {
+    if (plotForm.area_sqft && remainingArea !== null && parseFloat(plotForm.area_sqft) > remainingArea) {
+      return alert(`Area exceeds available space. Remaining: ${remainingArea.toFixed(2)} sq ft.`);
+    }
     addPlotMutation.mutate({
       plot_number: plotForm.plot_number?.trim() || null,
       area_sqft: plotForm.area_sqft ? parseFloat(plotForm.area_sqft) : null,
@@ -423,6 +429,12 @@ export default function PartnershipDetail() {
   const isActive = partnership.status === "active";
   const isSettled = partnership.status === "settled";
   const isPlotDeal = linkedProperty?.property_type === "plot";
+
+  const totalPropertyArea = parseFloat(linkedProperty?.total_area_sqft || 0);
+  const usedArea = isPlotDeal
+    ? plotBuyers.reduce((s, b) => s + parseFloat(b.area_sqft || 0), 0)
+    : sitePlots.reduce((s, sp) => s + parseFloat(sp.area_sqft || 0), 0);
+  const remainingArea = totalPropertyArea > 0 ? totalPropertyArea - usedArea : null;
 
   const totalAdvance = members.reduce((sum, m) => sum + parseFloat(m.member?.advance_contributed || 0), 0);
   const selfMember = members.find((m) => m.member?.is_self);
@@ -566,6 +578,7 @@ export default function PartnershipDetail() {
                       <div className="grid grid-cols-2 gap-3">
                         <InputField label="Area (sq ft)">
                           <input type="number" value={plotForm.area_sqft} onChange={(e) => setPlotForm(p => ({ ...p, area_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                          {remainingArea !== null && <p className="text-xs text-blue-600 mt-0.5">Remaining: {remainingArea.toFixed(2)} sq ft</p>}
                         </InputField>
                         <InputField label={isPlotDeal ? "Rate (₹/sq ft)" : "Sold Price (₹/sq ft)"}>
                           <input type="number" value={plotForm.rate_per_sqft} onChange={(e) => setPlotForm(p => ({ ...p, rate_per_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
@@ -620,6 +633,7 @@ export default function PartnershipDetail() {
                       <div className="grid grid-cols-2 gap-3">
                         <InputField label="Area (sq ft)">
                           <input type="number" value={buyerForm.area_sqft} onChange={(e) => setBuyerForm(p => ({ ...p, area_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                          {remainingArea !== null && <p className="text-xs text-emerald-600 mt-0.5">Remaining: {remainingArea.toFixed(2)} sq ft</p>}
                         </InputField>
                         <InputField label="Rate (₹/sq ft)">
                           <input type="number" value={buyerForm.rate_per_sqft} onChange={(e) => setBuyerForm(p => ({ ...p, rate_per_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
@@ -651,7 +665,7 @@ export default function PartnershipDetail() {
                   {/* ── Assign Buyer Modal (inline) ── */}
                   {assigningBuyerTo && (
                     <div className="mb-4 p-4 bg-amber-50/50 rounded-xl border border-amber-200/60 space-y-3">
-                      <p className="text-xs font-semibold text-amber-800 mb-1">Assign buyer to: {assigningBuyerTo.label}</p>
+                      <p className="text-xs font-semibold text-amber-800 mb-1">{assigningBuyerTo.isReassign ? "Reassign buyer for" : "Assign buyer to"}: {assigningBuyerTo.label}</p>
                       <div className="flex gap-2 mb-2">
                         <button onClick={() => setAssignBuyerMode("existing")} className={`px-3 py-1 rounded-lg text-xs font-medium ${assignBuyerMode === "existing" ? "bg-amber-200 text-amber-900" : "bg-white text-slate-600 border border-slate-200"}`}>
                           Pick Existing Contact
@@ -723,6 +737,11 @@ export default function PartnershipDetail() {
                                     Assign Buyer →
                                   </button>
                                 )}
+                                {isActive && b.buyer_contact_id && b.status === "negotiating" && (
+                                  <button onClick={() => setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}`, isReassign: true })} className="block mt-1 text-xs text-orange-500 hover:underline font-medium">
+                                    Reassign Buyer →
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -762,6 +781,11 @@ export default function PartnershipDetail() {
                                 {isActive && !sp.buyer_contact_id && (
                                   <button onClick={() => setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}` })} className="block mt-1 text-xs text-amber-600 hover:underline font-medium">
                                     Assign Buyer →
+                                  </button>
+                                )}
+                                {isActive && sp.buyer_contact_id && sp.status === "negotiating" && (
+                                  <button onClick={() => setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, isReassign: true })} className="block mt-1 text-xs text-orange-500 hover:underline font-medium">
+                                    Reassign Buyer →
                                   </button>
                                 )}
                               </div>
