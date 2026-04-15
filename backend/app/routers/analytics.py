@@ -2399,6 +2399,10 @@ def reconciliation_ledger(
             "is_unlinked": is_unlinked,
         })
 
+    # Reverse so newest transactions appear first; running_balance per row
+    # still represents the balance at that point in chronological time.
+    ledger.reverse()
+
     return {
         "period": {"from": start.isoformat(), "to": end.isoformat()},
         "accounts": [{"id": a.id, "name": a.name, "type": a.account_type} for a in accts],
