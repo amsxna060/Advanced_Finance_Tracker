@@ -365,7 +365,7 @@ function buildPayload(formData, isEditMode) {
       formData.seller_rate_per_sqft,
     );
     payload.total_seller_value = toNullableNumber(formData.total_seller_value);
-    payload.deal_locked_date = toNullableString(formData.negotiating_date);
+    payload.deal_locked_date = toNullableString(formData.deal_locked_date);
     payload.negotiating_date = toNullableString(formData.negotiating_date);
     payload.expected_registry_date = toNullableString(
       formData.expected_registry_date,

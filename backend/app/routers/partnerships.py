@@ -81,86 +81,6 @@ def _ensure_contact_exists(contact_id: Optional[int], db: Session) -> None:
         raise HTTPException(status_code=404, detail="Contact not found")
 
 
-def _create_inflow_obligations(
-    db: Session,
-    partnership: Partnership,
-    amount: Decimal,
-    receiving_member,
-    current_user_id: int,
-    txn_type: str,
-) -> None:
-    """
-    Auto-create MoneyObligation records on inflow transactions.
-
-    - buyer_advance / buyer_payment:
-        If I received → PAYABLE to each non-self partner (their share of this partial payment)
-        If partner received → RECEIVABLE from that partner (my share)
-    - profit_received:
-        If I received → reduces what I'm owed (no obligation needed, tracked at settlement)
-        If partner received → reduces what they're owed (tracked at settlement)
-    """
-    if txn_type == "profit_received":
-        # profit_received reduces payable obligations to that member
-        if receiving_member and not receiving_member.is_self and receiving_member.contact_id:
-            # Partner took profit early — reduce our payable to them
-            existing = db.query(MoneyObligation).filter(
-                MoneyObligation.linked_type == "partnership",
-                MoneyObligation.linked_id == partnership.id,
-                MoneyObligation.obligation_type == "payable",
-                MoneyObligation.contact_id == receiving_member.contact_id,
-                MoneyObligation.status != "settled",
-                MoneyObligation.is_deleted == False,
-            ).order_by(MoneyObligation.created_at.desc()).first()
-            if existing:
-                existing.amount_settled = _decimal(existing.amount_settled) + amount
-                if existing.amount_settled >= existing.amount:
-                    existing.status = "settled"
-                else:
-                    existing.status = "partial"
-        return
-
-    members = db.query(PartnershipMember).filter(
-        PartnershipMember.partnership_id == partnership.id,
-    ).all()
-
-    self_received = receiving_member is None or receiving_member.is_self
-
-    if self_received:
-        # I received buyer money — create PAYABLE to each non-self partner for their share
-        for member in members:
-            if member.is_self or not member.contact_id:
-                continue
-            member_share = _decimal(member.share_percentage)
-            partial_owed = amount * (member_share / Decimal("100"))
-            if partial_owed > Decimal("0"):
-                db.add(MoneyObligation(
-                    obligation_type="payable",
-                    contact_id=member.contact_id,
-                    amount=partial_owed,
-                    reason=f"Partnership '{partnership.title}': partner share of buyer payment",
-                    linked_type="partnership",
-                    linked_id=partnership.id,
-                    created_by=current_user_id,
-                ))
-    else:
-        # Partner received buyer money — create RECEIVABLE from them for my share
-        self_member = next((m for m in members if m.is_self), None)
-        if self_member and receiving_member.contact_id:
-            self_share = _decimal(self_member.share_percentage)
-            my_owed = amount * (self_share / Decimal("100"))
-            if my_owed > Decimal("0"):
-                partner_name = receiving_member.contact.name if receiving_member.contact else "partner"
-                db.add(MoneyObligation(
-                    obligation_type="receivable",
-                    contact_id=receiving_member.contact_id,
-                    amount=my_owed,
-                    reason=f"Partnership '{partnership.title}': my share (received by {partner_name})",
-                    linked_type="partnership",
-                    linked_id=partnership.id,
-                    created_by=current_user_id,
-                ))
-
-
 def _sync_property_from_partnership(partnership_id: int, db: Session) -> None:
     """
     Sync property fields FROM partnership transactions.
@@ -245,10 +165,16 @@ def _resync_plot_buyer_from_partnership(partnership_id: int, plot_buyer_id: int,
     buyer.total_paid = total_from_buyer
     buyer.advance_received = total_from_buyer
 
-    if total_from_buyer > 0 and buyer.status in ("negotiating", "available", "pending"):
+    buyer_total_value = _decimal(buyer.total_value)
+    if total_from_buyer == 0:
+        if buyer.buyer_contact_id:
+            buyer.status = "negotiating"
+        else:
+            buyer.status = "available"
+    elif buyer_total_value > 0 and total_from_buyer >= buyer_total_value:
+        buyer.status = "payment_done"
+    elif buyer.status in ("negotiating", "available", "pending"):
         buyer.status = "advance_received"
-    elif total_from_buyer == 0:
-        buyer.status = "negotiating"
 
 
 def _resync_site_plot_from_partnership(partnership_id: int, site_plot_id: int, db: Session) -> None:
@@ -267,10 +193,16 @@ def _resync_site_plot_from_partnership(partnership_id: int, site_plot_id: int, d
     plot.total_paid = total_from_buyer
     plot.advance_received = total_from_buyer
 
-    if total_from_buyer > 0 and plot.status in ("available", "negotiating"):
+    plot_total_value = _decimal(plot.calculated_price)
+    if total_from_buyer == 0:
+        if plot.buyer_contact_id:
+            plot.status = "negotiating"
+        else:
+            plot.status = "available"
+    elif plot_total_value > 0 and total_from_buyer >= plot_total_value:
+        plot.status = "payment_done"
+    elif plot.status in ("available", "negotiating"):
         plot.status = "advance_received"
-    elif total_from_buyer == 0:
-        plot.status = "available"
 
 
 def _ensure_property_exists(property_id: Optional[int], db: Session) -> None:
@@ -481,6 +413,9 @@ def add_partnership_member(
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
 
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot add members to a settled partnership")
+
     if not member_data.is_self and not member_data.contact_id:
         raise HTTPException(status_code=400, detail="contact_id is required for non-self members")
     if member_data.is_self and member_data.contact_id:
@@ -517,7 +452,11 @@ def update_partnership_member(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    _get_partnership_or_404(partnership_id, db)
+    partnership = _get_partnership_or_404(partnership_id, db)
+
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot modify members on a settled partnership")
+
     member = db.query(PartnershipMember).filter(
         PartnershipMember.id == member_id,
         PartnershipMember.partnership_id == partnership_id,
@@ -564,6 +503,9 @@ def delete_partnership_member(
     if not member:
         raise HTTPException(status_code=404, detail="Partnership member not found")
 
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot remove members from a settled partnership")
+
     # If self-member with advance, reverse associated transactions + ledger
     if member.is_self and _decimal(member.advance_contributed) > 0:
         # Delete advance transaction(s) for this member
@@ -608,6 +550,9 @@ def create_partnership_transaction(
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
 
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot add transactions to a settled partnership")
+
     receiving_member = None
     if transaction_data.received_by_member_id:
         receiving_member = db.query(PartnershipMember).filter(
@@ -633,14 +578,11 @@ def create_partnership_transaction(
             # Check if any buyer exists at all
             has_buyer = False
             if partnership.linked_property_deal_id:
-                from app.models.property_deal import PlotBuyer, SitePlot
                 buyer_count = db.query(PlotBuyer).filter(
                     PlotBuyer.property_deal_id == partnership.linked_property_deal_id,
-                    PlotBuyer.is_deleted == False,
                 ).count()
                 plot_count = db.query(SitePlot).filter(
                     SitePlot.property_deal_id == partnership.linked_property_deal_id,
-                    SitePlot.is_deleted == False,
                 ).count()
                 has_buyer = buyer_count > 0 or plot_count > 0
             if not has_buyer:
@@ -652,6 +594,21 @@ def create_partnership_transaction(
                 status_code=400,
                 detail="Please select which buyer/plot this payment is from.",
             )
+        # Validate that the referenced buyer/plot actually exists
+        if transaction_data.plot_buyer_id:
+            pb = db.query(PlotBuyer).filter(
+                PlotBuyer.id == transaction_data.plot_buyer_id,
+                PlotBuyer.property_deal_id == partnership.linked_property_deal_id,
+            ).first()
+            if not pb:
+                raise HTTPException(status_code=400, detail="Plot buyer not found for this property")
+        if transaction_data.site_plot_id:
+            sp = db.query(SitePlot).filter(
+                SitePlot.id == transaction_data.site_plot_id,
+                SitePlot.property_deal_id == partnership.linked_property_deal_id,
+            ).first()
+            if not sp:
+                raise HTTPException(status_code=400, detail="Site plot not found for this property")
 
     # BUG-013: Null out account_id if payer/receiver is not Self
     if transaction_data.txn_type in OUTFLOW_TYPES and transaction_data.member_id:
@@ -768,6 +725,10 @@ def delete_partnership_transaction(
 ):
     """Delete a partnership transaction and reverse all linked effects."""
     partnership = _get_partnership_or_404(partnership_id, db)
+
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot delete transactions from a settled partnership")
+
     txn = db.query(PartnershipTransaction).filter(
         PartnershipTransaction.id == txn_id,
         PartnershipTransaction.partnership_id == partnership_id,
@@ -851,6 +812,10 @@ def update_partnership_transaction(
 ):
     """Update a partnership transaction with full ledger + member sync."""
     partnership = _get_partnership_or_404(partnership_id, db)
+
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot edit transactions on a settled partnership")
+
     txn = db.query(PartnershipTransaction).filter(
         PartnershipTransaction.id == txn_id,
         PartnershipTransaction.partnership_id == partnership_id,
@@ -1143,6 +1108,10 @@ def create_buyer_for_partnership(
 ):
     """Create a Contact + PlotBuyer (or SitePlot buyer) linked to the partnership's property."""
     partnership = _get_partnership_or_404(partnership_id, db)
+
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot add buyers to a settled partnership")
+
     if not partnership.linked_property_deal_id:
         raise HTTPException(status_code=400, detail="Partnership has no linked property")
 
@@ -1151,6 +1120,14 @@ def create_buyer_for_partnership(
     ).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Linked property not found")
+
+    # For plot type, only allow 1 buyer
+    if prop.property_type == "plot":
+        existing_buyers = db.query(PlotBuyer).filter(
+            PlotBuyer.property_deal_id == prop.id,
+        ).count()
+        if existing_buyers > 0:
+            raise HTTPException(status_code=400, detail="This plot already has a buyer. A plot can only have one buyer.")
 
     # Dedup check: name + phone, or name + city, skip if neither
     dedup_q = db.query(Contact).filter(
@@ -1254,6 +1231,10 @@ def add_plot_to_partnership(
 ):
     """Create a PlotBuyer or SitePlot subdivision WITHOUT a buyer assigned."""
     partnership = _get_partnership_or_404(partnership_id, db)
+
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot add plots to a settled partnership")
+
     if not partnership.linked_property_deal_id:
         raise HTTPException(status_code=400, detail="Partnership has no linked property")
 
@@ -1323,6 +1304,10 @@ def assign_buyer_to_plot(
     Either provide an existing contact_id or name+phone for quick-create with dedup check.
     """
     partnership = _get_partnership_or_404(partnership_id, db)
+
+    if partnership.status == "settled":
+        raise HTTPException(status_code=400, detail="Cannot assign buyers to a settled partnership")
+
     if not partnership.linked_property_deal_id:
         raise HTTPException(status_code=400, detail="Partnership has no linked property")
 

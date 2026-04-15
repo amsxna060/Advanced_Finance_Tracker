@@ -46,13 +46,6 @@ OUTFLOW_TXN_TYPES = {
 }
 
 
-def _sync_linked_partnership(property_id: int, db: Session) -> None:
-    """DEPRECATED: Sync should only go Partnership → Property (via _sync_property_from_partnership).
-    This function previously synced Property → Partnership, which is the wrong direction.
-    Kept as a no-op to avoid breaking callers during migration."""
-    pass
-
-
 def _resync_plot_buyer(property_id: int, plot_buyer_id: int, db: Session) -> None:
     """Re-calculate PlotBuyer.total_paid and status from all received_from_buyer txns."""
     buyer = db.query(PlotBuyer).filter(PlotBuyer.id == plot_buyer_id).first()
@@ -475,10 +468,6 @@ def create_property_transaction(
     if transaction.txn_type == "received_from_buyer" and transaction.plot_buyer_id:
         _resync_plot_buyer(property_id, transaction.plot_buyer_id, db)
 
-    # Auto-sync linked partnership aggregates
-    if transaction.txn_type in ("advance_to_seller", "received_from_buyer"):
-        _sync_linked_partnership(property_id, db)
-
     db.commit()
     db.refresh(transaction)
     return transaction
@@ -556,10 +545,6 @@ def update_property_transaction(
     if txn.txn_type == "received_from_buyer" and txn.plot_buyer_id:
         _resync_plot_buyer(property_id, txn.plot_buyer_id, db)
 
-    # Auto-sync linked partnership aggregates
-    if txn.txn_type in ("advance_to_seller", "received_from_buyer"):
-        _sync_linked_partnership(property_id, db)
-
     db.commit()
     db.refresh(txn)
     return txn
@@ -628,10 +613,6 @@ def delete_property_transaction(
     # Re-sync PlotBuyer totals
     if txn_type == "received_from_buyer" and plot_buyer_id:
         _resync_plot_buyer(property_id, plot_buyer_id, db)
-
-    # Auto-sync linked partnership aggregates
-    if txn_type in ("advance_to_seller", "received_from_buyer"):
-        _sync_linked_partnership(property_id, db)
 
     db.commit()
     return {"message": "Transaction deleted"}
