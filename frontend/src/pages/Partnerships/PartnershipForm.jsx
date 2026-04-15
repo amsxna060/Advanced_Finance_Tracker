@@ -138,7 +138,16 @@ export default function PartnershipForm() {
     if (linkedProperty?.total_seller_value && !formData.total_deal_value) {
       set("total_deal_value", String(linkedProperty.total_seller_value));
     }
-  }, [linkedProperty?.total_seller_value]);
+    // Auto-fill dates from property (only on create)
+    if (!isEditMode && linkedProperty) {
+      if (linkedProperty.negotiating_date && !formData.start_date) {
+        set("start_date", linkedProperty.negotiating_date);
+      }
+      if (linkedProperty.expected_registry_date && !formData.expected_end_date) {
+        set("expected_end_date", linkedProperty.expected_registry_date);
+      }
+    }
+  }, [linkedProperty?.total_seller_value, linkedProperty?.negotiating_date, linkedProperty?.expected_registry_date]);
 
   const totalSharePct = partners.reduce(
     (sum, p) => sum + (parseFloat(p.share_percentage) || 0),

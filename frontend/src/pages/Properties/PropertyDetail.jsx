@@ -371,17 +371,84 @@ export default function PropertyDetail() {
                 {isSite && <InfoRow label="Deal Start Date" value={property.site_deal_start_date ? formatDate(property.site_deal_start_date) : null} />}
               </div>
 
-              {/* Timeline */}
-              {(property.negotiating_date || property.deal_locked_date || property.expected_registry_date || property.actual_registry_date) && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                  <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <Calendar size={16} className="text-indigo-500" /> Timeline
-                  </h2>
-                  <InfoRow label="Negotiating Date" value={property.negotiating_date ? formatDate(property.negotiating_date) : (property.deal_locked_date ? formatDate(property.deal_locked_date) : null)} />
-                  <InfoRow label="Expected Registry" value={property.expected_registry_date ? formatDate(property.expected_registry_date) : null} />
-                  {property.actual_registry_date && <InfoRow label="Actual Registry" value={formatDate(property.actual_registry_date)} />}
-                </div>
-              )}
+              {/* Timeline — built dynamically from dates + transactions */}
+              {(() => {
+                const events = [];
+                // Static milestone dates
+                if (property.negotiating_date) events.push({ date: property.negotiating_date, type: "milestone", label: "Negotiating Started", icon: "🤝" });
+                // Transaction events
+                const txnLabels = {
+                  advance_to_seller: "Advance Given to Seller",
+                  advance_given: "Advance Given to Seller",
+                  remaining_to_seller: "Remaining Paid to Seller",
+                  broker_commission: "Broker Commission Paid",
+                  broker_paid: "Broker Commission Paid",
+                  expense: "Expense",
+                  other_expense: "Expense",
+                  buyer_advance: "Buyer Advance Received",
+                  buyer_payment: "Buyer Payment Received",
+                  profit_received: "Profit Received",
+                };
+                const txnIcons = {
+                  advance_to_seller: "💸", advance_given: "💸", remaining_to_seller: "💰",
+                  broker_commission: "🏷", broker_paid: "🏷", expense: "📋", other_expense: "📋",
+                  buyer_advance: "🟢", buyer_payment: "🟢", profit_received: "✅",
+                };
+                transactions.forEach((t) => {
+                  events.push({
+                    date: t.txn_date,
+                    type: "txn",
+                    label: `${txnLabels[t.txn_type] || t.txn_type.replace(/_/g, " ")} — ${formatCurrency(t.amount)}`,
+                    icon: txnIcons[t.txn_type] || "📌",
+                    detail: [t.payer_name && `By: ${t.payer_name}`, t.receiver_name && `To: ${t.receiver_name}`, t.description].filter(Boolean).join(" · "),
+                  });
+                });
+                if (property.expected_registry_date) events.push({ date: property.expected_registry_date, type: "milestone", label: "Expected Registry", icon: "📅" });
+                if (property.actual_registry_date) events.push({ date: property.actual_registry_date, type: "milestone", label: "Registry Done", icon: "✓" });
+
+                // Sort by date
+                events.sort((a, b) => a.date.localeCompare(b.date));
+
+                // Group by date
+                const grouped = {};
+                events.forEach((e) => {
+                  if (!grouped[e.date]) grouped[e.date] = [];
+                  grouped[e.date].push(e);
+                });
+                const dateKeys = Object.keys(grouped).sort();
+
+                if (dateKeys.length === 0) return null;
+
+                return (
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                    <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <Calendar size={16} className="text-indigo-500" /> Timeline
+                    </h2>
+                    <div className="relative">
+                      {dateKeys.map((dateStr, di) => (
+                        <div key={dateStr} className="relative pl-6 pb-4 last:pb-0">
+                          {di < dateKeys.length - 1 && (
+                            <div className="absolute left-[9px] top-5 bottom-0 w-px bg-slate-200" />
+                          )}
+                          <div className="absolute left-0 top-1 w-[18px] h-[18px] rounded-full bg-indigo-100 border-2 border-indigo-400 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                          </div>
+                          <p className="text-xs font-semibold text-indigo-700 mb-1">{formatDate(dateStr)}</p>
+                          {grouped[dateStr].map((ev, ei) => (
+                            <div key={ei} className={`ml-1 ${ei > 0 ? "mt-1.5" : ""} flex items-start gap-2`}>
+                              <span className="text-sm flex-shrink-0">{ev.icon}</span>
+                              <div>
+                                <p className="text-sm text-slate-700">{ev.label}</p>
+                                {ev.detail && <p className="text-xs text-slate-400">{ev.detail}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* PLOT BUYERS (read-only) */}
               {!isSite && plotBuyers.length > 0 && (

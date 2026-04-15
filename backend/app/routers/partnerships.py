@@ -627,6 +627,32 @@ def create_partnership_transaction(
 
     txn_data = transaction_data.model_dump()
 
+    # Validate buyer-related transactions require a linked buyer
+    if transaction_data.txn_type in BUYER_INFLOW_TYPES:
+        if not transaction_data.plot_buyer_id and not transaction_data.site_plot_id:
+            # Check if any buyer exists at all
+            has_buyer = False
+            if partnership.linked_property_deal_id:
+                from app.models.property_deal import PlotBuyer, SitePlot
+                buyer_count = db.query(PlotBuyer).filter(
+                    PlotBuyer.property_deal_id == partnership.linked_property_deal_id,
+                    PlotBuyer.is_deleted == False,
+                ).count()
+                plot_count = db.query(SitePlot).filter(
+                    SitePlot.property_deal_id == partnership.linked_property_deal_id,
+                    SitePlot.is_deleted == False,
+                ).count()
+                has_buyer = buyer_count > 0 or plot_count > 0
+            if not has_buyer:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot record buyer payment: no buyer is linked to this property. Add a buyer first.",
+                )
+            raise HTTPException(
+                status_code=400,
+                detail="Please select which buyer/plot this payment is from.",
+            )
+
     # BUG-013: Null out account_id if payer/receiver is not Self
     if transaction_data.txn_type in OUTFLOW_TYPES and transaction_data.member_id:
         paying_member = db.query(PartnershipMember).filter(
@@ -711,16 +737,7 @@ def create_partnership_transaction(
         if transaction_data.site_plot_id:
             _resync_site_plot_from_partnership(partnership_id, transaction_data.site_plot_id, db)
 
-    # Auto-create obligations for inflows
-    if txn_type in BUYER_INFLOW_TYPES or txn_type == "profit_received":
-        _create_inflow_obligations(
-            db=db,
-            partnership=partnership,
-            amount=amount,
-            receiving_member=receiving_member,
-            current_user_id=current_user.id,
-            txn_type=txn_type,
-        )
+    # Obligations are created only at settlement time, not per-transaction.
 
     # Sync property from partnership transactions
     _sync_property_from_partnership(partnership_id, db)
@@ -1062,6 +1079,42 @@ def settle_partnership(
             if t.txn_type == "profit_received" and t.received_by_member_id == member.id
         )
         member.total_received = advance_back + expense_back + profit_share - already_received
+
+    # ── Create settlement obligations for non-self members ──────────────────
+    # Clear any old partnership obligations first (from previous incorrect per-txn logic)
+    db.query(MoneyObligation).filter(
+        MoneyObligation.linked_type == "partnership",
+        MoneyObligation.linked_id == partnership.id,
+        MoneyObligation.is_deleted == False,
+    ).update({"is_deleted": True})
+    db.flush()
+
+    for member in members:
+        if member.is_self or not member.contact_id:
+            continue
+        entitlement = _decimal(member.total_received)
+        if entitlement > Decimal("0"):
+            # We owe this partner money
+            db.add(MoneyObligation(
+                obligation_type="payable",
+                contact_id=member.contact_id,
+                amount=entitlement,
+                reason=f"Partnership '{partnership.title}' settlement: partner entitlement",
+                linked_type="partnership",
+                linked_id=partnership.id,
+                created_by=current_user.id,
+            ))
+        elif entitlement < Decimal("0"):
+            # Partner owes us money
+            db.add(MoneyObligation(
+                obligation_type="receivable",
+                contact_id=member.contact_id,
+                amount=abs(entitlement),
+                reason=f"Partnership '{partnership.title}' settlement: partner owes back",
+                linked_type="partnership",
+                linked_id=partnership.id,
+                created_by=current_user.id,
+            ))
 
     # Sync property status if linked
     if partnership.linked_property_deal_id:

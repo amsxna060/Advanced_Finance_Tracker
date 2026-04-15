@@ -227,7 +227,7 @@ export default function PartnershipDetail() {
     const isInflow = INFLOW_TYPES.includes(txnType);
 
     let memberId = null;
-    if (isOutflow && txnForm.member_id) memberId = parseInt(txnForm.member_id);
+    if (isOutflow && txnForm.member_id && !txnForm.from_partnership_pot) memberId = parseInt(txnForm.member_id);
 
     let receivedByMemberId = null;
     if (isInflow && txnForm.received_by_member_id) receivedByMemberId = parseInt(txnForm.received_by_member_id);
@@ -256,7 +256,7 @@ export default function PartnershipDetail() {
       plot_buyer_id: txnForm.plot_buyer_id ? parseInt(txnForm.plot_buyer_id) : null,
       site_plot_id: txnForm.site_plot_id ? parseInt(txnForm.site_plot_id) : null,
       broker_name: txnType === "broker_commission" ? (txnForm.broker_name?.trim() || null) : null,
-      from_partnership_pot: txnType === "broker_commission" ? txnForm.from_partnership_pot : false,
+      from_partnership_pot: OUTFLOW_TYPES.includes(txnType) ? txnForm.from_partnership_pot : false,
     });
   };
 
@@ -821,7 +821,7 @@ export default function PartnershipDetail() {
                     {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
                       <div className="grid grid-cols-2 gap-3">
                         <InputField label="Paid by (member)">
-                          <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value, account_id: "" }))} className={inputCls}>
+                          <select value={txnForm.from_partnership_pot ? "" : txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value, account_id: "" }))} className={inputCls} disabled={txnForm.from_partnership_pot}>
                             <option value="">— Select —</option>
                             {members.map((m) => (
                               <option key={m.member?.id} value={String(m.member?.id)}>
@@ -830,7 +830,7 @@ export default function PartnershipDetail() {
                             ))}
                           </select>
                         </InputField>
-                        {(() => { const selMember = members.find(m => String(m.member?.id) === String(txnForm.member_id)); return selMember?.member?.is_self; })() && (
+                        {(() => { const selMember = members.find(m => String(m.member?.id) === String(txnForm.member_id)); return selMember?.member?.is_self && !txnForm.from_partnership_pot; })() && (
                           <InputField label="From Account">
                             <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className={inputCls}>
                               <option value="">— No account —</option>
@@ -841,14 +841,16 @@ export default function PartnershipDetail() {
                       </div>
                     )}
 
-                    {txnForm.txn_type === "broker_commission" && (
+                    {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
                       <div className="grid grid-cols-2 gap-3">
-                        <InputField label="Broker Name">
-                          <input type="text" value={txnForm.broker_name} onChange={(e) => setTxnForm(p => ({ ...p, broker_name: e.target.value }))} className={inputCls} placeholder="Broker name" />
-                        </InputField>
+                        {txnForm.txn_type === "broker_commission" && (
+                          <InputField label="Broker Name">
+                            <input type="text" value={txnForm.broker_name} onChange={(e) => setTxnForm(p => ({ ...p, broker_name: e.target.value }))} className={inputCls} placeholder="Broker name" />
+                          </InputField>
+                        )}
                         <div className="flex items-end pb-1">
                           <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" />
+                            <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked, ...( e.target.checked ? { member_id: "", account_id: "" } : {}) }))} className="rounded" />
                             <span className="text-sm text-slate-700">Paid from partnership pot</span>
                           </label>
                         </div>
@@ -877,24 +879,32 @@ export default function PartnershipDetail() {
                         </div>
 
                         {["buyer_advance", "buyer_payment"].includes(txnForm.txn_type) && (
-                          <div className="grid grid-cols-2 gap-3">
-                            {plotBuyers.length > 0 && (
-                              <InputField label="Plot Buyer">
-                                <select value={txnForm.plot_buyer_id} onChange={(e) => setTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className={inputCls}>
-                                  <option value="">— None —</option>
-                                  {plotBuyers.map((b) => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
-                                </select>
-                              </InputField>
+                          <>
+                            {plotBuyers.length === 0 && sitePlots.length === 0 ? (
+                              <div className="col-span-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                <p className="text-sm text-amber-800 font-medium">⚠ No buyer linked to this property. Add a buyer first before recording buyer payments.</p>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-3">
+                                {plotBuyers.length > 0 && (
+                                  <InputField label="Plot Buyer *">
+                                    <select value={txnForm.plot_buyer_id} onChange={(e) => setTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className={inputCls} required>
+                                      <option value="">— Select Buyer —</option>
+                                      {plotBuyers.map((b) => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
+                                    </select>
+                                  </InputField>
+                                )}
+                                {sitePlots.length > 0 && (
+                                  <InputField label="Site Plot *">
+                                    <select value={txnForm.site_plot_id} onChange={(e) => setTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className={inputCls} required>
+                                      <option value="">— Select Plot —</option>
+                                      {sitePlots.map((sp) => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
+                                    </select>
+                                  </InputField>
+                                )}
+                              </div>
                             )}
-                            {sitePlots.length > 0 && (
-                              <InputField label="Site Plot">
-                                <select value={txnForm.site_plot_id} onChange={(e) => setTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className={inputCls}>
-                                  <option value="">— None —</option>
-                                  {sitePlots.map((sp) => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
-                                </select>
-                              </InputField>
-                            )}
-                          </div>
+                          </>
                         )}
                       </>
                     )}
@@ -905,7 +915,7 @@ export default function PartnershipDetail() {
 
                     <div className="flex gap-2 justify-end">
                       <button onClick={() => setShowTxnForm(false)} className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
-                      <button onClick={handleAddTxn} disabled={!txnForm.amount || addTxnMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                      <button onClick={handleAddTxn} disabled={!txnForm.amount || addTxnMutation.isPending || (["buyer_advance","buyer_payment"].includes(txnForm.txn_type) && !txnForm.plot_buyer_id && !txnForm.site_plot_id)} className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
                         {addTxnMutation.isPending ? "Saving..." : "Save"}
                       </button>
                     </div>
@@ -1240,12 +1250,23 @@ export default function PartnershipDetail() {
                   <hr className="border-slate-300" />
                   {members.map((m, i) => {
                     const sharePct = parseFloat(m.member?.share_percentage || 0);
+                    const advanceBack = parseFloat(m.member?.advance_contributed || 0);
                     const profitShare = (settleProfit * sharePct) / 100;
+                    // Compute expense paid by this member
+                    const expensePaid = transactions.filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === m.member?.id).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    // Profit already taken by this member
+                    const alreadyReceived = transactions.filter(t => t.txn_type === "profit_received" && t.received_by_member_id === m.member?.id).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const entitlement = advanceBack + expensePaid + profitShare - alreadyReceived;
                     const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
                     return (
-                      <div key={i} className="flex justify-between text-xs">
-                        <span className="text-slate-600">{name} ({sharePct}%):</span>
-                        <span className="font-medium">{formatCurrency(profitShare)}</span>
+                      <div key={i} className="space-y-0.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-600 font-medium">{name} ({sharePct}%)</span>
+                          <span className={`font-semibold ${entitlement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{formatCurrency(entitlement)}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 ml-2">
+                          Advance: {formatCurrency(advanceBack)} + Expenses: {formatCurrency(expensePaid)} + Profit: {formatCurrency(profitShare)}{alreadyReceived > 0 ? ` − Already: ${formatCurrency(alreadyReceived)}` : ""}
+                        </div>
                       </div>
                     );
                   })}
