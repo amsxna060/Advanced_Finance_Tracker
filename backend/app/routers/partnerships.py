@@ -278,7 +278,7 @@ def get_partnerships(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Partnership).filter(Partnership.is_deleted == False)
+    query = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.is_legacy == False)
     if status:
         query = query.filter(Partnership.status == status)
     if search:

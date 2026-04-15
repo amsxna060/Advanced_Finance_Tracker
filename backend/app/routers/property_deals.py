@@ -201,7 +201,7 @@ def get_properties(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False)
+    query = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.is_legacy == False)
 
     if status:
         query = query.filter(PropertyDeal.status == status)

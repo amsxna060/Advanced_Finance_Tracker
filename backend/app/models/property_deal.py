@@ -78,6 +78,7 @@ class PropertyDeal(Base):
 
     notes = Column(Text)
     is_deleted = Column(Boolean, default=False)
+    is_legacy = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -105,6 +106,7 @@ class PropertyTransaction(Base):
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
     received_by_member_id = Column(Integer, ForeignKey("partnership_members.id"), nullable=True)
     plot_buyer_id = Column(Integer, ForeignKey("plot_buyers.id"), nullable=True)
+    is_legacy = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -136,6 +138,7 @@ class SitePlot(Base):
     registry_date = Column(Date, nullable=True)
     notes = Column(Text)
     sold_date = Column(Date)
+    is_legacy = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -165,6 +168,7 @@ class PlotBuyer(Base):
     side_south_ft = Column(Numeric(10, 3))
     side_east_ft = Column(Numeric(10, 3))
     side_west_ft = Column(Numeric(10, 3))
+    is_legacy = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -31,7 +31,7 @@ def get_contacts(
     current_user: User = Depends(get_current_user)
 ):
     """Get list of contacts with optional filters and pagination"""
-    query = db.query(Contact).filter(Contact.is_deleted == False)
+    query = db.query(Contact).filter(Contact.is_deleted == False, Contact.is_legacy == False)
     
     if search:
         search_filter = f"%{search}%"

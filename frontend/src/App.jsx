@@ -37,6 +37,7 @@ import AccountList from "./pages/Accounts/AccountList";
 import AccountForm from "./pages/Accounts/AccountForm";
 import AccountDetail from "./pages/Accounts/AccountDetail";
 import ObligationList from "./pages/Obligations/ObligationList";
+import AdminMigration from "./pages/Admin/AdminMigration";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -393,6 +394,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <ObligationList />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/migration"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AdminMigration />
                   </Layout>
                 </ProtectedRoute>
               }

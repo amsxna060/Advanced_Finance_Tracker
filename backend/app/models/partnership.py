@@ -25,6 +25,7 @@ class Partnership(Base):
 
     notes = Column(Text)
     is_deleted = Column(Boolean, default=False)
+    is_legacy = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -46,6 +47,7 @@ class PartnershipMember(Base):
     advance_contributed = Column(Numeric(15, 2), default=0)
     total_received = Column(Numeric(15, 2), default=0)
     notes = Column(Text)
+    is_legacy = Column(Boolean, default=False)
 
     partnership = relationship("Partnership", back_populates="members")
     contact = relationship("Contact", foreign_keys=[contact_id])
@@ -74,6 +76,7 @@ class PartnershipTransaction(Base):
     broker_name = Column(String(255), nullable=True)
     # Whether this was paid from partnership pot (not from any individual's account)
     from_partnership_pot = Column(Boolean, default=False)
+    is_legacy = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
