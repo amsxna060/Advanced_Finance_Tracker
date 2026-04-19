@@ -23,6 +23,8 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://admin:secret@postgres:5432/finance_tracker
       SECRET_KEY: change-this-secret-key-in-production

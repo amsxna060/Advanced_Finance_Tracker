@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import ChatBot from "./ChatBot";
 
 const navItems = [
   {
@@ -367,6 +368,9 @@ export default function Layout({ children }) {
         {/* Page content */}
         <main className="flex-1">{children}</main>
       </div>
+
+      {/* AI Chatbot */}
+      <ChatBot />
     </div>
   );
 }

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     SEED_ADMIN_PASSWORD: str = "admin123"
     SEED_ADMIN_EMAIL: str = "admin@finance.local"
     APP_ENV: str = "development"
+    GEMINI_API_KEY: str = ""
 
     @property
     def cors_origins_list(self) -> List[str]:
