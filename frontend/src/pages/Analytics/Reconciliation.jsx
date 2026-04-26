@@ -37,7 +37,7 @@ const DATE_PRESETS = [
 export default function Reconciliation() {
   const [range, setRange] = useState(() => {
     const to = new Date().toISOString().split("T")[0];
-    const from = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    const from = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
     return { from_date: from, to_date: to };
   });
   const [accountId,      setAccountId]      = useState("");
