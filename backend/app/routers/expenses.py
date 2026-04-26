@@ -26,6 +26,7 @@ def _get_expense_or_404(expense_id: int, db: Session) -> Expense:
 @router.get("")
 def get_expenses(
     category: Optional[str] = None,
+    sub_category: Optional[str] = None,
     linked_type: Optional[str] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
@@ -39,6 +40,8 @@ def get_expenses(
 
     if category:
         query = query.filter(Expense.category == category)
+    if sub_category:
+        query = query.filter(Expense.sub_category == sub_category)
     if linked_type:
         query = query.filter(Expense.linked_type == linked_type)
     if from_date:

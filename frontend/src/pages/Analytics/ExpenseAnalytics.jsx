@@ -48,6 +48,7 @@ export default function ExpenseAnalytics() {
   const [range, setRange] = useState({ from_date: get6MonthsAgo(), to_date: getToday() });
   const [aiResult, setAiResult] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedSubCategory, setSelectedSubCategory] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["expense-analytics", range],
@@ -66,6 +67,18 @@ export default function ExpenseAnalytics() {
         to_date: range.to_date || getToday(),
       })).data,
     onSuccess: (result) => setAiResult(result),
+  });
+
+  // Fetch transactions for the clicked sub-category glance
+  const { data: subTxns, isFetching: subTxnsLoading } = useQuery({
+    queryKey: ["sub-txns", selectedCategory, selectedSubCategory, range],
+    queryFn: async () => {
+      const params = { category: selectedCategory, sub_category: selectedSubCategory, limit: 50 };
+      if (range.from_date) params.from_date = range.from_date;
+      if (range.to_date) params.to_date = range.to_date;
+      return (await api.get("/api/expenses", { params })).data;
+    },
+    enabled: !!(selectedCategory && selectedSubCategory),
   });
 
   const categories = data?.categories || [];
@@ -131,16 +144,16 @@ export default function ExpenseAnalytics() {
         <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <input type="date" value={range.from_date}
-              onChange={(e)=>{ setRange(r=>({...r,from_date:e.target.value})); setSelectedCategory(null); }}
+              onChange={(e)=>{ setRange(r=>({...r,from_date:e.target.value})); setSelectedCategory(null); setSelectedSubCategory(null); }}
               className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"/>
             <span className="text-slate-400 text-sm">to</span>
             <input type="date" value={range.to_date}
-              onChange={(e)=>{ setRange(r=>({...r,to_date:e.target.value})); setSelectedCategory(null); }}
+              onChange={(e)=>{ setRange(r=>({...r,to_date:e.target.value})); setSelectedCategory(null); setSelectedSubCategory(null); }}
               className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"/>
           </div>
           <div className="h-6 border-l border-slate-200"/>
           {PRESETS.map((p)=>(
-            <button key={p.label} onClick={()=>{ setRange({from_date:p.from,to_date:p.to}); setSelectedCategory(null); }}
+            <button key={p.label} onClick={()=>{ setRange({from_date:p.from,to_date:p.to}); setSelectedCategory(null); setSelectedSubCategory(null); }}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${range.from_date===p.from&&range.to_date===p.to?"bg-indigo-600 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
               {p.label}
             </button>
@@ -208,7 +221,7 @@ export default function ExpenseAnalytics() {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie data={donutData} cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2} dataKey="value" nameKey="name" stroke="none"
-                            onClick={(e)=>setSelectedCategory(e.name===selectedCategory?null:e.name)}>
+                            onClick={(e)=>{ const n=e.name===selectedCategory?null:e.name; setSelectedCategory(n); setSelectedSubCategory(null); }}>
                             {donutData.map((d,i)=>(
                               <Cell key={i} fill={d.color} opacity={selectedCategory&&selectedCategory!==d.name?0.3:1} style={{cursor:"pointer"}}/>
                             ))}
@@ -222,7 +235,7 @@ export default function ExpenseAnalytics() {
                         const pct=data?.grand_total>0?(d.value/Number(data.grand_total)*100).toFixed(1):"0";
                         const isSel=selectedCategory===d.name;
                         return (
-                          <button key={d.name} onClick={()=>setSelectedCategory(isSel?null:d.name)}
+                          <button key={d.name} onClick={()=>{ setSelectedCategory(isSel?null:d.name); setSelectedSubCategory(null); }}
                             className={`w-full flex items-center gap-2 text-xs rounded-lg px-2 py-1 transition-all ${isSel?"bg-indigo-50 ring-1 ring-indigo-300":"hover:bg-slate-50"}`}>
                             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:d.color}}/>
                             <span className="text-slate-600 truncate flex-1 text-left">{d.name}</span>
@@ -270,7 +283,7 @@ export default function ExpenseAnalytics() {
                       </p>
                     </div>
                   </div>
-                  <button onClick={()=>setSelectedCategory(null)} className="text-slate-400 hover:text-slate-600 text-xs font-medium px-2 py-1 rounded hover:bg-slate-100 transition-colors">✕ Close</button>
+                  <button onClick={()=>{ setSelectedCategory(null); setSelectedSubCategory(null); }} className="text-slate-400 hover:text-slate-600 text-xs font-medium px-2 py-1 rounded hover:bg-slate-100 transition-colors">✕ Close</button>
                 </div>
                 {subDonutData.length===0?(
                   <p className="text-sm text-slate-400 text-center py-6">No sub-category data</p>
@@ -290,22 +303,48 @@ export default function ExpenseAnalytics() {
                       {subDonutData.map((d)=>{
                         const catTotal=Number(categories.find(c=>c.category===selectedCategory)?.total||1);
                         const pct=((d.value/catTotal)*100).toFixed(1);
+                        const isSelSub = selectedSubCategory === d.name;
                         return (
                           <div key={d.name}>
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:d.color}}/>
-                                <span className="text-sm text-slate-700">{d.name}</span>
-                                <span className="text-xs text-slate-400">({d.count} txns)</span>
+                            <button
+                              onClick={()=>setSelectedSubCategory(isSelSub ? null : d.name)}
+                              className={`w-full text-left rounded-lg px-2 py-1.5 transition-all ${isSelSub?"bg-indigo-50 ring-1 ring-indigo-300":"hover:bg-slate-50"}`}
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:d.color}}/>
+                                  <span className="text-sm text-slate-700">{d.name}</span>
+                                  <span className="text-xs text-slate-400">({d.count} txns)</span>
+                                  <span className="text-[10px] text-indigo-400">{isSelSub?"▲":"▼"}</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-sm font-semibold text-slate-800">{formatCurrency(d.value)}</span>
+                                  <span className="text-xs text-slate-400 ml-2">{pct}%</span>
+                                </div>
                               </div>
-                              <div className="text-right">
-                                <span className="text-sm font-semibold text-slate-800">{formatCurrency(d.value)}</span>
-                                <span className="text-xs text-slate-400 ml-2">{pct}%</span>
+                              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500" style={{width:`${pct}%`,backgroundColor:d.color}}/>
                               </div>
-                            </div>
-                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all duration-500" style={{width:`${pct}%`,backgroundColor:d.color}}/>
-                            </div>
+                            </button>
+                            {/* Inline transaction glance */}
+                            {isSelSub && (
+                              <div className="mt-1 ml-4 bg-slate-50 border border-indigo-100 rounded-lg overflow-hidden">
+                                {subTxnsLoading ? (
+                                  <div className="flex justify-center py-3"><div className="animate-spin w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full"/></div>
+                                ) : (subTxns||[]).length === 0 ? (
+                                  <p className="text-xs text-slate-400 text-center py-3">No transactions</p>
+                                ) : (
+                                  <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                                    {(subTxns||[]).map((tx)=>(
+                                      <div key={tx.id} className="flex items-center justify-between px-3 py-2 gap-3">
+                                        <span className="text-xs text-slate-600 flex-1 truncate">{tx.description || "—"}</span>
+                                        <span className="text-xs font-semibold text-red-600 shrink-0">{formatCurrency(tx.amount)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
