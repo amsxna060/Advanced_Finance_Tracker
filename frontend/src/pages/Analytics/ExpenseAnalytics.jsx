@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
@@ -213,7 +213,6 @@ export default function ExpenseAnalytics() {
   const [aiResult, setAiResult] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState(null);
-  const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [budgetMonth] = useState(getMonthYM);
 
   function resetSel() { setSelectedCategory(null); setSelectedSubCategory(null); }
@@ -229,15 +228,20 @@ export default function ExpenseAnalytics() {
     },
   });
 
-  /* previous month for comparison stat */
+  /* previous period — same duration as current range, immediately before */
   const prevMonthRange = useMemo(() => {
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - 1);
-    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,"0");
-    const last = new Date(d.getFullYear(), d.getMonth()+1, 0);
-    return { from: `${y}-${m}-01`, to: last.toISOString().split("T")[0] };
-  }, []);
+    const from = new Date(range.from_date);
+    const to = new Date(range.to_date);
+    const days = Math.max(1, Math.ceil((to - from) / 86400000) + 1);
+    const prevTo = new Date(from);
+    prevTo.setDate(prevTo.getDate() - 1);
+    const prevFrom = new Date(prevTo);
+    prevFrom.setDate(prevFrom.getDate() - days + 1);
+    return {
+      from: prevFrom.toISOString().split("T")[0],
+      to: prevTo.toISOString().split("T")[0],
+    };
+  }, [range]);
 
   const { data: prevData } = useQuery({
     queryKey: ["expense-analytics-prev", prevMonthRange],
@@ -247,17 +251,10 @@ export default function ExpenseAnalytics() {
   });
 
   /* budget vs actual */
-  const { data: budgetData, refetch: refetchBudget } = useQuery({
+  const { data: budgetData } = useQuery({
     queryKey: ["budget-vs-actual", budgetMonth],
     queryFn: async () =>
       (await api.get("/api/category-limits/budget-vs-actual", { params: { month: budgetMonth } })).data,
-    staleTime: 60 * 1000,
-  });
-
-  /* saved limits list (for the modal) */
-  const { data: savedLimits = [] } = useQuery({
-    queryKey: ["category-limits"],
-    queryFn: async () => (await api.get("/api/category-limits")).data,
     staleTime: 60 * 1000,
   });
 
@@ -282,18 +279,6 @@ export default function ExpenseAnalytics() {
     },
     enabled: !!(selectedCategory && selectedSubCategory),
   });
-
-  /* save budgets handler */
-  const saveBudgets = useCallback(async (vals) => {
-    await Promise.all(
-      Object.entries(vals).map(([category, monthly_limit]) =>
-        api.post("/api/category-limits", { category, monthly_limit, rollover_enabled: false })
-      )
-    );
-    qc.invalidateQueries({ queryKey: ["category-limits"] });
-    qc.invalidateQueries({ queryKey: ["budget-vs-actual"] });
-    refetchBudget();
-  }, [qc, refetchBudget]);
 
   /* ── derived values ── */
   const categories    = data?.categories      || [];
@@ -389,6 +374,17 @@ export default function ExpenseAnalytics() {
     })), [aiResult]);
 
   /* ── hero stats ── */
+  const dayCount = useMemo(() => {
+    if (!range.from_date || !range.to_date) return 30;
+    const from = new Date(range.from_date);
+    const to = new Date(range.to_date);
+    return Math.max(1, Math.ceil((to - from) / 86400000) + 1);
+  }, [range]);
+
+  const overBudgetCats = useMemo(() => {
+    return (budgetData?.categories || []).filter(c => c.pct_used != null && c.pct_used > 100);
+  }, [budgetData]);
+
   const heroStats = useMemo(() => {
     const overBudget = budgetData?.categories
       ? budgetData.categories.filter(c => c.pct_used != null && c.pct_used > 100).length
@@ -437,11 +433,11 @@ export default function ExpenseAnalytics() {
 
           {/* HERO GLASS STAT CARDS */}
           <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {/* Avg / transaction */}
+            {/* Daily Burn Rate */}
             <div className="bg-white/[0.07] backdrop-blur-xl border border-white/[0.12] rounded-2xl px-4 py-3.5">
-              <p className="text-indigo-300/70 text-[10px] font-bold uppercase tracking-widest">Avg per Txn</p>
-              <p className="text-white text-xl font-extrabold mt-1 tracking-tight">{formatCurrency(avgPerTxn)}</p>
-              <p className="text-indigo-300/50 text-[10px] mt-0.5">{expenseCount} transactions</p>
+              <p className="text-indigo-300/70 text-[10px] font-bold uppercase tracking-widest">Daily Burn</p>
+              <p className="text-white text-xl font-extrabold mt-1 tracking-tight">{formatCurrency(grandTotal / dayCount)}</p>
+              <p className="text-indigo-300/50 text-[10px] mt-0.5">₹/day over {dayCount} days</p>
             </div>
             {/* MoM change */}
             <div className="bg-white/[0.07] backdrop-blur-xl border border-white/[0.12] rounded-2xl px-4 py-3.5">
@@ -460,13 +456,26 @@ export default function ExpenseAnalytics() {
             {/* Budget health */}
             <div className={`bg-white/[0.07] backdrop-blur-xl border rounded-2xl px-4 py-3.5 ${heroStats.overBudget > 0 ? "border-rose-400/30" : "border-white/[0.12]"}`}>
               <p className="text-indigo-300/70 text-[10px] font-bold uppercase tracking-widest">Over Budget</p>
-              <p className={`text-xl font-extrabold mt-1 tracking-tight ${heroStats.overBudget > 0 ? "text-rose-300" : "text-emerald-300"}`}>
-                {heroStats.overBudget} {heroStats.overBudget === 1 ? "category" : "categories"}
-              </p>
-              {heroStats.savedVsBudget !== null && (
-                <p className={`text-[10px] mt-0.5 ${heroStats.savedVsBudget >= 0 ? "text-emerald-400/70" : "text-rose-400/70"}`}>
-                  {heroStats.savedVsBudget >= 0 ? `₹${Math.round(heroStats.savedVsBudget/1000)}k under budget` : `₹${Math.round(Math.abs(heroStats.savedVsBudget)/1000)}k over budget`}
-                </p>
+              {heroStats.overBudget === 0 ? (
+                <>
+                  <p className="text-emerald-300 text-xl font-extrabold mt-1 tracking-tight">✓ All good</p>
+                  {heroStats.savedVsBudget !== null && (
+                    <p className="text-emerald-400/70 text-[10px] mt-0.5">₹{Math.round(heroStats.savedVsBudget/1000)}k under budget</p>
+                  )}
+                </>
+              ) : (
+                <div className="mt-1 flex items-start justify-between gap-1">
+                  <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                    {overBudgetCats.slice(0, 3).map((c, i) => (
+                      <span key={c.category}
+                        className="text-[9px] font-bold px-1.5 py-0.5 rounded-md truncate max-w-[80px]"
+                        style={{background: PALETTE[i % PALETTE.length] + "33", color: PALETTE[i % PALETTE.length]}}>
+                        {c.category.split(" ")[0]}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-rose-300 text-[10px] font-bold shrink-0 ml-1">{heroStats.overBudget} cat</span>
+                </div>
               )}
             </div>
           </div>
@@ -474,7 +483,7 @@ export default function ExpenseAnalytics() {
       </div>
 
       {/* ── BODY overlapping hero ─────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 -mt-6 pb-16 relative z-10 space-y-0">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 -mt-6 pb-16 relative z-10 space-y-6">
 
         {/* DATE RANGE CONTROLS */}
         <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-3 flex flex-wrap items-center gap-2">
@@ -543,26 +552,13 @@ export default function ExpenseAnalytics() {
             )}
 
             {/* ── BUDGET vs ACTUAL ─────────────────── */}
-            <SectionTitle color="bg-emerald-500"
-              action={
-                <button onClick={() => setBudgetModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-colors border border-indigo-100">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                  </svg>
-                  Edit Budgets
-                </button>
-              }>
+            <SectionTitle color="bg-emerald-500">
               Budget vs Actual <span className="text-slate-400 font-normal normal-case text-xs ml-1">(this month)</span>
             </SectionTitle>
 
             {budgetBarData.length === 0 ? (
               <div className="bg-white rounded-2xl border border-dashed border-indigo-200 p-8 text-center">
-                <p className="text-sm text-slate-500 mb-3">No budgets set yet.</p>
-                <button onClick={() => setBudgetModalOpen(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-colors">
-                  Set Up Budgets
-                </button>
+                <p className="text-sm text-slate-500">No budgets set. Set them on the Expenses page.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -996,14 +992,6 @@ export default function ExpenseAnalytics() {
         )}
       </div>
 
-      {/* ── BUDGET MODAL ─────────────────────────── */}
-      {budgetModalOpen && (
-        <BudgetModal
-          limits={savedLimits}
-          onClose={() => setBudgetModalOpen(false)}
-          onSave={saveBudgets}
-        />
-      )}
     </div>
   );
 }

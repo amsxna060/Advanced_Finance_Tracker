@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
@@ -66,6 +66,23 @@ const FALLBACK_SUBCATEGORIES = {
   ],
 };
 
+/* Tier-2 Firozabad ₹90k household — sensible monthly defaults */
+const DEFAULT_BUDGETS = {
+  "Groceries & Daily Needs":  8000,
+  "Food & Dining":             5000,
+  "Housing & Utilities":       4000,
+  "Transport & Auto":          4000,
+  "Health & Medical":          3000,
+  "Education & Children":      5000,
+  "Spiritual & Social":        3000,
+  "Personal & Lifestyle":      4000,
+  "Financial & Legal":         2000,
+  "Shopping & Electronics":    3000,
+  "Entertainment & Leisure":   2000,
+  "Investment":                8000,
+  "Uncategorized":             2000,
+};
+
 const defaultForm = {
   category: "",
   sub_category: "",
@@ -90,13 +107,102 @@ function getToday() {
   return new Date().toISOString().split("T")[0];
 }
 
+/* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Budget Modal \u2500\u2500 */
+function BudgetModal({ limits, onClose, onSave }) {
+  const categories = Object.keys(DEFAULT_BUDGETS);
+  const [vals, setVals] = useState(() => {
+    const m = {};
+    categories.forEach(c => {
+      const existing = limits.find(l => l.category === c);
+      m[c] = existing ? Number(existing.monthly_limit) : DEFAULT_BUDGETS[c];
+    });
+    limits.forEach(l => {
+      if (!(l.category in m)) m[l.category] = Number(l.monthly_limit);
+    });
+    return m;
+  });
+  const [rolloverMap, setRolloverMap] = useState(() => {
+    const m = {};
+    categories.forEach(c => {
+      const existing = limits.find(l => l.category === c);
+      m[c] = existing ? Boolean(existing.rollover_enabled) : true;
+    });
+    limits.forEach(l => {
+      if (!(l.category in rolloverMap)) m[l.category] = Boolean(l.rollover_enabled);
+    });
+    return m;
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave(vals, rolloverMap);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const total = Object.values(vals).reduce((s, v) => s + v, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-800 px-6 py-5">
+          <h2 className="text-white font-extrabold text-lg tracking-tight">Monthly Budgets</h2>
+          <p className="text-indigo-300/70 text-xs mt-0.5">Tier-2 \u00b7 Firozabad \u00b7 \u20b990k household</p>
+        </div>
+        <div className="p-5 max-h-[58vh] overflow-y-auto space-y-2.5">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 mb-1 px-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Category</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right">Limit / mo</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">\ud83d\udd04 Rollover</span>
+          </div>
+          {Object.entries(vals).map(([cat, val]) => (
+            <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center">
+              <span className="text-sm font-medium text-slate-700 truncate">{cat}</span>
+              <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                <span className="text-slate-400 text-sm">\u20b9</span>
+                <input type="number" min="0" step="100"
+                  value={val}
+                  onChange={e => setVals(v => ({...v, [cat]: Number(e.target.value)}))}
+                  className="w-20 text-sm font-bold text-slate-800 bg-transparent outline-none text-right tabular-nums"/>
+              </div>
+              <div className="flex justify-center">
+                <input type="checkbox"
+                  checked={rolloverMap[cat] ?? true}
+                  onChange={e => setRolloverMap(r => ({...r, [cat]: e.target.checked}))}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"/>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
+          <p className="text-xs text-slate-400">
+            Total: <span className="font-bold text-slate-700">{formatCurrency(total)}/mo</span>
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
+            <button onClick={handleSave} disabled={saving}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-60 flex items-center gap-2">
+              {saving && <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>}
+              Save Budgets
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 MAIN COMPONENT \u2550\u2550\u2550 */
 function ExpenseList() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [filters, setFilters] = useState({
     category: "",
-    linked_type: "",
     from_date: getMonthStart(),
     to_date: getToday(),
   });
@@ -109,8 +215,7 @@ function ExpenseList() {
   const [autoFilled, setAutoFilled] = useState(false);
   const [geminiSuggest, setGeminiSuggest] = useState(null); // {category, sub_category} when Gemini suggests a new category
   const [showBudgetModal, setShowBudgetModal] = useState(false);
-  const [budgetForm, setBudgetForm] = useState({ category: "", monthly_limit: "", rollover_enabled: false });
-  const [budgetError, setBudgetError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: expenseData, isLoading } = useQuery({
     queryKey: ["expenses", filters, page],
@@ -136,7 +241,6 @@ function ExpenseList() {
       if (filters.from_date) params.from_date = filters.from_date;
       if (filters.to_date) params.to_date = filters.to_date;
       if (filters.category) params.category = filters.category;
-      if (filters.linked_type) params.linked_type = filters.linked_type;
       return (await api.get("/api/expenses/analytics/summary", { params })).data;
     },
     staleTime: 60 * 1000,
@@ -202,12 +306,22 @@ function ExpenseList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["category-limits"] });
       queryClient.invalidateQueries({ queryKey: ["budget-vs-actual"] });
-      setBudgetForm({ category: "", monthly_limit: "", rollover_enabled: false });
-      setBudgetError("");
     },
-    onError: (e) =>
-      setBudgetError(e.response?.data?.detail || "Failed to save budget"),
   });
+
+  const saveBudgets = async (vals, rolloverMap) => {
+    await Promise.all(
+      Object.entries(vals).map(([category, monthly_limit]) =>
+        api.post("/api/category-limits", {
+          category,
+          monthly_limit,
+          rollover_enabled: rolloverMap[category] ?? true,
+        })
+      )
+    );
+    queryClient.invalidateQueries({ queryKey: ["category-limits"] });
+    queryClient.invalidateQueries({ queryKey: ["budget-vs-actual"] });
+  };
 
   const deleteBudgetMutation = useMutation({
     mutationFn: async (category) =>
@@ -408,6 +522,43 @@ function ExpenseList() {
     return { type: "none" };
   }, [budgetData, prevPeriodData, heroTotal]);
 
+  // Auto-select payment mode based on account type
+  useEffect(() => {
+    if (!form.account_id || !accountsList) return;
+    const acc = accountsList.find(a => String(a.id) === String(form.account_id));
+    if (!acc) return;
+    const type = (acc.account_type || acc.type || "").toLowerCase();
+    if (type.includes("cash")) {
+      setForm(f => ({ ...f, payment_mode: "cash" }));
+    } else if (
+      type.includes("bank") || type.includes("saving") ||
+      type.includes("current") || type.includes("credit")
+    ) {
+      setForm(f => ({ ...f, payment_mode: "upi" }));
+    }
+  }, [form.account_id, accountsList]);
+
+  // Client-side search filtering
+  const filteredExpenses = useMemo(() => {
+    if (!searchQuery.trim()) return expenses;
+    const q = searchQuery.trim().toLowerCase().replace(/,/g, "");
+    const qNum = parseFloat(q);
+    return expenses.filter(e => {
+      if (!isNaN(qNum) && qNum > 0) {
+        const diff = Math.abs(Number(e.amount) - qNum);
+        if (diff < 0.01) return true;
+      }
+      if ((e.description || "").toLowerCase().includes(q)) return true;
+      if ((e.payment_mode || "").toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [expenses, searchQuery]);
+
+  const searchTotal = useMemo(
+    () => filteredExpenses.reduce((s, e) => s + Number(e.amount), 0),
+    [filteredExpenses]
+  );
+
   const openCreateModal = () => {
     setEditingExpense(null);
     setForm(defaultForm);
@@ -446,7 +597,7 @@ function ExpenseList() {
         actions={
           user?.role === "admin" && (
             <div className="flex gap-2">
-              <Button variant="white" onClick={() => { setShowBudgetModal(true); setBudgetError(""); }}>
+              <Button variant="white" onClick={() => setShowBudgetModal(true)}>
                 🎯 Set Budget
               </Button>
               <Button variant="white" onClick={openCreateModal}>
@@ -517,9 +668,35 @@ function ExpenseList() {
         </div>
       </PageHero>
       <PageBody>
-        {/* Filters */}
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4 sm:p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        {/* Search + Filters */}
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4 sm:p-5 space-y-3">
+          {/* Search bar */}
+          <div className="relative">
+            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+              placeholder="Search by amount (4423 or 4,423), description, or payment mode (UPI / Cash)…"
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                ✕
+              </button>
+            )}
+          </div>
+          {/* Search result summary */}
+          {searchQuery.trim() && (
+            <p className="text-xs text-slate-500 pl-1">
+              <span className="font-semibold text-slate-700">{filteredExpenses.length}</span> result{filteredExpenses.length !== 1 ? "s" : ""} &middot; total <span className="font-bold text-indigo-600">{formatCurrency(searchTotal)}</span>
+            </p>
+          )}
+          {/* Date + Category filters */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <input
               type="text"
               value={filters.category}
@@ -533,23 +710,6 @@ function ExpenseList() {
               placeholder="Filter by category..."
               className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
             />
-            <select
-              value={filters.linked_type}
-              onChange={(event) => {
-                setPage(1);
-                setFilters((prev) => ({
-                  ...prev,
-                  linked_type: event.target.value,
-                }));
-              }}
-              className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-            >
-              <option value="">All Linked Types</option>
-              <option value="general">General</option>
-              <option value="loan">Loan</option>
-              <option value="property">Property</option>
-              <option value="partnership">Partnership</option>
-            </select>
             <input
               type="date"
               value={filters.from_date}
@@ -577,16 +737,12 @@ function ExpenseList() {
             <button
               onClick={() => {
                 setPage(1);
-                setFilters({
-                  category: "",
-                  linked_type: "",
-                  from_date: "",
-                  to_date: "",
-                });
+                setFilters({ category: "", from_date: getMonthStart(), to_date: getToday() });
+                setSearchQuery("");
               }}
               className="px-3.5 py-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 text-sm font-medium transition-colors"
             >
-              All Time
+              Reset
             </button>
           </div>
         </div>
@@ -596,7 +752,7 @@ function ExpenseList() {
           <div className="flex justify-center py-16">
             <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-200 border-t-indigo-600" />
           </div>
-        ) : expenses.length === 0 ? (
+        ) : filteredExpenses.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-16 text-center">
             <div className="text-4xl mb-3">💸</div>
             <p className="text-slate-400 text-sm">
@@ -636,7 +792,7 @@ function ExpenseList() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {expenses.map((expense) => (
+                  {filteredExpenses.map((expense) => (
                     <tr
                       key={expense.id}
                       className="hover:bg-slate-50/50 transition-colors"
@@ -824,54 +980,14 @@ function ExpenseList() {
                       payment_mode: event.target.value,
                     }))
                   }
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all hidden"
                 >
                   <option value="cash">Cash</option>
                   <option value="upi">UPI</option>
                   <option value="bank_transfer">Bank Transfer</option>
                   <option value="cheque">Cheque</option>
                 </select>
-                <select
-                  value={form.linked_type}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      linked_type: event.target.value,
-                      linked_id: "",
-                    }))
-                  }
-                  className="px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                >
-                  <option value="general">General</option>
-                  <option value="loan">Loan</option>
-                  <option value="property">Property</option>
-                  <option value="partnership">Partnership</option>
-                </select>
-                {form.linked_type && form.linked_type !== "general" ? (
-                  <LinkedRecordSelect
-                    linkedType={form.linked_type}
-                    value={form.linked_id}
-                    onChange={(val) =>
-                      setForm((prev) => ({ ...prev, linked_id: val }))
-                    }
-                    className=""
-                  />
-                ) : (
-                  <div />
-                )}
               </div>
-              <input
-                type="url"
-                placeholder="Receipt URL (optional)"
-                value={form.receipt_url}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    receipt_url: event.target.value,
-                  }))
-                }
-                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-              />
               <div>
                 <select
                   required
@@ -991,105 +1107,11 @@ function ExpenseList() {
 
       {/* Budget Modal */}
       {showBudgetModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 max-w-lg w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-            <div className="p-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-1">Set Monthly Budget</h2>
-              <p className="text-sm text-slate-400 mb-5">Set spending limits per category to track your budget.</p>
-              {budgetError && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 mb-4">
-                  {budgetError}
-                </div>
-              )}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!budgetForm.category || !budgetForm.monthly_limit) return;
-                  budgetMutation.mutate({
-                    category: budgetForm.category,
-                    monthly_limit: parseFloat(budgetForm.monthly_limit),
-                    rollover_enabled: budgetForm.rollover_enabled,
-                  });
-                }}
-                className="flex gap-2 mb-4"
-              >
-                <select
-                  value={budgetForm.category}
-                  onChange={(e) => setBudgetForm({ ...budgetForm, category: e.target.value })}
-                  className="flex-1 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                  required
-                >
-                  <option value="">Select Category</option>
-                  {EXPENSE_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  required
-                  placeholder="Monthly limit"
-                  value={budgetForm.monthly_limit}
-                  onChange={(e) => setBudgetForm({ ...budgetForm, monthly_limit: e.target.value })}
-                  className="w-36 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                />
-                <button
-                  type="submit"
-                  disabled={budgetMutation.isPending}
-                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
-                >
-                  {budgetMutation.isPending ? "…" : "Save"}
-                </button>
-              </form>
-              <label className="flex items-center gap-2 mb-4 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={budgetForm.rollover_enabled}
-                  onChange={(e) => setBudgetForm({ ...budgetForm, rollover_enabled: e.target.checked })}
-                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className="text-sm text-slate-700">
-                  🔄 Roll over unspent budget to next month
-                </span>
-              </label>
-              {/* Existing limits */}
-              {categoryLimits.length > 0 ? (
-                <div className="space-y-1.5">
-                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Limits</h4>
-                  {categoryLimits.map((cl) => (
-                    <div key={cl.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-200/60">
-                      <div>
-                        <span className="text-sm font-medium text-slate-700">{cl.category}</span>
-                        <span className="text-sm text-slate-400 ml-2">{formatCurrency(cl.monthly_limit)}/mo</span>
-                        {cl.rollover_enabled && (
-                          <span className="ml-2 text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded font-medium">🔄 Rollover</span>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => deleteBudgetMutation.mutate(cl.category)}
-                        className="text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-4">No budgets set yet. Add one above.</p>
-              )}
-              <div className="flex justify-end pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowBudgetModal(false)}
-                  className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 text-sm font-medium transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <BudgetModal
+          limits={categoryLimits}
+          onClose={() => setShowBudgetModal(false)}
+          onSave={saveBudgets}
+        />
       )}
     </div>
   );
