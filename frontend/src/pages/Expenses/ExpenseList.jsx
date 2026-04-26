@@ -108,16 +108,19 @@ function getToday() {
 }
 
 /* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Budget Modal \u2500\u2500 */
-function BudgetModal({ limits, onClose, onSave }) {
-  const categories = Object.keys(DEFAULT_BUDGETS);
+function BudgetModal({ limits, categories: dbCategories, onClose, onSave }) {
+  // Merge DB categories + any categories already saved in limits, deduplicated
+  const categories = useMemo(() => {
+    const base = dbCategories && dbCategories.length > 0 ? dbCategories : Object.keys(DEFAULT_BUDGETS);
+    const extra = limits.map(l => l.category).filter(c => !base.includes(c));
+    return [...base, ...extra];
+  }, [dbCategories, limits]);
+
   const [vals, setVals] = useState(() => {
     const m = {};
     categories.forEach(c => {
       const existing = limits.find(l => l.category === c);
-      m[c] = existing ? Number(existing.monthly_limit) : DEFAULT_BUDGETS[c];
-    });
-    limits.forEach(l => {
-      if (!(l.category in m)) m[l.category] = Number(l.monthly_limit);
+      m[c] = existing ? Number(existing.monthly_limit) : (DEFAULT_BUDGETS[c] || 0);
     });
     return m;
   });
@@ -126,9 +129,6 @@ function BudgetModal({ limits, onClose, onSave }) {
     categories.forEach(c => {
       const existing = limits.find(l => l.category === c);
       m[c] = existing ? Boolean(existing.rollover_enabled) : true;
-    });
-    limits.forEach(l => {
-      if (!(l.category in rolloverMap)) m[l.category] = Boolean(l.rollover_enabled);
     });
     return m;
   });
@@ -1109,6 +1109,7 @@ function ExpenseList() {
       {showBudgetModal && (
         <BudgetModal
           limits={categoryLimits}
+          categories={EXPENSE_CATEGORIES}
           onClose={() => setShowBudgetModal(false)}
           onSave={saveBudgets}
         />
