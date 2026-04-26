@@ -16,25 +16,54 @@ import {
 } from "lucide-react";
 
 const FALLBACK_CATEGORIES = [
-  "Home", "Market", "Grocery", "Medical", "Personal", "Business",
-  "Travel", "Education", "Rent", "Utilities", "Insurance", "Legal",
-  "Registration", "Fuel", "Maintenance", "Food & Dining", "Shopping",
-  "Entertainment", "Commission", "Miscellaneous",
+  "Housing & Utilities",
+  "Groceries & Daily Needs",
+  "Food & Dining",
+  "Education & Children",
+  "Transport & Auto",
+  "Health & Medical",
+  "Spiritual & Social",
+  "Personal & Lifestyle",
+  "Financial & Legal",
 ];
 
 const FALLBACK_SUBCATEGORIES = {
-  Grocery: ["Vegetables & Fruits", "Dairy & Eggs", "Grains & Staples", "Grocery Apps"],
-  "Food & Dining": ["Restaurant", "Food Delivery", "Snacks & Coffee", "Fast Food", "Mess / Tiffin"],
-  Travel: ["Cab & Taxi", "Air Travel", "Rail Travel", "Local Transport", "Toll & Parking"],
-  Medical: ["Hospital", "Medicine / Pharmacy", "Diagnostic", "Dental"],
-  Education: ["School / College Fees", "Books & Stationery", "Online Courses", "Coaching"],
-  Utilities: ["Electricity", "Internet & Phone", "Gas", "Water", "DTH / Cable"],
-  Shopping: ["Online Shopping", "Clothing & Fashion", "Electronics", "Jewellery"],
-  Entertainment: ["Movies", "Streaming", "Gaming", "Events"],
-  Maintenance: ["Vehicle Service", "Home Repair", "Appliance", "Painting / Renovation"],
-  Personal: ["Salon & Grooming", "Fitness", "Clothing"],
-  Fuel: ["Petrol", "Diesel", "CNG", "EV Charging"],
-  Home: ["Furniture", "Appliances", "Household Help", "Cleaning"],
+  "Housing & Utilities": [
+    "Rent / EMI", "Electricity", "Water", "Gas (Piped / Cylinder)",
+    "Internet & Phone", "DTH / Cable", "Society Maintenance", "Home Repair & Painting",
+  ],
+  "Groceries & Daily Needs": [
+    "Vegetables & Fruits", "Dairy & Eggs", "Grains & Staples",
+    "Spices & Condiments", "Grocery Apps (BigBasket, Blinkit)", "Household Supplies",
+  ],
+  "Food & Dining": [
+    "Restaurant / Eating Out", "Food Delivery (Swiggy, Zomato)",
+    "Snacks & Chai / Coffee", "Mess / Tiffin Service", "Sweet Shop / Mithai",
+  ],
+  "Education & Children": [
+    "School / College Fees", "Books & Stationery", "Coaching / Tuition",
+    "Online Courses", "Kids Activities / Sports",
+  ],
+  "Transport & Auto": [
+    "Petrol / Diesel / CNG", "Auto / Rickshaw", "Cab (Ola, Uber)",
+    "Vehicle Service / Repair", "Toll & Parking", "Vehicle Insurance / Tax",
+  ],
+  "Health & Medical": [
+    "Doctor / Hospital", "Medicine / Pharmacy", "Diagnostic / Lab Tests",
+    "Health Insurance Premium", "Dental / Eye Care",
+  ],
+  "Spiritual & Social": [
+    "Temple / Pooja / Daan", "Festivals & Celebrations",
+    "Gifts & Shagun", "Wedding / Function", "Charity / Donation",
+  ],
+  "Personal & Lifestyle": [
+    "Clothing & Fashion", "Salon & Grooming", "Online Shopping",
+    "Entertainment & Movies", "Gym / Fitness", "Mobile Recharge / Apps",
+  ],
+  "Financial & Legal": [
+    "Insurance Premium (LIC etc)", "Income Tax / TDS", "Legal / Stamp Duty",
+    "Bank Charges / Penalties", "Commission / Brokerage",
+  ],
 };
 
 const defaultForm = {
