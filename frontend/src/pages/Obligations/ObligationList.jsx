@@ -169,6 +169,10 @@ function ObligationList() {
 
   const handleCreate = (e) => {
     e.preventDefault();
+    if (!form.account_id) {
+      setErrorMessage("Please select an account before saving.");
+      return;
+    }
     const payload = {
       ...form,
       amount: parseFloat(form.amount),
@@ -804,22 +808,30 @@ function ObligationList() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
-                    Account
+                    Account <span className="text-red-500">*</span>
                   </label>
                   <select
+                    required
                     value={form.account_id}
                     onChange={(e) =>
                       setForm({ ...form, account_id: e.target.value })
                     }
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all ${
+                      !form.account_id
+                        ? "border-amber-400 bg-amber-50"
+                        : "border-slate-200 focus:border-indigo-400"
+                    }`}
                   >
-                    <option value="">— No account —</option>
+                    <option value="">— Select Account (required) —</option>
                     {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
                       </option>
                     ))}
                   </select>
+                  {!form.account_id && (
+                    <p className="text-xs text-amber-600 mt-1">An account is required to track money flow.</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">

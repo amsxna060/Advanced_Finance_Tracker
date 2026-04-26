@@ -75,10 +75,13 @@ def expense_analytics(
     expenses = query.order_by(Expense.expense_date.asc()).all()
 
     by_category = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
+    by_sub_category = defaultdict(lambda: defaultdict(lambda: {"total": Decimal("0"), "count": 0}))
     by_month = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
     by_mode = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
     by_linked = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
     by_account = defaultdict(lambda: {"total": Decimal("0"), "count": 0, "name": ""})
+    by_day: dict = defaultdict(lambda: {"total": Decimal("0"), "count": 0})
+    by_week: dict = defaultdict(lambda: {"total": Decimal("0"), "count": 0, "from_date": None, "to_date": None})
     grand_total = Decimal("0")
 
     accounts = {a.id: a.name for a in db.query(CashAccount).all()}
@@ -90,6 +93,10 @@ def expense_analytics(
         cat = exp.category or "Uncategorized"
         by_category[cat]["total"] += amount
         by_category[cat]["count"] += 1
+
+        sub = exp.sub_category or "Other"
+        by_sub_category[cat][sub]["total"] += amount
+        by_sub_category[cat][sub]["count"] += 1
 
         month_key = exp.expense_date.strftime("%Y-%m")
         by_month[month_key]["total"] += amount
@@ -108,10 +115,34 @@ def expense_analytics(
             by_account[exp.account_id]["count"] += 1
             by_account[exp.account_id]["name"] = accounts.get(exp.account_id, f"Account #{exp.account_id}")
 
+        # Daily tracking
+        day_key = exp.expense_date.isoformat()
+        by_day[day_key]["total"] += amount
+        by_day[day_key]["count"] += 1
+
+        # Weekly tracking (ISO week)
+        iso_year, iso_week, _ = exp.expense_date.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
+        by_week[week_key]["total"] += amount
+        by_week[week_key]["count"] += 1
+        if by_week[week_key]["from_date"] is None or exp.expense_date < by_week[week_key]["from_date"]:
+            by_week[week_key]["from_date"] = exp.expense_date
+        if by_week[week_key]["to_date"] is None or exp.expense_date > by_week[week_key]["to_date"]:
+            by_week[week_key]["to_date"] = exp.expense_date
+
     categories = sorted(
         [{"category": k, "total": v["total"], "count": v["count"]} for k, v in by_category.items()],
         key=lambda x: x["total"], reverse=True,
     )
+    # Build sub_categories per category (sorted by total desc)
+    sub_categories = {
+        cat: sorted(
+            [{"sub_category": sub, "total": v["total"], "count": v["count"]}
+             for sub, v in subs.items()],
+            key=lambda x: x["total"], reverse=True,
+        )
+        for cat, subs in by_sub_category.items()
+    }
     monthly = [{"month": k, "total": v["total"], "count": v["count"]} for k, v in sorted(by_month.items())]
     modes = sorted(
         [{"mode": k, "total": v["total"], "count": v["count"]} for k, v in by_mode.items()],
@@ -126,14 +157,48 @@ def expense_analytics(
         key=lambda x: x["total"], reverse=True,
     )
 
+    # Daily breakdown: sorted by total desc, return all
+    daily_list = sorted(
+        [{"date": k, "total": v["total"], "count": v["count"]} for k, v in by_day.items()],
+        key=lambda x: x["total"], reverse=True,
+    )
+    peak_day = daily_list[0] if daily_list else None
+
+    # Weekly breakdown
+    def _week_label(key: str, from_dt, to_dt) -> str:
+        if from_dt and to_dt:
+            return f"{from_dt.strftime('%d %b')} – {to_dt.strftime('%d %b %Y')}"
+        return key
+
+    weekly_list = sorted(
+        [
+            {
+                "week": k,
+                "label": _week_label(k, v["from_date"], v["to_date"]),
+                "from_date": v["from_date"].isoformat() if v["from_date"] else None,
+                "to_date": v["to_date"].isoformat() if v["to_date"] else None,
+                "total": v["total"],
+                "count": v["count"],
+            }
+            for k, v in by_week.items()
+        ],
+        key=lambda x: x["total"], reverse=True,
+    )
+    peak_week = weekly_list[0] if weekly_list else None
+
     return {
         "grand_total": grand_total,
         "expense_count": len(expenses),
         "categories": categories,
+        "sub_categories": sub_categories,
         "monthly": monthly,
         "payment_modes": modes,
         "linked_types": linked_types,
         "accounts": account_breakdown,
+        "daily": daily_list[:30],
+        "weekly": weekly_list,
+        "peak_day": peak_day,
+        "peak_week": peak_week,
     }
 
 
@@ -145,14 +210,14 @@ def suggest_expense_category(
 ):
     """
     AI-powered category + sub-category suggestion.
-    Checks learned user mappings first, then falls back to keyword rules.
+    Priority: 1) Learned user mappings  2) Keyword rules  3) Gemini AI
     """
     from app.services.expense_categorizer import suggest_category, suggest_subcategory
     from app.services.learning import suggest_from_learnings
 
     description = payload.get("description", "")
 
-    # 1. Check learned mappings first
+    # 1. Check learned mappings first (fastest, personalized)
     learned = suggest_from_learnings(db, description)
     if learned:
         return {
@@ -161,13 +226,85 @@ def suggest_expense_category(
             "source": "learned",
         }
 
-    # 2. Fall back to keyword rules
+    # 2. Keyword rules
     suggested_category = suggest_category(description)
-    suggested_subcategory = suggest_subcategory(suggested_category, description)
+    suggested_subcategory = suggest_subcategory(suggested_category, description) if suggested_category else None
+    if suggested_category:
+        return {
+            "suggested_category": suggested_category,
+            "suggested_subcategory": suggested_subcategory,
+            "source": "rules",
+        }
+
+    # 3. Gemini AI fallback — only when keyword rules find nothing
+    try:
+        from app.config import settings
+        if settings.GEMINI_API_KEY:
+            from google import genai as _genai
+            _client = _genai.Client(api_key=settings.GEMINI_API_KEY)
+
+            # Build the definitive category + subcategory list
+            # Merge hardcoded rules with any user-created DB categories
+            from app.services.expense_categorizer import CATEGORY_RULES, SUBCATEGORY_RULES
+            from app.models.category import Category as CategoryModel
+            db_parent_cats = {
+                c.name for c in db.query(CategoryModel)
+                .filter(CategoryModel.is_active == True, CategoryModel.parent_id == None)
+                .all()
+            }
+            all_cats = sorted(set(list(CATEGORY_RULES.keys()) + list(db_parent_cats)))
+            # Build subcategory map: include DB children for each category
+            db_children = {}
+            for c in db.query(CategoryModel).filter(CategoryModel.is_active == True, CategoryModel.parent_id != None).all():
+                parent = db.query(CategoryModel).filter(CategoryModel.id == c.parent_id).first()
+                if parent:
+                    db_children.setdefault(parent.name, set()).add(c.name)
+
+            sub_map_lines = "\n".join(
+                f"  {cat}: {', '.join(sorted(set(list(SUBCATEGORY_RULES.get(cat, {}).keys()) + list(db_children.get(cat, [])))))}"
+                for cat in all_cats
+            )
+            prompt = (
+                f"You are a financial expense categorizer for an Indian household finance tracker.\n"
+                f"Given the expense description below, pick the BEST matching category and sub-category "
+                f"from the provided lists. Reply in JSON only: "
+                f'{{\"category\": \"<name>\", \"sub_category\": \"<name or null>\"}}\n\n'
+                f"AVAILABLE CATEGORIES: {', '.join(all_cats)}\n\n"
+                f"SUBCATEGORIES PER CATEGORY:\n{sub_map_lines}\n\n"
+                f"EXPENSE DESCRIPTION: \"{description}\"\n\n"
+                f"Rules:\n"
+                f"- category MUST be exactly one of the available categories\n"
+                f"- sub_category must be from that category's list or null if no good match\n"
+                f"- Reply with ONLY the JSON, no explanation"
+            )
+            response = _client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+            )
+            raw = (response.text or "").strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            import json as _json
+            parsed = _json.loads(raw.strip())
+            ai_cat = parsed.get("category") or None
+            ai_sub = parsed.get("sub_category") or None
+            # Validate category is in allowed list (prevent hallucination)
+            if ai_cat and ai_cat in all_cats:
+                return {
+                    "suggested_category": ai_cat,
+                    "suggested_subcategory": ai_sub,
+                    "source": "gemini",
+                }
+    except Exception:
+        pass  # Gemini unavailable — return None gracefully
+
     return {
-        "suggested_category": suggested_category,
-        "suggested_subcategory": suggested_subcategory,
-        "source": "rules",
+        "suggested_category": None,
+        "suggested_subcategory": None,
+        "source": "none",
     }
 
 

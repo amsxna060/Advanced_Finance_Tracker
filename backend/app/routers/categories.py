@@ -7,7 +7,7 @@ Endpoints:
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -59,3 +59,44 @@ def list_categories(
             roots.append(node)
 
     return roots
+
+
+@router.post("")
+def create_category(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a new category (parent_id=None) or sub-category (parent_id=<id>).
+    Returns the existing record if the same name+parent already exists.
+    """
+    name = (payload.get("name") or "").strip()
+    parent_id = payload.get("parent_id") or None
+    icon = (payload.get("icon") or "💰").strip()
+
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+
+    # Return existing to prevent duplicates
+    existing = (
+        db.query(Category)
+        .filter(Category.name == name, Category.parent_id == parent_id, Category.is_active == True)
+        .first()
+    )
+    if existing:
+        return {
+            "id": existing.id, "name": existing.name,
+            "parent_id": existing.parent_id, "icon": existing.icon,
+            "already_existed": True,
+        }
+
+    cat = Category(name=name, parent_id=parent_id, icon=icon, is_active=True, sort_order=999)
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return {
+        "id": cat.id, "name": cat.name,
+        "parent_id": cat.parent_id, "icon": cat.icon,
+        "already_existed": False,
+    }

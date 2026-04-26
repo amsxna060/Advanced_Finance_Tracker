@@ -78,8 +78,9 @@ function ExpenseList() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [autoFilled, setAutoFilled] = useState(false);
+  const [geminiSuggest, setGeminiSuggest] = useState(null); // {category, sub_category} when Gemini suggests a new category
   const [showBudgetModal, setShowBudgetModal] = useState(false);
-  const [budgetForm, setBudgetForm] = useState({ category: "", monthly_limit: "" });
+  const [budgetForm, setBudgetForm] = useState({ category: "", monthly_limit: "", rollover_enabled: false });
   const [budgetError, setBudgetError] = useState("");
 
   const { data: expenseData, isLoading } = useQuery({
@@ -96,6 +97,20 @@ function ExpenseList() {
       const response = await api.get("/api/expenses", { params });
       return response.data;
     },
+  });
+
+  // Separate analytics query — covers ALL expenses in the period (not just current page)
+  const { data: periodStats } = useQuery({
+    queryKey: ["expense-period-stats", filters],
+    queryFn: async () => {
+      const params = {};
+      if (filters.from_date) params.from_date = filters.from_date;
+      if (filters.to_date) params.to_date = filters.to_date;
+      if (filters.category) params.category = filters.category;
+      if (filters.linked_type) params.linked_type = filters.linked_type;
+      return (await api.get("/api/expenses/analytics/summary", { params })).data;
+    },
+    staleTime: 60 * 1000,
   });
 
   const expenses = Array.isArray(expenseData)
@@ -158,7 +173,7 @@ function ExpenseList() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["category-limits"] });
       queryClient.invalidateQueries({ queryKey: ["budget-vs-actual"] });
-      setBudgetForm({ category: "", monthly_limit: "" });
+      setBudgetForm({ category: "", monthly_limit: "", rollover_enabled: false });
       setBudgetError("");
     },
     onError: (e) =>
@@ -201,9 +216,25 @@ function ExpenseList() {
     },
   });
 
+  const saveNewCategoryMutation = useMutation({
+    mutationFn: async ({ category, sub_category }) => {
+      const parentRes = await api.post("/api/categories", { name: category });
+      const parentId = parentRes.data?.id;
+      if (sub_category && parentId) {
+        await api.post("/api/categories", { name: sub_category, parent_id: parentId });
+      }
+      return parentRes.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(["categories-tree"]);
+      setGeminiSuggest(null);
+    },
+  });
+
   const handleSuggest = async () => {
     if (!form.description || form.description.trim().length < 3) return;
     setIsSuggesting(true);
+    setGeminiSuggest(null);
     try {
       const res = await api.post("/api/expenses/suggest-category", {
         description: form.description,
@@ -216,10 +247,17 @@ function ExpenseList() {
           category: cat,
           sub_category: sub || "",
         }));
-        setAutoFilled(true);
+        const source = res.data?.source || "ai";
+        setAutoFilled(source);
+        // If Gemini suggested a category not in our DB list, offer to save it
+        if (source === "gemini" && !EXPENSE_CATEGORIES.includes(cat)) {
+          setGeminiSuggest({ category: cat, sub_category: sub || "" });
+        }
+      } else {
+        setAutoFilled("none");
       }
     } catch {
-      // ignore
+      setAutoFilled("none");
     } finally {
       setIsSuggesting(false);
     }
@@ -227,6 +265,11 @@ function ExpenseList() {
 
   const submitExpense = async (event) => {
     event.preventDefault();
+
+    if (!form.account_id) {
+      setErrorMessage("Please select an account — this is required for money flow tracking.");
+      return;
+    }
 
     let category = form.category;
     let sub_category = form.sub_category;
@@ -307,26 +350,7 @@ function ExpenseList() {
     },
   });
 
-  const totals = useMemo(() => {
-    const byCat = {};
-    return expenses.reduce(
-      (acc, expense) => {
-        const amount = Number(expense.amount || 0);
-        acc.total += amount;
-        acc.count += 1;
-        if (expense.linked_type === "general" || !expense.linked_type) {
-          acc.general += amount;
-        }
-        const cat = expense.category || "Uncategorized";
-        byCat[cat] = (byCat[cat] || 0) + amount;
-        acc.byCat = byCat;
-        return acc;
-      },
-      { total: 0, general: 0, count: 0, byCat: {} },
-    );
-  }, [expenses]);
-
-  // Derived hero stats
+  // Derived hero stats — use periodStats (full period) for accuracy, not paginated list
   const daysInRange = useMemo(() => {
     if (!filters.from_date || !filters.to_date) return 30;
     const from = new Date(filters.from_date);
@@ -334,31 +358,33 @@ function ExpenseList() {
     return Math.max(1, Math.ceil((to - from) / 86400000) + 1);
   }, [filters.from_date, filters.to_date]);
 
-  const dailyBurnRate = totals.total / daysInRange;
+  const heroTotal = Number(periodStats?.grand_total || 0);
+  const heroCount = periodStats?.expense_count || 0;
+  const dailyBurnRate = heroTotal / daysInRange;
 
   const highestBurner = useMemo(() => {
-    const cats = Object.entries(totals.byCat || {});
+    const cats = periodStats?.categories || [];
     if (cats.length === 0) return null;
-    cats.sort((a, b) => b[1] - a[1]);
-    return { name: cats[0][0], amount: cats[0][1] };
-  }, [totals.byCat]);
+    return { name: cats[0].category, amount: Number(cats[0].total) };
+  }, [periodStats]);
 
   const budgetStanding = useMemo(() => {
     if (budgetData && budgetData.total_budget > 0) {
       return { type: "budget", pct: budgetData.pct_used || 0 };
     }
     if (prevPeriodData && prevPeriodData.total > 0) {
-      const change = ((totals.total - prevPeriodData.total) / prevPeriodData.total) * 100;
+      const change = ((heroTotal - prevPeriodData.total) / prevPeriodData.total) * 100;
       return { type: "comparison", pct: change };
     }
     return { type: "none" };
-  }, [budgetData, prevPeriodData, totals.total]);
+  }, [budgetData, prevPeriodData, heroTotal]);
 
   const openCreateModal = () => {
     setEditingExpense(null);
     setForm(defaultForm);
     setErrorMessage("");
     setAutoFilled(false);
+    setGeminiSuggest(null);
     setShowModal(true);
   };
 
@@ -378,6 +404,7 @@ function ExpenseList() {
     });
     setErrorMessage("");
     setAutoFilled(false);
+    setGeminiSuggest(null);
     setShowModal(true);
   };
 
@@ -406,8 +433,8 @@ function ExpenseList() {
               <Flame className="w-4 h-4 text-rose-300" />
               <span className="text-xs font-medium text-white/70">Total Period Expense</span>
             </div>
-            <div className="text-xl font-bold text-white">{formatCurrency(totals.total)}</div>
-            <div className="text-xs text-white/50 mt-0.5">{totals.count} entries · {daysInRange} days</div>
+            <div className="text-xl font-bold text-white">{formatCurrency(heroTotal)}</div>
+            <div className="text-xs text-white/50 mt-0.5">{heroCount} entries · {daysInRange} days</div>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
             <div className="flex items-center gap-2 mb-1">
@@ -598,8 +625,8 @@ function ExpenseList() {
                         {expense.linked_type || "general"}
                         {expense.linked_id ? ` #${expense.linked_id}` : ""}
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right whitespace-nowrap">
-                        {formatCurrency(expense.amount)}
+                      <td className="px-4 py-3 text-sm font-semibold text-rose-600 text-right whitespace-nowrap">
+                        − {formatCurrency(expense.amount)}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-600 capitalize hidden lg:table-cell">
                         {expense.payment_mode || "-"}
@@ -816,23 +843,33 @@ function ExpenseList() {
                 }
                 className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
               />
-              <select
-                value={form.account_id}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    account_id: event.target.value,
-                  }))
-                }
-                className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-              >
-                <option value="">-- No account (cash flow) --</option>
-                {(accountsList || []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.account_type})
-                  </option>
-                ))}
-              </select>
+              <div>
+                <select
+                  required
+                  value={form.account_id}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      account_id: event.target.value,
+                    }))
+                  }
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all ${
+                    !form.account_id ? "border-amber-300 bg-amber-50/50" : "border-slate-200"
+                  }`}
+                >
+                  <option value="">— Select Account (required) —</option>
+                  {(accountsList || []).map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.account_type})
+                    </option>
+                  ))}
+                </select>
+                {!form.account_id && (
+                  <p className="text-xs text-amber-600 mt-1 ml-1">
+                    ⚠ Selecting an account ensures proper money flow tracking
+                  </p>
+                )}
+              </div>
               <div className="space-y-2">
                 <textarea
                   rows="3"
@@ -860,10 +897,29 @@ function ExpenseList() {
                   >
                     {isSuggesting ? "Thinking…" : "✨ Auto-fill Category"}
                   </button>
-                  {autoFilled && (
-                    <span className="text-xs text-violet-600 font-medium">
-                      ✓ Category auto-filled — review &amp; adjust if needed
+                  {autoFilled && autoFilled !== "none" && (
+                    <span className="text-xs font-medium flex items-center gap-1 text-violet-600">
+                      ✓ Category auto-filled
+                      {autoFilled === "gemini" && <span className="bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded text-[10px]">Gemini</span>}
+                      {autoFilled === "rules" && <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">Rules</span>}
+                      {autoFilled === "learned" && <span className="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[10px]">Learned</span>}
+                      <span className="text-slate-400 font-normal">— review &amp; adjust if needed</span>
                     </span>
+                  )}
+                  {autoFilled === "none" && (
+                    <span className="text-xs text-amber-600 font-medium">
+                      ⚠ Couldn't detect category — please select manually
+                    </span>
+                  )}
+                  {geminiSuggest && (
+                    <button
+                      type="button"
+                      onClick={() => saveNewCategoryMutation.mutate(geminiSuggest)}
+                      disabled={saveNewCategoryMutation.isPending}
+                      className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-60"
+                    >
+                      {saveNewCategoryMutation.isPending ? "Saving…" : `➕ Save "${geminiSuggest.category}" as new category`}
+                    </button>
                   )}
                 </div>
               </div>
@@ -881,6 +937,7 @@ function ExpenseList() {
                     setForm(defaultForm);
                     setErrorMessage("");
                     setAutoFilled(false);
+                    setGeminiSuggest(null);
                   }}
                   className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium text-sm transition-colors"
                 >
@@ -922,6 +979,7 @@ function ExpenseList() {
                   budgetMutation.mutate({
                     category: budgetForm.category,
                     monthly_limit: parseFloat(budgetForm.monthly_limit),
+                    rollover_enabled: budgetForm.rollover_enabled,
                   });
                 }}
                 className="flex gap-2 mb-4"
@@ -955,6 +1013,17 @@ function ExpenseList() {
                   {budgetMutation.isPending ? "…" : "Save"}
                 </button>
               </form>
+              <label className="flex items-center gap-2 mb-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={budgetForm.rollover_enabled}
+                  onChange={(e) => setBudgetForm({ ...budgetForm, rollover_enabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-sm text-slate-700">
+                  🔄 Roll over unspent budget to next month
+                </span>
+              </label>
               {/* Existing limits */}
               {categoryLimits.length > 0 ? (
                 <div className="space-y-1.5">
@@ -964,6 +1033,9 @@ function ExpenseList() {
                       <div>
                         <span className="text-sm font-medium text-slate-700">{cl.category}</span>
                         <span className="text-sm text-slate-400 ml-2">{formatCurrency(cl.monthly_limit)}/mo</span>
+                        {cl.rollover_enabled && (
+                          <span className="ml-2 text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded font-medium">🔄 Rollover</span>
+                        )}
                       </div>
                       <button
                         onClick={() => deleteBudgetMutation.mutate(cl.category)}

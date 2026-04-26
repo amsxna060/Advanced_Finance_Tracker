@@ -35,6 +35,7 @@ def list_category_limits(
             "id": cl.id,
             "category": cl.category,
             "monthly_limit": Decimal(str(cl.monthly_limit)),
+            "rollover_enabled": cl.rollover_enabled,
         }
         for cl in limits
     ]
@@ -48,6 +49,7 @@ def upsert_category_limit(
 ):
     category = (payload.get("category") or "").strip()
     monthly_limit = payload.get("monthly_limit")
+    rollover_enabled = bool(payload.get("rollover_enabled", False))
 
     if not category:
         raise HTTPException(status_code=422, detail="category is required")
@@ -57,19 +59,21 @@ def upsert_category_limit(
     existing = db.query(CategoryLimit).filter(CategoryLimit.category == category).first()
     if existing:
         existing.monthly_limit = Decimal(str(monthly_limit))
+        existing.rollover_enabled = rollover_enabled
         db.commit()
         db.refresh(existing)
-        return {"id": existing.id, "category": existing.category, "monthly_limit": Decimal(str(existing.monthly_limit))}
+        return {"id": existing.id, "category": existing.category, "monthly_limit": Decimal(str(existing.monthly_limit)), "rollover_enabled": existing.rollover_enabled}
 
     cl = CategoryLimit(
         category=category,
         monthly_limit=Decimal(str(monthly_limit)),
+        rollover_enabled=rollover_enabled,
         created_by=current_user.id,
     )
     db.add(cl)
     db.commit()
     db.refresh(cl)
-    return {"id": cl.id, "category": cl.category, "monthly_limit": Decimal(str(cl.monthly_limit))}
+    return {"id": cl.id, "category": cl.category, "monthly_limit": Decimal(str(cl.monthly_limit)), "rollover_enabled": cl.rollover_enabled}
 
 
 @router.delete("/{category}")
@@ -140,4 +144,73 @@ def budget_vs_actual(
         "total_actual": total_actual,
         "pct_used": float(total_actual / total_budget * 100) if total_budget > 0 else None,
         "categories": categories,
+    }
+
+
+@router.get("/rollover-preview")
+def rollover_preview(
+    month: Optional[str] = Query(None, description="Target month YYYY-MM (defaults to next month)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    For each category with rollover_enabled=True, computes the effective budget
+    for the target month by carrying over unspent surplus from the previous month.
+    Overspend is NOT carried forward (rollover only adds surplus, never penalty).
+    """
+    today = date.today()
+    if month:
+        t_year, t_mon = int(month.split("-")[0]), int(month.split("-")[1])
+    else:
+        # Default: next month
+        if today.month == 12:
+            t_year, t_mon = today.year + 1, 1
+        else:
+            t_year, t_mon = today.year, today.month + 1
+
+    # Previous month
+    if t_mon == 1:
+        p_year, p_mon = t_year - 1, 12
+    else:
+        p_year, p_mon = t_year, t_mon - 1
+
+    p_from = date(p_year, p_mon, 1)
+    if p_mon == 12:
+        p_to = date(p_year + 1, 1, 1)
+    else:
+        p_to = date(p_year, p_mon + 1, 1)
+
+    limits = db.query(CategoryLimit).filter(CategoryLimit.rollover_enabled == True).all()
+    if not limits:
+        return {"month": f"{t_year}-{t_mon:02d}", "rollover_items": []}
+
+    # Get actual spend per category in previous month
+    prev_expenses = (
+        db.query(Expense)
+        .filter(Expense.expense_date >= p_from, Expense.expense_date < p_to)
+        .all()
+    )
+    prev_actual: dict[str, Decimal] = {}
+    for exp in prev_expenses:
+        cat = exp.category or "Uncategorized"
+        prev_actual[cat] = prev_actual.get(cat, Decimal("0")) + Decimal(str(exp.amount or 0))
+
+    rollover_items = []
+    for cl in limits:
+        base_budget = Decimal(str(cl.monthly_limit))
+        prev_spent = prev_actual.get(cl.category, Decimal("0"))
+        surplus = max(base_budget - prev_spent, Decimal("0"))
+        effective = base_budget + surplus
+        rollover_items.append({
+            "category": cl.category,
+            "base_budget": float(base_budget),
+            "prev_month_spent": float(prev_spent),
+            "surplus_carried": float(surplus),
+            "effective_budget": float(effective),
+        })
+
+    return {
+        "month": f"{t_year}-{t_mon:02d}",
+        "prev_month": f"{p_year}-{p_mon:02d}",
+        "rollover_items": rollover_items,
     }

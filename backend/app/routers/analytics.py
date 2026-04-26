@@ -2174,6 +2174,8 @@ def smart_forecast(
 
 # ── AI EXPENSE ANALYSIS ─────────────────────────────────────────────────────
 
+# ── AI EXPENSE ANALYSIS ─────────────────────────────────────────────────────
+
 @router.post("/ai-expense-analysis")
 def ai_expense_analysis(
     payload: dict,
@@ -2181,9 +2183,9 @@ def ai_expense_analysis(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Analyze expenses using smart heuristic engine.
-    Accepts: { "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
-    Returns: flagged unusual spending, category suggestions, financial insights.
+    Analyse expenses using Gemini AI for rich insights.
+    Falls back to heuristic engine if Gemini is unavailable.
+    Payload: { "from_date": "YYYY-MM-DD", "to_date": "YYYY-MM-DD" }
     """
     from fastapi import HTTPException as _HTTPExc
     from collections import defaultdict
@@ -2237,7 +2239,7 @@ def ai_expense_analysis(
     num_days = max((to_dt - from_dt).days, 1)
     daily_avg = total / num_days
 
-    # ── Flags ──
+    # ── Build heuristic flags and insights (always available) ──
     flags = []
     threshold_3x = float(avg_per_expense * 3)
     for exp in expenses:
@@ -2277,7 +2279,6 @@ def ai_expense_analysis(
                 "detail": f"\u20b9{float(curr_amt):,.0f} vs \u20b9{float(prev_amt):,.0f} previous month (+{increase_pct:.0f}%).",
             })
 
-    # ── Suggestions ──
     suggestions = []
     for cat, data in by_cat.items():
         items_no_sub = [i for i in data["items"] if not i["sub_category"]]
@@ -2287,19 +2288,18 @@ def ai_expense_analysis(
                 "suggestion": f"{len(items_no_sub)} items in '{cat}' lack sub-categories.",
             })
 
-    # ── Insights ──
-    insights = []
-    insights.append({
+    heuristic_insights = []
+    heuristic_insights.append({
         "icon": "\U0001f4ca", "title": "Spending Overview",
         "text": f"You spent \u20b9{float(total):,.0f} across {num_expenses} transactions over {num_days} days. That's \u20b9{float(daily_avg):,.0f}/day.",
     })
     if largest:
-        insights.append({
+        heuristic_insights.append({
             "icon": "\U0001f4b8", "title": "Biggest Expense",
             "text": f"\u20b9{largest['amount']:,.0f} on {largest['date']} \u2014 {largest['description'] or largest['category']}.",
         })
     top_cats = sorted(by_cat.items(), key=lambda x: x[1]["total"], reverse=True)[:3]
-    insights.append({
+    heuristic_insights.append({
         "icon": "\U0001f3f7\ufe0f", "title": "Top Categories",
         "text": ", ".join([f"{c} (\u20b9{float(d['total']):,.0f})" for c, d in top_cats]),
     })
@@ -2307,11 +2307,104 @@ def ai_expense_analysis(
         last_m = sorted_months[-1]
         prev_m = sorted_months[-2]
         diff = float(last_m[1] - prev_m[1])
-        insights.append({
+        heuristic_insights.append({
             "icon": "\U0001f4c8" if diff > 0 else "\U0001f4c9",
             "title": "Monthly Trend",
             "text": f"Spending went {'up' if diff > 0 else 'down'} by \u20b9{abs(diff):,.0f} from {prev_m[0]} to {last_m[0]}.",
         })
+
+    # ── Gemini AI analysis ──
+    gemini_narrative = None
+    ai_insights = []
+    ai_pie_data = []
+    try:
+        from app.config import settings
+        if settings.GEMINI_API_KEY:
+            from google import genai as _genai
+            import json as _json
+
+            _client = _genai.Client(api_key=settings.GEMINI_API_KEY)
+
+            top_cats_summary = "\n".join(
+                f"- {cat}: \u20b9{float(d['total']):,.0f} ({d['count']} txns)"
+                for cat, d in sorted(by_cat.items(), key=lambda x: x[1]["total"], reverse=True)[:8]
+            )
+            monthly_summary = "\n".join(
+                f"- {m}: \u20b9{float(a):,.0f}" for m, a in sorted_months
+            )
+            prompt = (
+                f"You are a personal financial advisor analyzing expense data for an Indian household.\n"
+                f"Analyse the following spending data and give actionable insights in plain conversational Hindi-English (Hinglish is fine).\n\n"
+                f"Period: {from_date_str} to {to_date_str}\n"
+                f"Total Spent: \u20b9{float(total):,.0f} across {num_expenses} transactions ({num_days} days)\n"
+                f"Daily Average: \u20b9{float(daily_avg):,.0f}\n\n"
+                f"Top Spending Categories:\n{top_cats_summary}\n\n"
+                f"Monthly Trend:\n{monthly_summary}\n\n"
+                f"Respond with JSON only, format:\n"
+                f'{{"insights": [{{"icon": "<emoji>", "title": "<short title>", "text": "<1-2 sentence insight>"}}], '
+                f'"suggestions": [{{"category": "<cat>", "suggestion": "<actionable advice>"}}], '
+                f'"narrative": "<2-3 sentence overall assessment in conversational tone>"}}\n\n'
+                f"Give 4-5 insights and 2-3 suggestions. Be specific with numbers. Use \u20b9 symbol."
+            )
+            response = _client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+            )
+            raw = (response.text or "").strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            parsed = _json.loads(raw.strip())
+            ai_insights = parsed.get("insights", [])
+            gemini_suggestions = parsed.get("suggestions", [])
+            gemini_narrative = parsed.get("narrative", "")
+            # Merge suggestions (AI ones are more useful)
+            if gemini_suggestions:
+                suggestions = gemini_suggestions
+
+            # ── Second Gemini call: AI thematic pie chart from raw descriptions ──
+            ai_pie_data = []
+            try:
+                sample_expenses = sorted(expenses, key=lambda e: _D(e.amount), reverse=True)[:60]
+                desc_lines = "\n".join(
+                    f"{e.description or 'Expense'} | ₹{float(_D(e.amount)):,.0f}"
+                    for e in sample_expenses if e.description
+                )[:3000]  # cap prompt size
+
+                if desc_lines:
+                    pie_prompt = (
+                        "You are a creative financial lifestyle analyst.\n"
+                        "Below are real expense descriptions with amounts from an Indian household.\n"
+                        "Group them into 5-7 THEMATIC lifestyle categories that reveal spending patterns "
+                        "(e.g., 'Weekend Social Life', 'Daily Fuel & Commute', 'Health & Wellness', "
+                        "'Digital & Entertainment', 'Home & Family', 'Street Food & Snacks').\n"
+                        "These themes should be DIFFERENT from standard accounting categories — they tell a STORY.\n"
+                        "For each theme, estimate the total amount from the expenses listed.\n\n"
+                        f"Expenses:\n{desc_lines}\n\n"
+                        "Respond with JSON only:\n"
+                        "{\"themes\": [{\"name\": \"<theme>\", \"amount\": <number>, \"count\": <n>, "
+                        "\"insight\": \"<1 sentence observation about this lifestyle theme>\"}]}\n"
+                        "Rules: amounts must sum close to the total of all listed expenses. "
+                        "No explanation outside JSON."
+                    )
+                    pie_response = _client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=pie_prompt,
+                    )
+                    pie_raw = (pie_response.text or "").strip()
+                    if pie_raw.startswith("```"):
+                        pie_raw = pie_raw.split("```")[1]
+                        if pie_raw.startswith("json"):
+                            pie_raw = pie_raw[4:]
+                    pie_parsed = _json.loads(pie_raw.strip())
+                    ai_pie_data = pie_parsed.get("themes", [])
+            except Exception:
+                pass  # AI pie chart is optional — fail silently
+    except Exception:
+        pass  # fall through to heuristic insights
+
+    insights = ai_insights if ai_insights else heuristic_insights
 
     return {
         "status": "ok",
@@ -2323,7 +2416,12 @@ def ai_expense_analysis(
             "daily_avg": float(daily_avg.quantize(Decimal("0.01"))),
             "categories_used": len(by_cat),
         },
-        "flags": flags, "suggestions": suggestions, "insights": insights,
+        "narrative": gemini_narrative,
+        "flags": flags,
+        "suggestions": suggestions,
+        "insights": insights,
+        "ai_powered": bool(gemini_narrative),
+        "ai_pie_data": ai_pie_data,
     }
 
 
