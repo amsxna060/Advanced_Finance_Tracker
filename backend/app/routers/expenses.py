@@ -40,8 +40,12 @@ def get_expenses(
 
     if category:
         query = query.filter(Expense.category == category)
-    if sub_category:
-        query = query.filter(Expense.sub_category == sub_category)
+    if sub_category is not None:
+        # "Other" is the synthetic label for expenses with NULL sub_category
+        if sub_category == "Other":
+            query = query.filter(Expense.sub_category == None)  # noqa: E711
+        else:
+            query = query.filter(Expense.sub_category == sub_category)
     if linked_type:
         query = query.filter(Expense.linked_type == linked_type)
     if from_date:
