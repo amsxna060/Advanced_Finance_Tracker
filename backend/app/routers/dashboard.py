@@ -7,7 +7,8 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -134,7 +135,12 @@ def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    active_loans = db.query(Loan).filter(Loan.is_deleted == False, Loan.status == "active").all()
+    active_loans = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(joinedload(Loan.payments))
+        .all()
+    )
     active_properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled").count()
     active_partnerships = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.status == "active").all()
 
@@ -203,7 +209,12 @@ def get_dashboard_alerts(
     current_user: User = Depends(get_current_user),
 ):
     alerts = {"overdue": [], "collateral": [], "capitalization": []}
-    active_loans = db.query(Loan).filter(Loan.is_deleted == False, Loan.status == "active").all()
+    active_loans = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(joinedload(Loan.collaterals))
+        .all()
+    )
 
     for loan in active_loans:
         try:
@@ -223,7 +234,7 @@ def get_dashboard_alerts(
                     }
                 )
 
-            collaterals = db.query(Collateral).filter(Collateral.loan_id == loan.id).all()
+            collaterals = loan.collaterals
             for collateral in collaterals:
                 estimated_value = _decimal(collateral.estimated_value)
                 threshold_pct = _decimal(collateral.warning_threshold_pct)
@@ -269,36 +280,69 @@ def get_dashboard_cashflow(
     inflow_map: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     outflow_map: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
 
-    for payment in db.query(LoanPayment).all():
-        key = _month_key(payment.payment_date)
-        loan = payment.loan
-        if not loan:
-            continue
-        amount = _decimal(payment.amount_paid)
-        if loan.loan_direction == "given":
-            inflow_map[key] += amount
+    # Only look at months we care about
+    cutoff_date = month_buckets[0]
+
+    # Loan payments — single GROUP BY query joined with Loan for direction
+    for row in (
+        db.query(
+            func.to_char(LoanPayment.payment_date, "YYYY-MM").label("mk"),
+            Loan.loan_direction,
+            func.sum(LoanPayment.amount_paid).label("total"),
+        )
+        .join(Loan, Loan.id == LoanPayment.loan_id)
+        .filter(LoanPayment.payment_date >= cutoff_date)
+        .group_by(func.to_char(LoanPayment.payment_date, "YYYY-MM"), Loan.loan_direction)
+        .all()
+    ):
+        if row.loan_direction == "given":
+            inflow_map[row.mk] += _decimal(row.total)
         else:
-            outflow_map[key] += amount
+            outflow_map[row.mk] += _decimal(row.total)
 
-    for transaction in db.query(PropertyTransaction).all():
-        key = _month_key(transaction.txn_date)
-        amount = _decimal(transaction.amount)
-        if transaction.txn_type in INFLOW_PROPERTY_TXN_TYPES:
-            inflow_map[key] += amount
-        elif transaction.txn_type in OUTFLOW_PROPERTY_TXN_TYPES:
-            outflow_map[key] += amount
+    # Property transactions — single GROUP BY query
+    for row in (
+        db.query(
+            func.to_char(PropertyTransaction.txn_date, "YYYY-MM").label("mk"),
+            PropertyTransaction.txn_type,
+            func.sum(PropertyTransaction.amount).label("total"),
+        )
+        .filter(PropertyTransaction.txn_date >= cutoff_date)
+        .group_by(func.to_char(PropertyTransaction.txn_date, "YYYY-MM"), PropertyTransaction.txn_type)
+        .all()
+    ):
+        if row.txn_type in INFLOW_PROPERTY_TXN_TYPES:
+            inflow_map[row.mk] += _decimal(row.total)
+        elif row.txn_type in OUTFLOW_PROPERTY_TXN_TYPES:
+            outflow_map[row.mk] += _decimal(row.total)
 
-    for transaction in db.query(PartnershipTransaction).all():
-        key = _month_key(transaction.txn_date)
-        amount = _decimal(transaction.amount)
-        if transaction.txn_type in INFLOW_PARTNERSHIP_TXN_TYPES:
-            inflow_map[key] += amount
-        elif transaction.txn_type in OUTFLOW_PARTNERSHIP_TXN_TYPES:
-            outflow_map[key] += amount
+    # Partnership transactions — single GROUP BY query
+    for row in (
+        db.query(
+            func.to_char(PartnershipTransaction.txn_date, "YYYY-MM").label("mk"),
+            PartnershipTransaction.txn_type,
+            func.sum(PartnershipTransaction.amount).label("total"),
+        )
+        .filter(PartnershipTransaction.txn_date >= cutoff_date)
+        .group_by(func.to_char(PartnershipTransaction.txn_date, "YYYY-MM"), PartnershipTransaction.txn_type)
+        .all()
+    ):
+        if row.txn_type in INFLOW_PARTNERSHIP_TXN_TYPES:
+            inflow_map[row.mk] += _decimal(row.total)
+        elif row.txn_type in OUTFLOW_PARTNERSHIP_TXN_TYPES:
+            outflow_map[row.mk] += _decimal(row.total)
 
-    for expense in db.query(Expense).all():
-        key = _month_key(expense.expense_date)
-        outflow_map[key] += _decimal(expense.amount)
+    # Expenses — single GROUP BY query
+    for row in (
+        db.query(
+            func.to_char(Expense.expense_date, "YYYY-MM").label("mk"),
+            func.sum(Expense.amount).label("total"),
+        )
+        .filter(Expense.expense_date >= cutoff_date)
+        .group_by(func.to_char(Expense.expense_date, "YYYY-MM"))
+        .all()
+    ):
+        outflow_map[row.mk] += _decimal(row.total)
 
     cashflow = []
     for month in month_buckets:

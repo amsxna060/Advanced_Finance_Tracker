@@ -97,7 +97,15 @@ def budget_vs_actual(
     current_user: User = Depends(get_current_user),
 ):
     if month:
-        year, mon = int(month.split("-")[0]), int(month.split("-")[1])
+        try:
+            parts = month.split("-")
+            if len(parts) != 2:
+                raise ValueError()
+            year, mon = int(parts[0]), int(parts[1])
+            if not (1 <= mon <= 12) or year < 2000 or year > 2100:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="month must be in YYYY-MM format (e.g. 2024-03)")
     else:
         today = date.today()
         year, mon = today.year, today.month
@@ -160,7 +168,15 @@ def rollover_preview(
     """
     today = date.today()
     if month:
-        t_year, t_mon = int(month.split("-")[0]), int(month.split("-")[1])
+        try:
+            parts = month.split("-")
+            if len(parts) != 2:
+                raise ValueError()
+            t_year, t_mon = int(parts[0]), int(parts[1])
+            if not (1 <= t_mon <= 12) or t_year < 2000 or t_year > 2100:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="month must be in YYYY-MM format (e.g. 2024-03)")
     else:
         # Default: next month
         if today.month == 12:

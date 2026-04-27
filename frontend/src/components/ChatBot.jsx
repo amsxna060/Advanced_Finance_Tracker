@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import DOMPurify from "dompurify";
 import api from "../lib/api";
 
 /* ── Markdown-lite renderer ───────────────────────────────────────── */
@@ -76,7 +77,8 @@ function formatInlineMarkdown(text) {
   text = text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
   // Inline code
   text = text.replace(/`(.+?)`/g, '<code class="bg-slate-100 px-1 rounded text-xs">$1</code>');
-  return <span dangerouslySetInnerHTML={{ __html: text }} />;
+  // Sanitize to prevent XSS from injected HTML in AI responses
+  return <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(text) }} />;
 }
 
 function renderLine(line, key) {

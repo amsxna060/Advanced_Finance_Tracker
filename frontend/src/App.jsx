@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -5,39 +6,49 @@ import {
   Navigate,
 } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import ContactList from "./pages/Contacts/ContactList";
-import ContactDetail from "./pages/Contacts/ContactDetail";
-import ContactForm from "./pages/Contacts/ContactForm";
-import LoanList from "./pages/Loans/LoanList";
-import LoanDetail from "./pages/Loans/LoanDetail";
-import LoanForm from "./pages/Loans/LoanForm";
-import LoanStatement from "./pages/Loans/LoanStatement";
-import PropertyList from "./pages/Properties/PropertyList";
-import PropertyDetail from "./pages/Properties/PropertyDetail";
-import PropertyForm from "./pages/Properties/PropertyForm";
-import PartnershipList from "./pages/Partnerships/PartnershipList";
-import PartnershipDetail from "./pages/Partnerships/PartnershipDetail";
-import PartnershipForm from "./pages/Partnerships/PartnershipForm";
-import ExpenseList from "./pages/Expenses/ExpenseList";
-import Reports from "./pages/Reports/Reports";
-import Forecast from "./pages/Analytics/Forecast";
-import ExpenseAnalytics from "./pages/Analytics/ExpenseAnalytics";
-import Reconciliation from "./pages/Analytics/Reconciliation";
-import NetWorth from "./pages/Analytics/NetWorth";
-import BeesiList from "./pages/Beesi/BeesiList";
-import BeesiForm from "./pages/Beesi/BeesiForm";
-import BeesiDetail from "./pages/Beesi/BeesiDetail";
-import AccountList from "./pages/Accounts/AccountList";
-import AccountForm from "./pages/Accounts/AccountForm";
-import AccountDetail from "./pages/Accounts/AccountDetail";
-import ObligationList from "./pages/Obligations/ObligationList";
-import AdminMigration from "./pages/Admin/AdminMigration";
+
+// Lazy-load all pages so each route is a separate chunk
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const ContactList = lazy(() => import("./pages/Contacts/ContactList"));
+const ContactDetail = lazy(() => import("./pages/Contacts/ContactDetail"));
+const ContactForm = lazy(() => import("./pages/Contacts/ContactForm"));
+const LoanList = lazy(() => import("./pages/Loans/LoanList"));
+const LoanDetail = lazy(() => import("./pages/Loans/LoanDetail"));
+const LoanForm = lazy(() => import("./pages/Loans/LoanForm"));
+const LoanStatement = lazy(() => import("./pages/Loans/LoanStatement"));
+const PropertyList = lazy(() => import("./pages/Properties/PropertyList"));
+const PropertyDetail = lazy(() => import("./pages/Properties/PropertyDetail"));
+const PropertyForm = lazy(() => import("./pages/Properties/PropertyForm"));
+const PartnershipList = lazy(() => import("./pages/Partnerships/PartnershipList"));
+const PartnershipDetail = lazy(() => import("./pages/Partnerships/PartnershipDetail"));
+const PartnershipForm = lazy(() => import("./pages/Partnerships/PartnershipForm"));
+const ExpenseList = lazy(() => import("./pages/Expenses/ExpenseList"));
+const Reports = lazy(() => import("./pages/Reports/Reports"));
+const Forecast = lazy(() => import("./pages/Analytics/Forecast"));
+const ExpenseAnalytics = lazy(() => import("./pages/Analytics/ExpenseAnalytics"));
+const Reconciliation = lazy(() => import("./pages/Analytics/Reconciliation"));
+const NetWorth = lazy(() => import("./pages/Analytics/NetWorth"));
+const BeesiList = lazy(() => import("./pages/Beesi/BeesiList"));
+const BeesiForm = lazy(() => import("./pages/Beesi/BeesiForm"));
+const BeesiDetail = lazy(() => import("./pages/Beesi/BeesiDetail"));
+const AccountList = lazy(() => import("./pages/Accounts/AccountList"));
+const AccountForm = lazy(() => import("./pages/Accounts/AccountForm"));
+const AccountDetail = lazy(() => import("./pages/Accounts/AccountDetail"));
+const ObligationList = lazy(() => import("./pages/Obligations/ObligationList"));
+const AdminMigration = lazy(() => import("./pages/Admin/AdminMigration"));
+
+// Minimal spinner shown while a lazy chunk loads
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-screen bg-slate-50">
+      <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent" />
+    </div>
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +65,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Router>
+          <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route
@@ -410,9 +422,9 @@ function App() {
             />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          </Suspense>
         </Router>
       </AuthProvider>
-      <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );
 }

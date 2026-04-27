@@ -1,5 +1,9 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import time
@@ -15,19 +19,26 @@ import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Propert
 from app.routers import auth, contacts, loans, collateral, property_deals, partnerships, expenses, dashboard, reports
 from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot
 
+# Rate limiter — keyed by remote IP
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
 app = FastAPI(
     title="Advanced Finance Tracker",
     description="Personal finance management for money lending and property deals",
     version="0.1.0"
 )
 
+# Attach limiter to app state so slowapi can find it
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # Include routers

@@ -5,8 +5,10 @@ Uses function-calling so the model can query financial data tools.
 
 import json
 import traceback
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -17,6 +19,7 @@ from app.models.user import User
 from app.services.chatbot_tools import TOOL_FUNCTIONS, TOOL_DECLARATIONS
 
 router = APIRouter(prefix="/api/chat", tags=["chatbot"])
+limiter = Limiter(key_func=get_remote_address)
 
 # ── Lazy-load the Gemini client ──────────────────────────────────────
 
@@ -102,11 +105,11 @@ Guidelines:
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
-    content: str
+    content: str = Field(..., max_length=4000)
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000)
     history: List[ChatMessage] = []
 
 
@@ -118,8 +121,10 @@ class ChatResponse(BaseModel):
 # ── Main chat endpoint ──────────────────────────────────────────────
 
 @router.post("", response_model=ChatResponse)
+@limiter.limit("20/minute")
 def chat(
     req: ChatRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

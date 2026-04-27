@@ -18,5 +18,6 @@ EXPOSE 8000
 # Make scripts executable
 RUN chmod +x start.sh prestart.py
 
-# Use sh to run migrations and start server
-CMD ["sh", "-c", "python prestart.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+# Run migrations then start server with a single worker (appropriate for Render free tier)
+# --reload is intentionally omitted — it wastes CPU/RAM in production
+CMD ["sh", "-c", "python prestart.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

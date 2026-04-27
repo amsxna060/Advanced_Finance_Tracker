@@ -19,7 +19,12 @@ _hostname = urlparse(db_url).hostname or ""
 _is_local = _hostname in ("localhost", "127.0.0.1") or "." not in _hostname
 
 if _is_local:
-    engine = create_engine(db_url)
+    engine = create_engine(
+        db_url,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+    )
 elif ":6543" in db_url:
     # Supabase PgBouncer transaction mode pooler — NullPool prevents
     # SQLAlchemy from managing its own pool on top of PgBouncer's

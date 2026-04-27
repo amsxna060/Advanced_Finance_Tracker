@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import validator
 from typing import List
 
 
@@ -16,6 +17,23 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = "admin@finance.local"
     APP_ENV: str = "development"
     GEMINI_API_KEY: str = ""
+
+    @validator("SECRET_KEY")
+    def secret_key_must_be_strong(cls, v, values):
+        env = values.get("APP_ENV", "development")
+        if env == "production" and (v == "change-this-secret-key-in-production" or len(v) < 32):
+            raise ValueError(
+                "SECRET_KEY must be set to a random 32+ character string in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
+
+    @validator("SEED_ADMIN_PASSWORD")
+    def admin_password_must_not_be_default(cls, v, values):
+        env = values.get("APP_ENV", "development")
+        if env == "production" and v == "admin123":
+            raise ValueError("SEED_ADMIN_PASSWORD must be changed from the default in production.")
+        return v
 
     @property
     def cors_origins_list(self) -> List[str]:

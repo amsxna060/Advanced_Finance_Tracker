@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from jose import jwt
@@ -13,6 +15,7 @@ from app.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+limiter = Limiter(key_func=get_remote_address)
 
 
 def create_access_token(user_id: int) -> str:
@@ -28,7 +31,8 @@ def create_refresh_token(user_id: int) -> str:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not pwd_context.verify(form_data.password, user.password_hash):
         raise HTTPException(
@@ -60,7 +64,10 @@ def refresh(request: RefreshTokenRequest, db: Session = Depends(get_db)):
         if token_type != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
 
-        user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
+        try:
+            user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 

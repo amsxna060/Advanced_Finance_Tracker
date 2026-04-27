@@ -21,21 +21,46 @@ api.interceptors.request.use(
   (error) => Promise.reject(error),
 );
 
-// Response interceptor to handle token refresh
+// Queue for requests waiting on token refresh
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// Response interceptor — refresh access token on 401, queue concurrent requests
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    // If error is 401 and we haven't retried yet
     if (error.response?.status === 401 && !originalRequest._retry) {
+      // If a refresh is already in progress, queue this request
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return api(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
 
       try {
         const refreshToken = localStorage.getItem("refresh_token");
-        if (!refreshToken) {
-          throw new Error("No refresh token");
-        }
+        if (!refreshToken) throw new Error("No refresh token");
 
         const response = await axios.post(`${API_URL}/api/auth/refresh`, {
           refresh_token: refreshToken,
@@ -43,16 +68,18 @@ api.interceptors.response.use(
 
         const { access_token } = response.data;
         localStorage.setItem("access_token", access_token);
+        processQueue(null, access_token);
 
-        // Retry the original request
         originalRequest.headers.Authorization = `Bearer ${access_token}`;
         return api(originalRequest);
       } catch (refreshError) {
-        // Refresh failed, logout user
+        processQueue(refreshError, null);
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
         window.location.href = "/login";
         return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
 
