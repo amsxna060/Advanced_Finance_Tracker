@@ -277,8 +277,9 @@ export default function PartnershipDetail() {
     let memberId = null;
     if (isOutflow && txnForm.member_id && !txnForm.from_partnership_pot) memberId = parseInt(txnForm.member_id);
 
+    const isBuyerToSeller = ["buyer_advance", "buyer_payment"].includes(txnType) && txnForm.received_by_member_id === "seller";
     let receivedByMemberId = null;
-    if (isInflow && txnForm.received_by_member_id) receivedByMemberId = parseInt(txnForm.received_by_member_id);
+    if (isInflow && txnForm.received_by_member_id && txnForm.received_by_member_id !== "seller") receivedByMemberId = parseInt(txnForm.received_by_member_id);
 
     // Only send account_id if Self is the payer (outflow) or receiver (inflow with no received_by)
     let accountId = null;
@@ -297,7 +298,7 @@ export default function PartnershipDetail() {
       amount: parseFloat(txnForm.amount) || 0,
       txn_date: txnForm.txn_date,
       payment_mode: txnForm.payment_mode,
-      description: txnForm.description?.trim() || null,
+      description: (() => { const base = txnForm.description?.trim() || ""; return (isBuyerToSeller ? [base, "→ Paid directly to Seller"].filter(Boolean).join(" · ") : base) || null; })(),
       account_id: accountId,
       member_id: memberId,
       received_by_member_id: receivedByMemberId,
@@ -315,10 +316,12 @@ export default function PartnershipDetail() {
       amount: String(txn.amount),
       txn_date: txn.txn_date,
       payment_mode: txn.payment_mode || "cash",
-      description: txn.description || "",
       account_id: txn.account_id ? String(txn.account_id) : "",
       member_id: txn.member_id ? String(txn.member_id) : "",
-      received_by_member_id: txn.received_by_member_id ? String(txn.received_by_member_id) : "",
+      received_by_member_id: txn.received_by_member_id
+        ? String(txn.received_by_member_id)
+        : (["buyer_advance", "buyer_payment"].includes(txn.txn_type) && txn.description?.includes("→ Paid directly to Seller") ? "seller" : ""),
+      description: (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim(),
       plot_buyer_id: txn.plot_buyer_id ? String(txn.plot_buyer_id) : "",
       site_plot_id: txn.site_plot_id ? String(txn.site_plot_id) : "",
       broker_name: txn.broker_name || "",
@@ -350,10 +353,14 @@ export default function PartnershipDetail() {
         amount: parseFloat(editTxnForm.amount) || 0,
         txn_date: editTxnForm.txn_date,
         payment_mode: editTxnForm.payment_mode,
-        description: editTxnForm.description?.trim() || null,
+        description: (() => {
+          const isBTS = ["buyer_advance", "buyer_payment"].includes(txnType) && editTxnForm.received_by_member_id === "seller";
+          const base = (editTxnForm.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
+          return (isBTS ? [base, "→ Paid directly to Seller"].filter(Boolean).join(" · ") : base) || null;
+        })(),
         account_id: accountId,
         member_id: editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null,
-        received_by_member_id: editTxnForm.received_by_member_id ? parseInt(editTxnForm.received_by_member_id) : null,
+        received_by_member_id: editTxnForm.received_by_member_id && editTxnForm.received_by_member_id !== "seller" ? parseInt(editTxnForm.received_by_member_id) : null,
         plot_buyer_id: editTxnForm.plot_buyer_id ? parseInt(editTxnForm.plot_buyer_id) : null,
         site_plot_id: editTxnForm.site_plot_id ? parseInt(editTxnForm.site_plot_id) : null,
         broker_name: editTxnForm.broker_name?.trim() || null,
@@ -1245,6 +1252,9 @@ export default function PartnershipDetail() {
                               {members.filter((m) => !m.member?.is_self).map((m) => (
                                 <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>
                               ))}
+                              {["buyer_advance", "buyer_payment"].includes(txnForm.txn_type) && (
+                                <option value="seller">→ Seller (Buyer paid directly to Seller)</option>
+                              )}
                             </select>
                           </InputField>
                           {!txnForm.received_by_member_id && (
@@ -1389,6 +1399,9 @@ export default function PartnershipDetail() {
                                                   <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
                                                     <option value="">Self (Me)</option>
                                                     {members.filter(m => !m.member?.is_self).map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>)}
+                                                    {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && (
+                                                      <option value="seller">→ Seller (Buyer paid directly)</option>
+                                                    )}
                                                   </select>
                                                 </div>
                                               )}
@@ -1464,8 +1477,14 @@ export default function PartnershipDetail() {
                                               <p className="text-sm font-medium text-slate-800">
                                                 <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
                                                 {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
-                                                {buyerName && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
+                                                {buyerName && !["buyer_advance", "buyer_payment"].includes(txn.txn_type) && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
                                               </p>
+                                              {["buyer_advance", "buyer_payment"].includes(txn.txn_type) && buyerName && (
+                                                <p className="text-xs font-semibold text-teal-700 ml-3.5">From: {buyerName}</p>
+                                              )}
+                                              {txn.description?.includes("→ Paid directly to Seller") && (
+                                                <p className="text-xs font-medium text-rose-500 ml-3.5">→ Buyer paid Seller directly</p>
+                                              )}
                                               {txn.member_id && (() => {
                                                 const memberName = members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
                                                   ? "Self"
@@ -1480,7 +1499,10 @@ export default function PartnershipDetail() {
                                               )}
                                               {txn.broker_name && <p className="text-xs text-slate-400 ml-3.5">Broker: {txn.broker_name}</p>}
                                               {txn.from_partnership_pot && <p className="text-xs text-violet-600 ml-3.5">Paid from partnership pot</p>}
-                                              {txn.description && <p className="text-xs text-slate-400 ml-3.5">{txn.description}</p>}
+                                              {(() => {
+                                                const cleanDesc = (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
+                                                return cleanDesc ? <p className="text-xs text-slate-400 ml-3.5">{cleanDesc}</p> : null;
+                                              })()}
                                             </div>
                                             <div className="flex items-center gap-2">
                                               <span className={`text-sm font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>
@@ -1499,6 +1521,31 @@ export default function PartnershipDetail() {
                                     );
                                   })}
                                 </div>
+                                {/* Type subtotals — shown when 2+ txns of same type exist on this day */}
+                                {(() => {
+                                  const typeGroups = {};
+                                  dayTxns.forEach(t => {
+                                    if (!typeGroups[t.txn_type]) typeGroups[t.txn_type] = { count: 0, total: 0 };
+                                    typeGroups[t.txn_type].count++;
+                                    typeGroups[t.txn_type].total += parseFloat(t.amount || 0);
+                                  });
+                                  const multi = Object.entries(typeGroups).filter(([, g]) => g.count > 1);
+                                  if (!multi.length) return null;
+                                  return (
+                                    <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-1.5">
+                                      {multi.map(([type, group]) => {
+                                        const isOut = OUTFLOW_TYPES.includes(type) || LEGACY_OUTFLOW.includes(type);
+                                        return (
+                                          <div key={type} className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 ${isOut ? "bg-rose-50 text-rose-700 border border-rose-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
+                                            <span className="font-medium">{TXN_TYPE_LABELS[type] || type.replace(/_/g, " ")}</span>
+                                            <span className="opacity-50">×{group.count}</span>
+                                            <span className="font-bold">{isOut ? "−" : "+"}{formatCurrency(group.total)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
                               )}
                             </div>
                           );

@@ -130,10 +130,12 @@ function SitePlotsSection({ plots }) {
             <div key={p.id} className="border border-slate-200/60 rounded-xl p-3 hover:bg-slate-50/50 transition-colors">
               <div className="flex items-start justify-between mb-1.5">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">{p.plot_number || "#"}</div>
+                  <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">
+                    {p.plot_number ? p.plot_number.slice(0, 2).toUpperCase() : p.buyer_name ? p.buyer_name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || "PN" : "PN"}
+                  </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-800">{p.plot_number || "Unnamed"}</span>
+                      <span className="text-sm font-semibold text-slate-800">{p.plot_number || p.buyer_name || `Plot #${p.id}`}</span>
                       <StatusBadge status={p.status || "available"} />
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
@@ -194,10 +196,12 @@ function PlotBuyersSection({ buyers, totalArea }) {
               <div key={b.id} className="border border-slate-200/60 rounded-xl p-3.5 hover:bg-slate-50/50 transition-colors">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600 font-bold text-xs">{(b.buyer_name || "?")[0].toUpperCase()}</div>
+                    <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600 font-bold text-xs">
+                      {b.buyer_name ? b.buyer_name.split(" ").filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase() || b.buyer_name.slice(0, 2).toUpperCase() : "??"}
+                    </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-800">{b.buyer_name || "Unnamed"}</span>
+                        <span className="text-sm font-semibold text-slate-800">{b.buyer_name || `Buyer #${b.id}`}</span>
                         <StatusBadge status={b.status} />
                       </div>
                       <div className="text-xs text-slate-500 mt-0.5">
