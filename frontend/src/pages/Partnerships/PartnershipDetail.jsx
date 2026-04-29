@@ -77,6 +77,7 @@ export default function PartnershipDetail() {
     site_plot_id: "",
     broker_name: "",
     from_partnership_pot: false,
+    profit_source: "",  // "partner" | "buyer" | ""
   });
   const [editingTxnId, setEditingTxnId] = useState(null);
   const [editTxnForm, setEditTxnForm] = useState(null);
@@ -181,7 +182,7 @@ export default function PartnershipDetail() {
         txn_type: "advance_to_seller", amount: "", txn_date: new Date().toISOString().split("T")[0],
         payment_mode: "cash", description: "", account_id: "", member_id: "",
         received_by_member_id: "", plot_buyer_id: "", site_plot_id: "",
-        broker_name: "", from_partnership_pot: false,
+        broker_name: "", from_partnership_pot: false, profit_source: "",
       });
     },
     onError: (err) => alert(err?.response?.data?.detail || "Failed to add transaction"),
@@ -1055,7 +1056,7 @@ export default function PartnershipDetail() {
                     <InputField label="Transaction Type">
                       <select
                         value={txnForm.txn_type}
-                        onChange={(e) => setTxnForm(p => ({ ...p, txn_type: e.target.value, plot_buyer_id: "", site_plot_id: "", broker_name: "", from_partnership_pot: false }))}
+                        onChange={(e) => setTxnForm(p => ({ ...p, txn_type: e.target.value, plot_buyer_id: "", site_plot_id: "", broker_name: "", from_partnership_pot: false, member_id: "", profit_source: "" }))}
                         className={inputCls}
                       >
                         <optgroup label="Outflows (Money Going Out)">
@@ -1080,6 +1081,26 @@ export default function PartnershipDetail() {
                         <input type="date" value={txnForm.txn_date} onChange={(e) => setTxnForm(p => ({ ...p, txn_date: e.target.value }))} className={inputCls} />
                       </InputField>
                     </div>
+
+                    {/* Seller remaining hint for seller payment types */}
+                    {(txnForm.txn_type === "advance_to_seller" || txnForm.txn_type === "remaining_to_seller") && isLinkedToProperty && linkedProperty && (() => {
+                      const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
+                      const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+                      const outstanding = sellerTotal - alreadyPaid;
+                      if (sellerTotal <= 0) return null;
+                      return (
+                        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-semibold text-rose-800">Seller Balance</p>
+                            <p className="text-xs text-rose-600">Paid: {formatCurrency(alreadyPaid)} · Total: {formatCurrency(sellerTotal)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-rose-700">{formatCurrency(Math.max(0, outstanding))}</p>
+                            <p className="text-[10px] text-rose-500">outstanding</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
                       <div className="grid grid-cols-2 gap-3">
@@ -1122,8 +1143,103 @@ export default function PartnershipDetail() {
 
                     {INFLOW_TYPES.includes(txnForm.txn_type) && (
                       <>
+                        {/* ── Seller balance hint for remaining_to_seller ── */}
+                        {txnForm.txn_type !== "profit_received" && (() => {
+                          if (!isLinkedToProperty || !linkedProperty) return null;
+                          const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
+                          if (!sellerTotal) return null;
+                          return null; // hints only for outflows handled below
+                        })()}
+
+                        {/* ── PROFIT RECEIVED: source selection ── */}
+                        {txnForm.txn_type === "profit_received" && (
+                          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-3">
+                            <p className="text-xs font-semibold text-teal-800">💰 Profit Source — who gave you this profit?</p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setTxnForm(p => ({ ...p, profit_source: "partner", plot_buyer_id: "", site_plot_id: "" }))}
+                                className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                                  txnForm.profit_source === "partner"
+                                    ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                🤝 A Partner forwarded it
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTxnForm(p => ({ ...p, profit_source: "buyer", member_id: "" }))}
+                                className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                                  txnForm.profit_source === "buyer"
+                                    ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                🏠 Direct from Buyer
+                              </button>
+                            </div>
+
+                            {txnForm.profit_source === "partner" && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] text-teal-600">The partner collected money from buyer(s) and forwarded your profit share to you.</p>
+                                <InputField label="Partner who gave you profit *">
+                                  <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value }))} className={inputCls}>
+                                    <option value="">— Select Partner —</option>
+                                    {members.filter(m => !m.member?.is_self).map(m => (
+                                      <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>
+                                    ))}
+                                  </select>
+                                </InputField>
+                                {(plotBuyers.length > 0 || sitePlots.length > 0) && (
+                                  <InputField label="Linked to buyer (optional)">
+                                    <select
+                                      value={txnForm.plot_buyer_id || txnForm.site_plot_id}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const isPb = plotBuyers.some(b => String(b.id) === val);
+                                        setTxnForm(p => ({ ...p, plot_buyer_id: isPb ? val : "", site_plot_id: !isPb && val ? val : "" }));
+                                      }}
+                                      className={inputCls}
+                                    >
+                                      <option value="">— Unspecified —</option>
+                                      {plotBuyers.map(b => <option key={`pb-${b.id}`} value={String(b.id)}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
+                                      {sitePlots.map(sp => <option key={`sp-${sp.id}`} value={String(sp.id)}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
+                                    </select>
+                                  </InputField>
+                                )}
+                              </div>
+                            )}
+
+                            {txnForm.profit_source === "buyer" && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] text-teal-600">The buyer paid you directly — select which buyer this profit came from.</p>
+                                {plotBuyers.length === 0 && sitePlots.length === 0 ? (
+                                  <p className="text-xs text-amber-700">⚠ No buyers linked yet. Add a buyer first.</p>
+                                ) : (
+                                  <InputField label="Which buyer paid you *">
+                                    <select
+                                      value={txnForm.plot_buyer_id || txnForm.site_plot_id}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const isPb = plotBuyers.some(b => String(b.id) === val);
+                                        setTxnForm(p => ({ ...p, plot_buyer_id: isPb ? val : "", site_plot_id: !isPb && val ? val : "" }));
+                                      }}
+                                      className={inputCls}
+                                    >
+                                      <option value="">— Select Buyer —</option>
+                                      {plotBuyers.map(b => <option key={`pb-${b.id}`} value={String(b.id)}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
+                                      {sitePlots.map(sp => <option key={`sp-${sp.id}`} value={String(sp.id)}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
+                                    </select>
+                                  </InputField>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-3">
-                          <InputField label="Received by">
+                          <InputField label={txnForm.txn_type === "profit_received" ? "Received by (you or partner)" : "Received by"}>
                             <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className={inputCls}>
                               <option value="">Self (Me)</option>
                               {members.filter((m) => !m.member?.is_self).map((m) => (
@@ -1350,11 +1466,13 @@ export default function PartnershipDetail() {
                                                 {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
                                                 {buyerName && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
                                               </p>
-                                              {txn.member_id && (
-                                                <p className="text-xs text-indigo-600 ml-3.5">
-                                                  By: {members.find((m) => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner"}
-                                                </p>
-                                              )}
+                                              {txn.member_id && (() => {
+                                                const memberName = members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
+                                                  ? "Self"
+                                                  : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner";
+                                                const label = txn.txn_type === "profit_received" ? "Given by" : "Paid by";
+                                                return <p className="text-xs text-indigo-600 ml-3.5">{label}: {memberName}</p>;
+                                              })()}
                                               {txn.received_by_member_id && (
                                                 <p className="text-xs text-amber-600 ml-3.5">
                                                   Received by: {members.find((m) => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}
@@ -1425,6 +1543,58 @@ export default function PartnershipDetail() {
                 {isSettled && <InfoRow label="Actual End" value={partnership.actual_end_date ? formatDate(partnership.actual_end_date) : null} />}
                 <InfoRow label="Created" value={formatDate(partnership.created_at)} />
               </div>
+
+              {/* Seller Payment Quick-Action Card */}
+              {isActive && isLinkedToProperty && linkedProperty && (() => {
+                const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
+                if (!sellerTotal) return null;
+                const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+                const paidPct = Math.min(100, sellerTotal > 0 ? (alreadyPaid / sellerTotal) * 100 : 0);
+                const outstanding = Math.max(0, sellerTotal - alreadyPaid);
+                return (
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                    <h2 className="text-base font-bold text-slate-800 mb-3">💸 Pay Seller</h2>
+                    <div className="space-y-1.5 mb-3">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-500">Total to Seller</span>
+                        <span className="font-semibold text-slate-700">{formatCurrency(sellerTotal)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-500">Paid so far</span>
+                        <span className="font-semibold text-emerald-600">{formatCurrency(alreadyPaid)}</span>
+                      </div>
+                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full" style={{ width: `${paidPct}%` }} />
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-400">{paidPct.toFixed(0)}% paid</span>
+                        <span className={`font-bold ${outstanding > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                          {outstanding > 0 ? `${formatCurrency(outstanding)} due` : "Fully paid ✓"}
+                        </span>
+                      </div>
+                    </div>
+                    {outstanding > 0 && (
+                      <button
+                        onClick={() => {
+                          setTxnForm(p => ({
+                            ...p,
+                            txn_type: "remaining_to_seller",
+                            amount: String(outstanding),
+                            profit_source: "",
+                            plot_buyer_id: "",
+                            site_plot_id: "",
+                            member_id: "",
+                          }));
+                          setShowTxnForm(true);
+                        }}
+                        className="w-full py-2 bg-gradient-to-r from-rose-500 to-rose-600 text-white rounded-xl font-medium hover:from-rose-600 hover:to-rose-700 shadow-sm shadow-rose-500/20 active:scale-[0.98] text-sm"
+                      >
+                        Record Payment to Seller
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {isActive && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
