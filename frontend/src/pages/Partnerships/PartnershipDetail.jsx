@@ -102,6 +102,23 @@ export default function PartnershipDetail() {
     total_received: "", actual_end_date: "", notes: "",
   });
 
+  // Plot expansion & close-deal state
+  const [expandedPlotId, setExpandedPlotId] = useState(null); // "sp-{id}" or "pb-{id}"
+  const [closeDealPlot, setCloseDealPlot] = useState(null); // {type:"site_plot"|"plot_buyer", id, label}
+  const [closeDealForm, setCloseDealForm] = useState({
+    area_sqft: "", price_per_sqft: "", registry_date: "", notes: "",
+  });
+  // Collapsible date sections in transactions
+  const [collapsedDates, setCollapsedDates] = useState({});
+  // Edit plot modal
+  const [editingPlot, setEditingPlot] = useState(null); // {type: "site_plot"|"plot_buyer", id, hasPaid}
+  const [editPlotForm, setEditPlotForm] = useState({
+    plot_number: "", area_sqft: "", price_per_sqft: "", notes: "",
+    side_north_ft: "", side_south_ft: "", side_east_ft: "", side_west_ft: "",
+  });
+  // View plot detail popup
+  const [viewingPlot, setViewingPlot] = useState(null);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["partnership", id],
     queryFn: async () => (await api.get(`/api/partnerships/${id}`)).data,
@@ -218,6 +235,36 @@ export default function PartnershipDetail() {
     mutationFn: (payload) => api.put(`/api/partnerships/${id}/settle`, payload),
     onSuccess: () => { invalidate(); setShowSettleModal(false); },
     onError: (err) => alert(err?.response?.data?.detail || "Failed to settle"),
+  });
+
+  const closeDealMutation = useMutation({
+    mutationFn: ({ type, plotId, payload }) => {
+      const url = type === "site_plot"
+        ? `/api/partnerships/${id}/site-plots/${plotId}`
+        : `/api/partnerships/${id}/plot-buyers/${plotId}`;
+      return api.put(url, payload);
+    },
+    onSuccess: () => {
+      invalidate();
+      setCloseDealPlot(null);
+      setCloseDealForm({ area_sqft: "", price_per_sqft: "", registry_date: "", notes: "" });
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to close deal"),
+  });
+
+  const editPlotMutation = useMutation({
+    mutationFn: ({ type, plotId, payload }) => {
+      const url = type === "site_plot"
+        ? `/api/partnerships/${id}/site-plots/${plotId}`
+        : `/api/partnerships/${id}/plot-buyers/${plotId}`;
+      return api.put(url, payload);
+    },
+    onSuccess: () => {
+      invalidate();
+      setEditingPlot(null);
+      setEditPlotForm({ plot_number: "", area_sqft: "", price_per_sqft: "", notes: "", side_north_ft: "", side_south_ft: "", side_east_ft: "", side_west_ft: "" });
+    },
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to update plot"),
   });
 
   // ─── Handlers ───────────────────────────────────────────
@@ -547,6 +594,42 @@ export default function PartnershipDetail() {
                     </table>
                   </div>
                 )}
+                {/* Partner Fund Balances */}
+                {transactions.length > 0 && members.length > 0 && (() => {
+                  const fundRows = members.map(m => {
+                    const memberId = m.member?.id;
+                    const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+                    const collected = transactions
+                      .filter(t => INFLOW_TYPES.includes(t.txn_type) && t.received_by_member_id === memberId)
+                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const selfCollected = m.member?.is_self
+                      ? transactions.filter(t => INFLOW_TYPES.includes(t.txn_type) && !t.received_by_member_id).reduce((s, t) => s + parseFloat(t.amount || 0), 0)
+                      : 0;
+                    const paidOut = transactions
+                      .filter(t => (t.txn_type === "advance_to_seller" || t.txn_type === "remaining_to_seller") && t.member_id === memberId)
+                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const totalCollected = collected + selfCollected;
+                    return { name, totalCollected, paidOut, net: totalCollected - paidOut };
+                  }).filter(r => r.totalCollected > 0 || r.paidOut > 0);
+                  if (fundRows.length === 0) return null;
+                  return (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-xs font-semibold text-slate-500 mb-2">💰 Partner Fund Balances <span className="font-normal text-slate-400">(buyer money flow)</span></p>
+                      <div className="space-y-1.5">
+                        {fundRows.map((r, i) => (
+                          <div key={i} className="flex justify-between items-center py-1 border-b border-slate-50 last:border-0">
+                            <span className="text-xs font-medium text-slate-600">{r.name}</span>
+                            <div className="flex gap-3 text-xs text-right">
+                              <span className="text-emerald-600">In: {formatCurrency(r.totalCollected)}</span>
+                              <span className="text-rose-600">Out: {formatCurrency(r.paidOut)}</span>
+                              <span className={`font-bold min-w-[70px] text-right ${r.net > 0 ? "text-amber-600" : "text-slate-400"}`}>Holds: {formatCurrency(Math.max(0, r.net))}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Plot Buyers / Site Plots */}
@@ -678,7 +761,7 @@ export default function PartnershipDetail() {
                         <InputField label="Select Contact">
                           <select value={assignBuyerForm.contact_id} onChange={(e) => setAssignBuyerForm(p => ({ ...p, contact_id: e.target.value }))} className={inputCls}>
                             <option value="">— Select buyer —</option>
-                            {contacts.filter(c => c.relationship_type === "buyer" || !c.relationship_type).map(c => (
+                            {contacts.map(c => (
                               <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>
                             ))}
                           </select>
@@ -709,43 +792,118 @@ export default function PartnershipDetail() {
                   {isPlotDeal ? (
                     plotBuyers.length > 0 ? (
                       <div className="space-y-3">
-                        {plotBuyers.map((b) => (
-                          <div key={b.id} className="p-3 border border-slate-200 rounded-xl">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800">
-                                  {b.buyer_name || <span className="text-slate-400 italic">No buyer assigned</span>}
-                                </p>
-                                <p className="text-xs text-slate-500">
-                                  {b.area_sqft ? `${b.area_sqft} sq ft` : ""}
-                                  {b.rate_per_sqft ? ` @ ₹${b.rate_per_sqft}/sqft` : ""}
-                                </p>
-                                {(b.side_north_ft || b.side_south_ft || b.side_east_ft || b.side_west_ft) && (
-                                  <p className="text-xs text-slate-400">
-                                    Dimensions: N:{b.side_north_ft || "—"} S:{b.side_south_ft || "—"} E:{b.side_east_ft || "—"} W:{b.side_west_ft || "—"} ft
-                                  </p>
+                        {plotBuyers.map((b) => {
+                          const plotKey = `pb-${b.id}`;
+                          const isExpanded = expandedPlotId === plotKey;
+                          const totalValue = parseFloat(b.total_value || 0);
+                          const totalPaid = parseFloat(b.total_paid || 0);
+                          const paidPct = totalValue > 0 ? Math.min(100, (totalPaid / totalValue) * 100) : 0;
+                          const plotTxns = transactions.filter(t => t.plot_buyer_id === b.id);
+                          return (
+                            <div key={b.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                              <div
+                                className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors"
+                                onClick={() => setExpandedPlotId(isExpanded ? null : plotKey)}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-slate-400 transition-transform duration-200" style={{ display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                      <p className="text-sm font-semibold text-slate-800">
+                                        {b.buyer_name || <span className="text-slate-400 italic">No buyer assigned</span>}
+                                      </p>
+                                    </div>
+                                    <p className="text-xs text-slate-500 ml-4">
+                                      {b.area_sqft ? `${b.area_sqft} sq ft` : ""}
+                                      {b.rate_per_sqft ? ` @ ₹${b.rate_per_sqft}/sqft` : ""}
+                                    </p>
+                                    {(b.side_north_ft || b.side_south_ft || b.side_east_ft || b.side_west_ft) && (
+                                      <p className="text-xs text-slate-400 ml-4">
+                                        N:{b.side_north_ft || "—"} S:{b.side_south_ft || "—"} E:{b.side_east_ft || "—"} W:{b.side_west_ft || "—"} ft
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="text-right ml-3 shrink-0">
+                                    <p className="text-sm font-bold text-slate-800">{formatCurrency(totalValue)}</p>
+                                    <p className="text-xs text-emerald-600">Paid: {formatCurrency(totalPaid)}</p>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${b.status === "registry_done" ? "bg-emerald-100 text-emerald-700" : b.status === "advance_received" ? "bg-amber-100 text-amber-700" : b.status === "payment_done" ? "bg-teal-100 text-teal-700" : b.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                                      {(b.status || "negotiating").replace(/_/g, " ")}
+                                    </span>
+                                  </div>
+                                </div>
+                                {totalValue > 0 && (
+                                  <div className="mt-2 ml-4">
+                                    <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                                      <span>{formatCurrency(totalPaid)} paid</span>
+                                      <span>{formatCurrency(totalValue - totalPaid)} remaining</span>
+                                    </div>
+                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${paidPct}%` }} />
+                                    </div>
+                                  </div>
                                 )}
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-bold text-slate-800">{formatCurrency(b.total_value || 0)}</p>
-                                <p className="text-xs text-emerald-600">Paid: {formatCurrency(b.total_paid || 0)}</p>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${b.status === "registry_done" ? "bg-emerald-100 text-emerald-700" : b.status === "advance_received" ? "bg-amber-100 text-amber-700" : b.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                                  {(b.status || "available").replace(/_/g, " ")}
-                                </span>
-                                {isActive && !b.buyer_contact_id && (
-                                  <button onClick={() => setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}` })} className="block mt-1 text-xs text-amber-600 hover:underline font-medium">
-                                    Assign Buyer →
+                                <div className="flex gap-2 mt-2 ml-4 flex-wrap">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setViewingPlot({ ...b, plotType: "plot_buyer" }); }}
+                                    className="text-xs text-indigo-600 hover:underline font-medium border border-indigo-200 px-2 py-0.5 rounded-lg bg-indigo-50"
+                                  >
+                                    Details
                                   </button>
-                                )}
-                                {isActive && b.buyer_contact_id && b.status === "negotiating" && (
-                                  <button onClick={() => setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}`, isReassign: true })} className="block mt-1 text-xs text-orange-500 hover:underline font-medium">
-                                    Reassign Buyer →
-                                  </button>
-                                )}
+                                  {isActive && !b.buyer_contact_id && (
+                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}` }); }} className="text-xs text-amber-600 hover:underline font-medium">
+                                      Assign Buyer →
+                                    </button>
+                                  )}
+                                  {isActive && b.buyer_contact_id && b.status === "negotiating" && (
+                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}`, isReassign: true }); }} className="text-xs text-orange-500 hover:underline font-medium">
+                                      Reassign Buyer →
+                                    </button>
+                                  )}
+                                  {isActive && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setEditingPlot({ type: "plot_buyer", id: b.id, hasPaid: parseFloat(b.total_paid || 0) > 0 }); setEditPlotForm({ plot_number: "", area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), notes: b.notes || "", side_north_ft: String(b.side_north_ft || ""), side_south_ft: String(b.side_south_ft || ""), side_east_ft: String(b.side_east_ft || ""), side_west_ft: String(b.side_west_ft || "") }); }}
+                                      className="text-xs text-slate-600 hover:underline font-medium border border-slate-200 px-2 py-0.5 rounded-lg"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                  {isActive && b.status !== "registry_done" && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "plot_buyer", id: b.id, label: b.buyer_name || `Plot #${b.id}`, area_sqft: b.area_sqft, rate_per_sqft: b.rate_per_sqft }); setCloseDealForm({ area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), registry_date: "", notes: "" }); }}
+                                      className="text-xs text-rose-600 hover:underline font-medium border border-rose-200 px-2 py-0.5 rounded-lg bg-rose-50"
+                                    >
+                                      Close Deal
+                                    </button>
+                                  )}
+                                </div>
                               </div>
+                              {isExpanded && (
+                                <div className="border-t border-slate-100 bg-slate-50/50 p-3">
+                                  <p className="text-xs font-semibold text-slate-500 mb-2">Payment History</p>
+                                  {plotTxns.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic">No payments recorded yet</p>
+                                  ) : (
+                                    <div className="space-y-1.5">
+                                      {plotTxns.map(t => {
+                                        const isOut = OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type);
+                                        return (
+                                          <div key={t.id} className="flex justify-between items-center text-xs">
+                                            <div>
+                                              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
+                                              <span className="text-slate-700 font-medium">{TXN_TYPE_LABELS[t.txn_type] || t.txn_type.replace(/_/g, " ")}</span>
+                                              <span className="text-slate-400 ml-1">· {formatDate(t.txn_date)}</span>
+                                            </div>
+                                            <span className={`font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>{isOut ? "−" : "+"}{formatCurrency(t.amount)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-sm text-slate-400 text-center py-4">No plots yet. Add a plot subdivision, then assign buyers.</p>
@@ -753,45 +911,126 @@ export default function PartnershipDetail() {
                   ) : (
                     sitePlots.length > 0 ? (
                       <div className="space-y-3">
-                        {sitePlots.map((sp) => (
-                          <div key={sp.id} className="p-3 border border-slate-200 rounded-xl">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800">
-                                  {sp.buyer_name || sp.plot_number || `Plot #${sp.id}`}
-                                  {sp.buyer_name && sp.plot_number && <span className="text-xs text-slate-400 ml-1">({sp.plot_number})</span>}
-                                </p>
-                                <p className="text-xs text-slate-500">
-                                  {sp.area_sqft ? `${sp.area_sqft} sq ft` : ""}
-                                  {sp.sold_price_per_sqft ? ` @ ₹${sp.sold_price_per_sqft}/sqft` : ""}
-                                </p>
-                                {(sp.side_north_ft || sp.side_south_ft || sp.side_east_ft || sp.side_west_ft) && (
-                                  <p className="text-xs text-slate-400">
-                                    Dimensions: N:{sp.side_north_ft || "—"} S:{sp.side_south_ft || "—"} E:{sp.side_east_ft || "—"} W:{sp.side_west_ft || "—"} ft
-                                  </p>
+                        {sitePlots.map((sp) => {
+                          const plotKey = `sp-${sp.id}`;
+                          const isExpanded = expandedPlotId === plotKey;
+                          const totalValue = parseFloat(sp.calculated_price || 0);
+                          const totalPaid = parseFloat(sp.total_paid || 0);
+                          const paidPct = totalValue > 0 ? Math.min(100, (totalPaid / totalValue) * 100) : 0;
+                          const plotTxns = transactions.filter(t => t.site_plot_id === sp.id);
+                          return (
+                            <div key={sp.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                              <div
+                                className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors"
+                                onClick={() => setExpandedPlotId(isExpanded ? null : plotKey)}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-slate-400 transition-transform duration-200" style={{ display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                      <p className="text-sm font-semibold text-slate-800">
+                                        {sp.buyer_name || sp.plot_number || `Plot #${sp.id}`}
+                                        {sp.buyer_name && sp.plot_number && <span className="text-xs text-slate-400 ml-1">({sp.plot_number})</span>}
+                                      </p>
+                                    </div>
+                                    <p className="text-xs text-slate-500 ml-4">
+                                      {sp.area_sqft ? `${sp.area_sqft} sq ft` : ""}
+                                      {sp.sold_price_per_sqft ? ` @ ₹${sp.sold_price_per_sqft}/sqft` : ""}
+                                    </p>
+                                    {(sp.side_north_ft || sp.side_south_ft || sp.side_east_ft || sp.side_west_ft) && (
+                                      <p className="text-xs text-slate-400 ml-4">
+                                        N:{sp.side_north_ft || "—"} S:{sp.side_south_ft || "—"} E:{sp.side_east_ft || "—"} W:{sp.side_west_ft || "—"} ft
+                                      </p>
+                                    )}
+                                    {!sp.buyer_contact_id && <p className="text-xs text-amber-500 italic mt-0.5 ml-4">No buyer assigned</p>}
+                                  </div>
+                                  <div className="text-right ml-3 shrink-0">
+                                    <p className="text-sm font-bold text-slate-800">{formatCurrency(totalValue)}</p>
+                                    <p className="text-xs text-emerald-600">Paid: {formatCurrency(totalPaid)}</p>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${sp.status === "sold" || sp.status === "registered" ? "bg-emerald-100 text-emerald-700" : sp.status === "advance_received" ? "bg-amber-100 text-amber-700" : sp.status === "payment_done" ? "bg-teal-100 text-teal-700" : sp.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                                      {(sp.status || "available").replace(/_/g, " ")}
+                                    </span>
+                                  </div>
+                                </div>
+                                {totalValue > 0 && (
+                                  <div className="mt-2 ml-4">
+                                    <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                                      <span>{formatCurrency(totalPaid)} paid</span>
+                                      <span>{formatCurrency(totalValue - totalPaid)} remaining</span>
+                                    </div>
+                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${paidPct}%` }} />
+                                    </div>
+                                  </div>
                                 )}
-                                {!sp.buyer_contact_id && <p className="text-xs text-amber-500 italic mt-0.5">No buyer assigned</p>}
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-bold text-slate-800">{formatCurrency(sp.calculated_price || 0)}</p>
-                                <p className="text-xs text-emerald-600">Paid: {formatCurrency(sp.total_paid || 0)}</p>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${sp.status === "sold" ? "bg-emerald-100 text-emerald-700" : sp.status === "advance_received" ? "bg-amber-100 text-amber-700" : sp.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                                  {(sp.status || "available").replace(/_/g, " ")}
-                                </span>
-                                {isActive && !sp.buyer_contact_id && (
-                                  <button onClick={() => setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}` })} className="block mt-1 text-xs text-amber-600 hover:underline font-medium">
-                                    Assign Buyer →
+                                <div className="flex gap-2 mt-2 ml-4 flex-wrap">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setViewingPlot({ ...sp, plotType: "site_plot" }); }}
+                                    className="text-xs text-indigo-600 hover:underline font-medium border border-indigo-200 px-2 py-0.5 rounded-lg bg-indigo-50"
+                                  >
+                                    Details
                                   </button>
-                                )}
-                                {isActive && sp.buyer_contact_id && sp.status === "negotiating" && (
-                                  <button onClick={() => setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, isReassign: true })} className="block mt-1 text-xs text-orange-500 hover:underline font-medium">
-                                    Reassign Buyer →
-                                  </button>
-                                )}
+                                  {isActive && !sp.buyer_contact_id && (
+                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}` }); }} className="text-xs text-amber-600 hover:underline font-medium">
+                                      Assign Buyer →
+                                    </button>
+                                  )}
+                                  {isActive && sp.buyer_contact_id && sp.status === "negotiating" && (
+                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, isReassign: true }); }} className="text-xs text-orange-500 hover:underline font-medium">
+                                      Reassign Buyer →
+                                    </button>
+                                  )}
+                                  {isActive && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setEditingPlot({ type: "site_plot", id: sp.id, hasPaid: parseFloat(sp.total_paid || 0) > 0 }); setEditPlotForm({ plot_number: sp.plot_number || "", area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), notes: sp.notes || "", side_north_ft: String(sp.side_north_ft || ""), side_south_ft: String(sp.side_south_ft || ""), side_east_ft: String(sp.side_east_ft || ""), side_west_ft: String(sp.side_west_ft || "") }); }}
+                                      className="text-xs text-slate-600 hover:underline font-medium border border-slate-200 px-2 py-0.5 rounded-lg"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                  {isActive && sp.status !== "sold" && sp.status !== "registered" && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "site_plot", id: sp.id, label: sp.buyer_name || sp.plot_number || `Plot #${sp.id}`, area_sqft: sp.area_sqft, price_per_sqft: sp.sold_price_per_sqft }); setCloseDealForm({ area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), registry_date: "", notes: "" }); }}
+                                      className="text-xs text-rose-600 hover:underline font-medium border border-rose-200 px-2 py-0.5 rounded-lg bg-rose-50"
+                                    >
+                                      Close Deal
+                                    </button>
+                                  )}
+                                </div>
                               </div>
+                              {isExpanded && (
+                                <div className="border-t border-slate-100 bg-slate-50/50 p-3">
+                                  <p className="text-xs font-semibold text-slate-500 mb-2">Payment History</p>
+                                  {plotTxns.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic">No payments recorded yet</p>
+                                  ) : (
+                                    <div className="space-y-1.5">
+                                      {plotTxns.map(t => {
+                                        const isOut = OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type);
+                                        const buyerLabel = t.plot_buyer_id
+                                          ? plotBuyers.find(b => b.id === t.plot_buyer_id)?.buyer_name
+                                          : t.site_plot_id
+                                          ? (sitePlots.find(s => s.id === t.site_plot_id)?.buyer_name || sitePlots.find(s => s.id === t.site_plot_id)?.plot_number)
+                                          : null;
+                                        return (
+                                          <div key={t.id} className="flex justify-between items-center text-xs">
+                                            <div>
+                                              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
+                                              <span className="text-slate-700 font-medium">{TXN_TYPE_LABELS[t.txn_type] || t.txn_type.replace(/_/g, " ")}</span>
+                                              {buyerLabel && <span className="text-teal-600 ml-1">· {buyerLabel}</span>}
+                                              <span className="text-slate-400 ml-1">· {formatDate(t.txn_date)}</span>
+                                            </div>
+                                            <span className={`font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>{isOut ? "−" : "+"}{formatCurrency(t.amount)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-sm text-slate-400 text-center py-4">No site plots yet. Add plots to track area and buyers.</p>
@@ -947,173 +1186,208 @@ export default function PartnershipDetail() {
                 )}
 
                 {transactions.length > 0 ? (
-                  <div className="space-y-2">
-                    {transactions.map((txn) => {
-                      const isOut = OUTFLOW_TYPES.includes(txn.txn_type) || LEGACY_OUTFLOW.includes(txn.txn_type);
-                      return (
-                        <div key={txn.id} className="py-2 border-b border-slate-100 last:border-0">
-                          {editingTxnId === txn.id && editTxnForm ? (
-                            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
-                              <div className="grid grid-cols-3 gap-2">
-                                <div>
-                                  <label className="block text-xs text-slate-500 mb-0.5">Type</label>
-                                  <select value={editTxnForm.txn_type} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_type: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                    <optgroup label="Outflows">
-                                      <option value="advance_to_seller">Advance to Seller</option>
-                                      <option value="remaining_to_seller">Remaining to Seller</option>
-                                      <option value="broker_commission">Broker Commission</option>
-                                      <option value="expense">Expense</option>
-                                    </optgroup>
-                                    <optgroup label="Inflows">
-                                      <option value="buyer_advance">Buyer Advance</option>
-                                      <option value="buyer_payment">Buyer Payment</option>
-                                      <option value="profit_received">Profit Received</option>
-                                    </optgroup>
-                                  </select>
+                  (() => {
+                    // Group transactions by date (desc)
+                    const grouped = transactions.reduce((acc, txn) => {
+                      const d = txn.txn_date;
+                      if (!acc[d]) acc[d] = [];
+                      acc[d].push(txn);
+                      return acc;
+                    }, {});
+                    const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+                    return (
+                      <div className="space-y-1">
+                        {sortedDates.map((dateKey) => {
+                          const dayTxns = grouped[dateKey];
+                          const isCollapsed = collapsedDates[dateKey] !== false; // default collapsed
+                          const dayInflow = dayTxns.filter(t => !OUTFLOW_TYPES.includes(t.txn_type) && !LEGACY_OUTFLOW.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                          const dayOutflow = dayTxns.filter(t => OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                          return (
+                            <div key={dateKey} className="border border-slate-100 rounded-xl overflow-hidden">
+                              <button
+                                className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                                onClick={() => setCollapsedDates(prev => ({ ...prev, [dateKey]: !isCollapsed }))}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-slate-400 transition-transform duration-200" style={{ display: "inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}>▶</span>
+                                  <span className="text-xs font-semibold text-slate-600">{formatDate(dateKey)}</span>
+                                  <span className="text-xs text-slate-400">({dayTxns.length} entr{dayTxns.length === 1 ? "y" : "ies"})</span>
                                 </div>
-                                <div>
-                                  <label className="block text-xs text-slate-500 mb-0.5">Amount</label>
-                                  <input type="number" value={editTxnForm.amount} onChange={(e) => setEditTxnForm(p => ({ ...p, amount: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                <div className="flex gap-2 text-xs">
+                                  {dayInflow > 0 && <span className="text-emerald-600 font-medium">+{formatCurrency(dayInflow)}</span>}
+                                  {dayOutflow > 0 && <span className="text-rose-600 font-medium">−{formatCurrency(dayOutflow)}</span>}
                                 </div>
-                                <div>
-                                  <label className="block text-xs text-slate-500 mb-0.5">Date</label>
-                                  <input type="date" value={editTxnForm.txn_date} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_date: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-3 gap-2">
-                                {OUTFLOW_TYPES.includes(editTxnForm.txn_type) && (
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-0.5">Paid by</label>
-                                    <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                      <option value="">— Select —</option>
-                                      {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
-                                    </select>
-                                  </div>
-                                )}
-                                {INFLOW_TYPES.includes(editTxnForm.txn_type) && (
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-0.5">Received by</label>
-                                    <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                      <option value="">Self (Me)</option>
-                                      {members.filter(m => !m.member?.is_self).map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>)}
-                                    </select>
-                                  </div>
-                                )}
-                                {(() => { const selMember = members.find(m => String(m.member?.id) === String(editTxnForm.member_id)); return OUTFLOW_TYPES.includes(editTxnForm.txn_type) && selMember?.member?.is_self; })() && (
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-0.5">Account</label>
-                                    <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                      <option value="">None</option>
-                                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                    </select>
-                                  </div>
-                                )}
-                                {INFLOW_TYPES.includes(editTxnForm.txn_type) && !editTxnForm.received_by_member_id && (
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-0.5">Account</label>
-                                    <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                      <option value="">None</option>
-                                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                    </select>
-                                  </div>
-                                )}
-                              </div>
-                              {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && (plotBuyers.length > 0 || sitePlots.length > 0) && (
-                                <div className="grid grid-cols-2 gap-2">
-                                  {plotBuyers.length > 0 && (
-                                    <div>
-                                      <label className="block text-xs text-slate-500 mb-0.5">Plot Buyer</label>
-                                      <select value={editTxnForm.plot_buyer_id} onChange={(e) => setEditTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                        <option value="">— None —</option>
-                                        {plotBuyers.map(b => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
-                                      </select>
-                                    </div>
-                                  )}
-                                  {sitePlots.length > 0 && (
-                                    <div>
-                                      <label className="block text-xs text-slate-500 mb-0.5">Site Plot</label>
-                                      <select value={editTxnForm.site_plot_id} onChange={(e) => setEditTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                        <option value="">— None —</option>
-                                        {sitePlots.map(sp => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
-                                      </select>
-                                    </div>
-                                  )}
+                              </button>
+                              {!isCollapsed && (
+                                <div className="divide-y divide-slate-50">
+                                  {dayTxns.map((txn) => {
+                                    const isOut = OUTFLOW_TYPES.includes(txn.txn_type) || LEGACY_OUTFLOW.includes(txn.txn_type);
+                                    const buyerName = txn.plot_buyer_id
+                                      ? plotBuyers.find(b => b.id === txn.plot_buyer_id)?.buyer_name
+                                      : txn.site_plot_id
+                                      ? (sitePlots.find(sp => sp.id === txn.site_plot_id)?.buyer_name || sitePlots.find(sp => sp.id === txn.site_plot_id)?.plot_number)
+                                      : null;
+                                    return (
+                                      <div key={txn.id} className="px-3 py-2">
+                                        {editingTxnId === txn.id && editTxnForm ? (
+                                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                                            <div className="grid grid-cols-3 gap-2">
+                                              <div>
+                                                <label className="block text-xs text-slate-500 mb-0.5">Type</label>
+                                                <select value={editTxnForm.txn_type} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_type: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                  <optgroup label="Outflows">
+                                                    <option value="advance_to_seller">Advance to Seller</option>
+                                                    <option value="remaining_to_seller">Remaining to Seller</option>
+                                                    <option value="broker_commission">Broker Commission</option>
+                                                    <option value="expense">Expense</option>
+                                                  </optgroup>
+                                                  <optgroup label="Inflows">
+                                                    <option value="buyer_advance">Buyer Advance</option>
+                                                    <option value="buyer_payment">Buyer Payment</option>
+                                                    <option value="profit_received">Profit Received</option>
+                                                  </optgroup>
+                                                </select>
+                                              </div>
+                                              <div>
+                                                <label className="block text-xs text-slate-500 mb-0.5">Amount</label>
+                                                <input type="number" value={editTxnForm.amount} onChange={(e) => setEditTxnForm(p => ({ ...p, amount: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                              </div>
+                                              <div>
+                                                <label className="block text-xs text-slate-500 mb-0.5">Date</label>
+                                                <input type="date" value={editTxnForm.txn_date} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_date: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                              </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2">
+                                              {OUTFLOW_TYPES.includes(editTxnForm.txn_type) && (
+                                                <div>
+                                                  <label className="block text-xs text-slate-500 mb-0.5">Paid by</label>
+                                                  <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                    <option value="">— Select —</option>
+                                                    {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
+                                                  </select>
+                                                </div>
+                                              )}
+                                              {INFLOW_TYPES.includes(editTxnForm.txn_type) && (
+                                                <div>
+                                                  <label className="block text-xs text-slate-500 mb-0.5">Received by</label>
+                                                  <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                    <option value="">Self (Me)</option>
+                                                    {members.filter(m => !m.member?.is_self).map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>)}
+                                                  </select>
+                                                </div>
+                                              )}
+                                              {(() => { const selMember = members.find(m => String(m.member?.id) === String(editTxnForm.member_id)); return OUTFLOW_TYPES.includes(editTxnForm.txn_type) && selMember?.member?.is_self; })() && (
+                                                <div>
+                                                  <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                                                  <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                    <option value="">None</option>
+                                                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                  </select>
+                                                </div>
+                                              )}
+                                              {INFLOW_TYPES.includes(editTxnForm.txn_type) && !editTxnForm.received_by_member_id && (
+                                                <div>
+                                                  <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                                                  <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                    <option value="">None</option>
+                                                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                  </select>
+                                                </div>
+                                              )}
+                                            </div>
+                                            {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && (plotBuyers.length > 0 || sitePlots.length > 0) && (
+                                              <div className="grid grid-cols-2 gap-2">
+                                                {plotBuyers.length > 0 && (
+                                                  <div>
+                                                    <label className="block text-xs text-slate-500 mb-0.5">Plot Buyer</label>
+                                                    <select value={editTxnForm.plot_buyer_id} onChange={(e) => setEditTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                      <option value="">— None —</option>
+                                                      {plotBuyers.map(b => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
+                                                    </select>
+                                                  </div>
+                                                )}
+                                                {sitePlots.length > 0 && (
+                                                  <div>
+                                                    <label className="block text-xs text-slate-500 mb-0.5">Site Plot</label>
+                                                    <select value={editTxnForm.site_plot_id} onChange={(e) => setEditTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                      <option value="">— None —</option>
+                                                      {sitePlots.map(sp => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
+                                                    </select>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                            {editTxnForm.txn_type === "broker_commission" && (
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                  <label className="block text-xs text-slate-500 mb-0.5">Broker Name</label>
+                                                  <input type="text" value={editTxnForm.broker_name} onChange={(e) => setEditTxnForm(p => ({ ...p, broker_name: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" placeholder="Broker name" />
+                                                </div>
+                                                <div className="flex items-end pb-1">
+                                                  <label className="flex items-center gap-2 cursor-pointer">
+                                                    <input type="checkbox" checked={editTxnForm.from_partnership_pot} onChange={(e) => setEditTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" />
+                                                    <span className="text-xs text-slate-700">From partnership pot</span>
+                                                  </label>
+                                                </div>
+                                              </div>
+                                            )}
+                                            <div>
+                                              <label className="block text-xs text-slate-500 mb-0.5">Description</label>
+                                              <input type="text" value={editTxnForm.description} onChange={(e) => setEditTxnForm(p => ({ ...p, description: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                            </div>
+                                            <div className="flex gap-2 justify-end">
+                                              <button onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }} className="px-2 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-200">Cancel</button>
+                                              <button onClick={handleUpdateTxn} disabled={updateTxnMutation.isPending} className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                                                {updateTxnMutation.isPending ? "Saving..." : "Update"}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="flex justify-between items-start">
+                                            <div>
+                                              <p className="text-sm font-medium text-slate-800">
+                                                <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
+                                                {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
+                                                {buyerName && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
+                                              </p>
+                                              {txn.member_id && (
+                                                <p className="text-xs text-indigo-600 ml-3.5">
+                                                  By: {members.find((m) => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner"}
+                                                </p>
+                                              )}
+                                              {txn.received_by_member_id && (
+                                                <p className="text-xs text-amber-600 ml-3.5">
+                                                  Received by: {members.find((m) => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}
+                                                </p>
+                                              )}
+                                              {txn.broker_name && <p className="text-xs text-slate-400 ml-3.5">Broker: {txn.broker_name}</p>}
+                                              {txn.from_partnership_pot && <p className="text-xs text-violet-600 ml-3.5">Paid from partnership pot</p>}
+                                              {txn.description && <p className="text-xs text-slate-400 ml-3.5">{txn.description}</p>}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <span className={`text-sm font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>
+                                                {isOut ? "−" : "+"}{formatCurrency(txn.amount)}
+                                              </span>
+                                              {isActive && (
+                                                <>
+                                                  <button onClick={() => openEditTxn(txn)} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                                  <button onClick={() => { if (window.confirm("Delete this transaction?")) deleteTxnMutation.mutate(txn.id); }} className="text-xs text-rose-600 hover:underline">Delete</button>
+                                                </>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
-                              {editTxnForm.txn_type === "broker_commission" && (
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-0.5">Broker Name</label>
-                                    <input type="text" value={editTxnForm.broker_name} onChange={(e) => setEditTxnForm(p => ({ ...p, broker_name: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" placeholder="Broker name" />
-                                  </div>
-                                  <div className="flex items-end pb-1">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                      <input type="checkbox" checked={editTxnForm.from_partnership_pot} onChange={(e) => setEditTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" />
-                                      <span className="text-xs text-slate-700">From partnership pot</span>
-                                    </label>
-                                  </div>
-                                </div>
-                              )}
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-0.5">Description</label>
-                                <input type="text" value={editTxnForm.description} onChange={(e) => setEditTxnForm(p => ({ ...p, description: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
-                              </div>
-                              <div className="flex gap-2 justify-end">
-                                <button onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }} className="px-2 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-200">Cancel</button>
-                                <button onClick={handleUpdateTxn} disabled={updateTxnMutation.isPending} className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
-                                  {updateTxnMutation.isPending ? "Saving..." : "Update"}
-                                </button>
-                              </div>
                             </div>
-                          ) : (
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-medium text-slate-800">
-                                  <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
-                                  {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
-                                </p>
-                                {txn.member_id && (
-                                  <p className="text-xs text-indigo-600 ml-3.5">
-                                    By: {members.find((m) => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner"}
-                                  </p>
-                                )}
-                                {txn.received_by_member_id && (
-                                  <p className="text-xs text-amber-600 ml-3.5">
-                                    Received by: {members.find((m) => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}
-                                  </p>
-                                )}
-                                {txn.broker_name && <p className="text-xs text-slate-400 ml-3.5">Broker: {txn.broker_name}</p>}
-                                {txn.from_partnership_pot && <p className="text-xs text-violet-600 ml-3.5">Paid from partnership pot</p>}
-                                {txn.plot_buyer_id && (
-                                  <p className="text-xs text-teal-600 ml-3.5">
-                                    Buyer: {plotBuyers.find(b => b.id === txn.plot_buyer_id)?.buyer_name || `#${txn.plot_buyer_id}`}
-                                  </p>
-                                )}
-                                {txn.site_plot_id && (
-                                  <p className="text-xs text-teal-600 ml-3.5">
-                                    Plot: {sitePlots.find(sp => sp.id === txn.site_plot_id)?.plot_number || sitePlots.find(sp => sp.id === txn.site_plot_id)?.buyer_name || `#${txn.site_plot_id}`}
-                                  </p>
-                                )}
-                                {txn.description && <p className="text-xs text-slate-400 ml-3.5">{txn.description}</p>}
-                                <p className="text-xs text-slate-400 ml-3.5">{formatDate(txn.txn_date)}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-sm font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>
-                                  {isOut ? "−" : "+"}{formatCurrency(txn.amount)}
-                                </span>
-                                {isActive && (
-                                  <>
-                                    <button onClick={() => openEditTxn(txn)} className="text-xs text-indigo-600 hover:underline">Edit</button>
-                                    <button onClick={() => { if (window.confirm("Delete this transaction?")) deleteTxnMutation.mutate(txn.id); }} className="text-xs text-rose-600 hover:underline">Delete</button>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()
                 ) : (
                   <p className="text-sm text-slate-400 text-center py-4">No transactions yet.</p>
                 )}
@@ -1171,6 +1445,210 @@ export default function PartnershipDetail() {
           </div>
         </div>
       </PageBody>
+
+      {/* Edit Plot Modal */}
+      {editingPlot && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-md">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Edit Plot Details</h2>
+              {editingPlot.hasPaid && <p className="text-xs text-amber-600 mt-1">⚠ Payments recorded — buyer cannot be changed, but other details can be edited.</p>}
+            </div>
+            <div className="p-5 space-y-4">
+              {editingPlot.type === "site_plot" && (
+                <InputField label="Plot Number">
+                  <input type="text" value={editPlotForm.plot_number} onChange={(e) => setEditPlotForm(p => ({ ...p, plot_number: e.target.value }))} className={inputCls} placeholder="e.g. A-1" />
+                </InputField>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <InputField label="Area (sq ft)">
+                  <input type="number" value={editPlotForm.area_sqft} onChange={(e) => setEditPlotForm(p => ({ ...p, area_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                </InputField>
+                <InputField label="Rate (₹/sqft)">
+                  <input type="number" value={editPlotForm.price_per_sqft} onChange={(e) => setEditPlotForm(p => ({ ...p, price_per_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                </InputField>
+              </div>
+              {editPlotForm.area_sqft && editPlotForm.price_per_sqft && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 text-sm">
+                  <span className="text-blue-700 font-medium">Deal Value: </span>
+                  <span className="text-blue-800 font-bold">{formatCurrency(parseFloat(editPlotForm.area_sqft) * parseFloat(editPlotForm.price_per_sqft))}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-2">
+                <InputField label="North (ft)">
+                  <input type="number" value={editPlotForm.side_north_ft} onChange={(e) => setEditPlotForm(p => ({ ...p, side_north_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                </InputField>
+                <InputField label="South (ft)">
+                  <input type="number" value={editPlotForm.side_south_ft} onChange={(e) => setEditPlotForm(p => ({ ...p, side_south_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                </InputField>
+                <InputField label="East (ft)">
+                  <input type="number" value={editPlotForm.side_east_ft} onChange={(e) => setEditPlotForm(p => ({ ...p, side_east_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                </InputField>
+                <InputField label="West (ft)">
+                  <input type="number" value={editPlotForm.side_west_ft} onChange={(e) => setEditPlotForm(p => ({ ...p, side_west_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
+                </InputField>
+              </div>
+              <InputField label="Notes">
+                <input type="text" value={editPlotForm.notes} onChange={(e) => setEditPlotForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional notes about this plot" />
+              </InputField>
+            </div>
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
+              <button onClick={() => setEditingPlot(null)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
+              <button
+                onClick={() => {
+                  const payload = {};
+                  if (editingPlot.type === "site_plot") {
+                    if (editPlotForm.plot_number !== "") payload.plot_number = editPlotForm.plot_number || null;
+                    if (editPlotForm.area_sqft) payload.area_sqft = parseFloat(editPlotForm.area_sqft);
+                    if (editPlotForm.price_per_sqft) payload.sold_price_per_sqft = parseFloat(editPlotForm.price_per_sqft);
+                  } else {
+                    if (editPlotForm.area_sqft) payload.area_sqft = parseFloat(editPlotForm.area_sqft);
+                    if (editPlotForm.price_per_sqft) payload.rate_per_sqft = parseFloat(editPlotForm.price_per_sqft);
+                  }
+                  if (editPlotForm.side_north_ft) payload.side_north_ft = parseFloat(editPlotForm.side_north_ft);
+                  if (editPlotForm.side_south_ft) payload.side_south_ft = parseFloat(editPlotForm.side_south_ft);
+                  if (editPlotForm.side_east_ft) payload.side_east_ft = parseFloat(editPlotForm.side_east_ft);
+                  if (editPlotForm.side_west_ft) payload.side_west_ft = parseFloat(editPlotForm.side_west_ft);
+                  payload.notes = editPlotForm.notes || null;
+                  editPlotMutation.mutate({ type: editingPlot.type, plotId: editingPlot.id, payload });
+                }}
+                disabled={editPlotMutation.isPending}
+                className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
+              >
+                {editPlotMutation.isPending ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Plot Details Popup */}
+      {viewingPlot && (() => {
+        const vp = viewingPlot;
+        const isSp = vp.plotType === "site_plot";
+        const area = vp.area_sqft;
+        const rate = isSp ? vp.sold_price_per_sqft : vp.rate_per_sqft;
+        const totalValue = isSp ? parseFloat(vp.calculated_price || 0) : parseFloat(vp.total_value || 0);
+        const totalPaid = parseFloat(vp.total_paid || 0);
+        const paidPct = totalValue > 0 ? Math.min(100, (totalPaid / totalValue) * 100) : 0;
+        const north = vp.side_north_ft, south = vp.side_south_ft, east = vp.side_east_ft, west = vp.side_west_ft;
+        const hasAnyDim = north || south || east || west;
+        return (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="p-5 border-b border-slate-200 flex justify-between items-start">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">{vp.buyer_name || vp.plot_number || `Plot #${vp.id}`}</h2>
+                  {vp.buyer_name && vp.plot_number && <p className="text-xs text-slate-400 mt-0.5">Plot: {vp.plot_number}</p>}
+                </div>
+                <button onClick={() => setViewingPlot(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none ml-4">✕</button>
+              </div>
+              <div className="p-5 space-y-4">
+                {/* Dimensions diagram */}
+                {hasAnyDim && (
+                  <div className="border border-slate-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-slate-500 mb-3">Plot Dimensions</p>
+                    <div className="relative mx-auto" style={{ width: 220, height: 180 }}>
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 text-[11px] text-blue-600 font-medium whitespace-nowrap">N: {north ? `${north} ft` : "—"}</div>
+                      <div className="absolute border-2 border-blue-400 bg-blue-50 rounded flex items-center justify-center text-center" style={{ top: 24, bottom: 24, left: 36, right: 36 }}>
+                        {area && <div><div className="text-xs font-bold text-blue-700">{Number(area).toLocaleString()}</div><div className="text-[10px] text-blue-500">sqft</div></div>}
+                      </div>
+                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[11px] text-blue-600 font-medium whitespace-nowrap">S: {south ? `${south} ft` : "—"}</div>
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 text-[11px] text-blue-600 font-medium" style={{ writingMode: "vertical-rl" }}>E: {east ? `${east} ft` : "—"}</div>
+                      <div className="absolute left-0 top-1/2 text-[11px] text-blue-600 font-medium" style={{ writingMode: "vertical-rl", transform: "translateY(-50%) rotate(180deg)" }}>W: {west ? `${west} ft` : "—"}</div>
+                    </div>
+                  </div>
+                )}
+                {/* Financial summary */}
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Area</span><span className="font-medium">{area ? `${Number(area).toLocaleString()} sqft` : "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Rate</span><span className="font-medium">{rate ? `₹${Number(rate).toLocaleString()}/sqft` : "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Total Value</span><span className="font-semibold">{formatCurrency(totalValue)}</span></div>
+                  <div className="border-t border-slate-100 pt-2">
+                    <div className="flex justify-between mb-1"><span className="text-slate-500">Paid</span><span className="font-semibold text-emerald-600">{formatCurrency(totalPaid)}</span></div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full" style={{ width: `${paidPct}%` }} />
+                    </div>
+                    <div className="flex justify-between text-xs mt-1 text-slate-400">
+                      <span>{paidPct.toFixed(0)}% paid</span>
+                      <span>{formatCurrency(Math.max(0, totalValue - totalPaid))} remaining</span>
+                    </div>
+                  </div>
+                </div>
+                {/* Status */}
+                <div className="flex gap-2 flex-wrap">
+                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${vp.status === "sold" || vp.status === "registry_done" ? "bg-emerald-100 text-emerald-700" : vp.status === "advance_received" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+                    {(vp.status || "available").replace(/_/g, " ")}
+                  </span>
+                  {(vp.registry_date || vp.sold_date) && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">Registry: {formatDate(vp.registry_date || vp.sold_date)}</span>
+                  )}
+                </div>
+                {vp.notes && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-1">Notes</p>
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap bg-slate-50 rounded-xl p-3">{vp.notes}</p>
+                  </div>
+                )}
+              </div>
+              <div className="p-5 border-t border-slate-200 flex justify-end">
+                <button onClick={() => setViewingPlot(null)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Close Deal Modal */}
+      {closeDealPlot && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 w-full max-w-md">
+            <div className="p-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Close Deal — {closeDealPlot.label}</h2>
+              <p className="text-xs text-slate-500 mt-1">Confirm final area & rate at registry time (adjust if different from estimate). The deal will be marked as sold.</p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <InputField label="Final Area (sq ft)">
+                  <input type="number" value={closeDealForm.area_sqft} onChange={(e) => setCloseDealForm(p => ({ ...p, area_sqft: e.target.value }))} className={inputCls} placeholder={String(closeDealPlot.area_sqft || "")} min="0" />
+                </InputField>
+                <InputField label={closeDealPlot.type === "site_plot" ? "Final Rate (₹/sqft)" : "Final Rate (₹/sqft)"}>
+                  <input type="number" value={closeDealForm.price_per_sqft} onChange={(e) => setCloseDealForm(p => ({ ...p, price_per_sqft: e.target.value }))} className={inputCls} placeholder={String(closeDealPlot.price_per_sqft || closeDealPlot.rate_per_sqft || "")} min="0" />
+                </InputField>
+              </div>
+              {closeDealForm.area_sqft && closeDealForm.price_per_sqft && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 text-sm">
+                  <span className="text-emerald-700 font-medium">Final Deal Value: </span>
+                  <span className="text-emerald-800 font-bold">{formatCurrency(parseFloat(closeDealForm.area_sqft) * parseFloat(closeDealForm.price_per_sqft))}</span>
+                </div>
+              )}
+              <InputField label="Registry Date">
+                <input type="date" value={closeDealForm.registry_date} onChange={(e) => setCloseDealForm(p => ({ ...p, registry_date: e.target.value }))} className={inputCls} />
+              </InputField>
+              <InputField label="Notes (optional)">
+                <input type="text" value={closeDealForm.notes} onChange={(e) => setCloseDealForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Any notes about the closing" />
+              </InputField>
+            </div>
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
+              <button onClick={() => { setCloseDealPlot(null); setCloseDealForm({ area_sqft: "", price_per_sqft: "", registry_date: "", notes: "" }); }} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
+              <button
+                onClick={() => {
+                  const payload = { status: closeDealPlot.type === "site_plot" ? "sold" : "registry_done" };
+                  if (closeDealForm.area_sqft) payload[closeDealPlot.type === "site_plot" ? "area_sqft" : "area_sqft"] = parseFloat(closeDealForm.area_sqft);
+                  if (closeDealForm.price_per_sqft) payload[closeDealPlot.type === "site_plot" ? "sold_price_per_sqft" : "rate_per_sqft"] = parseFloat(closeDealForm.price_per_sqft);
+                  if (closeDealForm.registry_date) payload.registry_date = closeDealForm.registry_date;
+                  if (closeDealForm.notes) payload.notes = closeDealForm.notes;
+                  closeDealMutation.mutate({ type: closeDealPlot.type, plotId: closeDealPlot.id, payload });
+                }}
+                disabled={closeDealMutation.isPending}
+                className="px-5 py-2 bg-gradient-to-r from-rose-500 to-rose-600 text-white rounded-xl text-sm font-medium hover:from-rose-600 hover:to-rose-700 shadow-sm shadow-rose-500/20 active:scale-[0.98] disabled:opacity-50"
+              >
+                {closeDealMutation.isPending ? "Closing..." : "Confirm Close Deal"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Member Modal */}
       {showAddMemberModal && (

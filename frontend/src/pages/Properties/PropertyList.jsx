@@ -37,19 +37,25 @@ function PropertyList() {
 
   const stats = useMemo(() => {
     const count = properties.length;
-    const totalInvested = properties.reduce(
-      (s, p) => s + parseFloat(p.advance_paid || 0),
+    const myInvestment = properties.reduce(
+      (s, p) => s + parseFloat(p.my_investment || 0),
       0,
     );
-    const totalRevenue = properties.reduce(
-      (s, p) => s + parseFloat(p.total_buyer_value || 0),
-      0,
-    );
-    const netProfit = properties.reduce(
-      (s, p) => s + parseFloat(p.net_profit || 0),
-      0,
-    );
-    return { count, totalInvested, totalRevenue, netProfit };
+    const mySharePcts = properties
+      .map(p => parseFloat(p.my_share_percentage || 0))
+      .filter(v => v > 0);
+    const avgShare = mySharePcts.length > 0
+      ? mySharePcts.reduce((s, v) => s + v, 0) / mySharePcts.length
+      : 0;
+    const myRevenue = properties.reduce((s, p) => {
+      const share = parseFloat(p.my_share_percentage || 0) / 100;
+      return s + parseFloat(p.total_buyer_value || 0) * share;
+    }, 0);
+    const myProfit = properties.reduce((s, p) => {
+      const share = parseFloat(p.my_share_percentage || 0) / 100;
+      return s + parseFloat(p.net_profit || 0) * share;
+    }, 0);
+    return { count, myInvestment, avgShare, myRevenue, myProfit };
   }, [properties]);
 
   return (
@@ -70,24 +76,25 @@ function PropertyList() {
       >
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
           <HeroStat
-            label="Total Properties"
-            value={stats.count}
+            label="My Investment"
+            value={formatCurrency(stats.myInvestment)}
             accent="indigo"
           />
           <HeroStat
-            label="Total Invested"
-            value={formatCurrency(stats.totalInvested)}
-            accent="violet"
-          />
-          <HeroStat
-            label="Total Revenue"
-            value={formatCurrency(stats.totalRevenue)}
+            label="My Revenue"
+            value={formatCurrency(stats.myRevenue)}
             accent="emerald"
           />
           <HeroStat
-            label="Net Profit"
-            value={formatCurrency(stats.netProfit)}
-            accent={stats.netProfit >= 0 ? "teal" : "rose"}
+            label="My Profit"
+            value={formatCurrency(stats.myProfit)}
+            accent={stats.myProfit >= 0 ? "teal" : "rose"}
+          />
+          <HeroStat
+            label="Avg My Share"
+            value={stats.avgShare > 0 ? `${stats.avgShare.toFixed(1)}%` : "—"}
+            sub={`across ${stats.count} deal${stats.count !== 1 ? "s" : ""}`}
+            accent="violet"
           />
         </div>
       </PageHero>

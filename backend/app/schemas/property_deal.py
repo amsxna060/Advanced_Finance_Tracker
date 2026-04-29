@@ -213,6 +213,20 @@ class PropertyTransactionOut(BaseModel):
         from_attributes = True
 
 
+class SitePlotUpdate(BaseModel):
+    plot_number: Optional[str] = None
+    area_sqft: Optional[Decimal] = None
+    sold_price_per_sqft: Optional[Decimal] = None
+    calculated_price: Optional[Decimal] = None
+    status: Optional[str] = None
+    registry_date: Optional[date] = None
+    notes: Optional[str] = None
+    side_north_ft: Optional[Decimal] = None
+    side_south_ft: Optional[Decimal] = None
+    side_east_ft: Optional[Decimal] = None
+    side_west_ft: Optional[Decimal] = None
+
+
 class SitePlotCreate(BaseModel):
     plot_number: Optional[str] = None
     area_sqft: Optional[Decimal] = None

@@ -27,7 +27,7 @@ from app.schemas.partnership import (
     AddPlotRequest,
     AssignBuyerRequest,
 )
-from app.schemas.property_deal import PropertyDealOut, PlotBuyerOut, SitePlotOut
+from app.schemas.property_deal import PropertyDealOut, PlotBuyerOut, SitePlotOut, SitePlotUpdate, PlotBuyerUpdate
 from app.schemas.loan import ContactBrief
 from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_ledger_match
 from app.models.cash_account import AccountTransaction, CashAccount
@@ -1172,7 +1172,6 @@ def create_buyer_for_partnership(
         city=buyer_data.city,
         contact_type="individual",
         relationship_type="buyer",
-        notes=buyer_data.notes,
     )
     db.add(contact)
     db.flush()
@@ -1411,3 +1410,119 @@ def assign_buyer_to_plot(
     _sync_property_from_partnership(partnership_id, db)
     db.commit()
     return {"message": "Buyer assigned", "contact_id": contact.id, "contact_name": contact.name}
+
+
+@router.put("/{partnership_id}/site-plots/{plot_id}", response_model=SitePlotOut)
+def update_site_plot_in_partnership(
+    partnership_id: int,
+    plot_id: int,
+    data: SitePlotUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Update a site plot's fields (area, price, status, registry date). Used for 'Close Deal'."""
+    partnership = db.query(Partnership).filter(
+        Partnership.id == partnership_id,
+        Partnership.user_id == current_user.id,
+        Partnership.is_deleted == False,
+    ).first()
+    if not partnership:
+        raise HTTPException(status_code=404, detail="Partnership not found")
+
+    plot = db.query(SitePlot).filter(
+        SitePlot.id == plot_id,
+        SitePlot.property_deal_id == partnership.linked_property_deal_id,
+    ).first()
+    if not plot:
+        raise HTTPException(status_code=404, detail="Site plot not found")
+
+    if data.area_sqft is not None:
+        plot.area_sqft = data.area_sqft
+    if data.sold_price_per_sqft is not None:
+        plot.sold_price_per_sqft = data.sold_price_per_sqft
+    # Recalculate price if either dimension changed
+    if data.area_sqft is not None or data.sold_price_per_sqft is not None:
+        area = data.area_sqft if data.area_sqft is not None else plot.area_sqft
+        rate = data.sold_price_per_sqft if data.sold_price_per_sqft is not None else plot.sold_price_per_sqft
+        if area and rate:
+            plot.calculated_price = area * rate
+    if data.calculated_price is not None:
+        plot.calculated_price = data.calculated_price
+    if data.status is not None:
+        plot.status = data.status
+    if data.registry_date is not None:
+        plot.registry_date = data.registry_date
+    if data.notes is not None:
+        plot.notes = data.notes
+    if data.plot_number is not None:
+        plot.plot_number = data.plot_number
+    if data.side_north_ft is not None:
+        plot.side_north_ft = data.side_north_ft
+    if data.side_south_ft is not None:
+        plot.side_south_ft = data.side_south_ft
+    if data.side_east_ft is not None:
+        plot.side_east_ft = data.side_east_ft
+    if data.side_west_ft is not None:
+        plot.side_west_ft = data.side_west_ft
+
+    _sync_property_from_partnership(partnership_id, db)
+    db.commit()
+    db.refresh(plot)
+    return SitePlotOut.model_validate(plot)
+
+
+@router.put("/{partnership_id}/plot-buyers/{buyer_id}", response_model=PlotBuyerOut)
+def update_plot_buyer_in_partnership(
+    partnership_id: int,
+    buyer_id: int,
+    data: PlotBuyerUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Update a plot buyer's fields (area, price, status, registry date). Used for 'Close Deal'."""
+    partnership = db.query(Partnership).filter(
+        Partnership.id == partnership_id,
+        Partnership.user_id == current_user.id,
+        Partnership.is_deleted == False,
+    ).first()
+    if not partnership:
+        raise HTTPException(status_code=404, detail="Partnership not found")
+
+    buyer = db.query(PlotBuyer).filter(
+        PlotBuyer.id == buyer_id,
+        PlotBuyer.property_deal_id == partnership.linked_property_deal_id,
+    ).first()
+    if not buyer:
+        raise HTTPException(status_code=404, detail="Plot buyer not found")
+
+    if data.area_sqft is not None:
+        buyer.area_sqft = data.area_sqft
+    if data.rate_per_sqft is not None:
+        buyer.rate_per_sqft = data.rate_per_sqft
+    # Recalculate total_value if dimensions changed
+    if data.area_sqft is not None or data.rate_per_sqft is not None:
+        area = data.area_sqft if data.area_sqft is not None else buyer.area_sqft
+        rate = data.rate_per_sqft if data.rate_per_sqft is not None else buyer.rate_per_sqft
+        if area and rate:
+            buyer.total_value = area * rate
+    if data.total_value is not None:
+        buyer.total_value = data.total_value
+    if data.status is not None:
+        buyer.status = data.status
+    if data.registry_date is not None:
+        buyer.registry_date = data.registry_date
+    if data.notes is not None:
+        buyer.notes = data.notes
+    if data.side_north_ft is not None:
+        buyer.side_north_ft = data.side_north_ft
+    if data.side_south_ft is not None:
+        buyer.side_south_ft = data.side_south_ft
+    if data.side_east_ft is not None:
+        buyer.side_east_ft = data.side_east_ft
+    if data.side_west_ft is not None:
+        buyer.side_west_ft = data.side_west_ft
+
+    _sync_property_from_partnership(partnership_id, db)
+    db.commit()
+    db.refresh(buyer)
+    return PlotBuyerOut.model_validate(buyer)

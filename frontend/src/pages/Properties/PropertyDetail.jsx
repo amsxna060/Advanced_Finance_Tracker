@@ -122,9 +122,13 @@ function SitePlotsSection({ plots }) {
       <p className="text-xs text-slate-500 mb-4">{plots.length} plots · {soldCount} sold · {formatCurrency(totalRevenue)} revenue</p>
       {plots.length > 0 ? (
         <div className="space-y-2">
-          {plots.map((p) => (
+          {plots.map((p) => {
+            const val = parseFloat(p.calculated_price || 0);
+            const paid = parseFloat(p.total_paid || 0);
+            const paidPct = val > 0 ? Math.min((paid / val) * 100, 100) : 0;
+            return (
             <div key={p.id} className="border border-slate-200/60 rounded-xl p-3 hover:bg-slate-50/50 transition-colors">
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between mb-1.5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">{p.plot_number || "#"}</div>
                   <div>
@@ -141,8 +145,20 @@ function SitePlotsSection({ plots }) {
                 </div>
                 <span className="text-sm font-bold text-emerald-700">{p.calculated_price ? formatCurrency(p.calculated_price) : "—"}</span>
               </div>
+              {val > 0 && (
+                <div className="mt-1">
+                  <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                    <span>Paid: {formatCurrency(paid)}</span>
+                    <span>{formatCurrency(val - paid)} remaining</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full" style={{ width: `${paidPct}%` }} />
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <p className="text-sm text-slate-400 italic text-center py-4">No plots yet. Manage from Partnership page.</p>
@@ -261,6 +277,24 @@ export default function PropertyDetail() {
   const transactions = data.transactions || [];
   const totalAdvancePool = members.reduce((sum, m) => sum + parseFloat(m.member?.advance_contributed || 0), 0);
 
+  // Stat 3: Remaining owed to seller
+  const remainingPaidToSeller = transactions
+    .filter(t => t.txn_type === "remaining_to_seller")
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  const totalSentToSeller = parseFloat(property.advance_paid || 0) + remainingPaidToSeller;
+  const remainingOwedToSeller = Math.max(0, parseFloat(property.total_seller_value || 0) - totalSentToSeller);
+
+  // Stat 4: My investment & profit withdrawn
+  const selfMember = members.find(m => m.member?.is_self);
+  const myInvestment = parseFloat(selfMember?.member?.advance_contributed || property.my_investment || 0);
+  const myProfitWithdrawn = transactions
+    .filter(t => (t.txn_type === "profit_received" || t.txn_type === "profit_distributed") && t.received_by_member_id === selfMember?.member?.id)
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0)
+    // also count profit_received not tied to a member (self = default receiver)
+    + transactions
+    .filter(t => (t.txn_type === "profit_received") && !t.received_by_member_id)
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+
   /* ─── RENDER ─── */
   return (
     <div className="min-h-screen bg-slate-50">
@@ -278,8 +312,18 @@ export default function PropertyDetail() {
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
           <HeroStat label="Total Seller Value" value={formatCurrency(property.total_seller_value || 0)} accent="indigo" />
           <HeroStat label="Advance Paid" value={formatCurrency(property.advance_paid || 0)} accent="amber" />
-          <HeroStat label="Broker Commission" value={formatCurrency(property.broker_commission || 0)} accent="violet" />
-          <HeroStat label="Status" value={property.status?.replace(/_/g, " ")} accent={isSettled ? "teal" : "amber"} />
+          <HeroStat
+            label="Remaining to Seller"
+            value={formatCurrency(remainingOwedToSeller)}
+            sub={`Sent: ${formatCurrency(totalSentToSeller)}`}
+            accent={remainingOwedToSeller > 0 ? "rose" : "teal"}
+          />
+          <HeroStat
+            label="My Investment"
+            value={formatCurrency(myInvestment)}
+            sub={myProfitWithdrawn > 0 ? `Profit out: ${formatCurrency(myProfitWithdrawn)}` : "No profit withdrawn yet"}
+            accent="violet"
+          />
         </div>
       </PageHero>
 
