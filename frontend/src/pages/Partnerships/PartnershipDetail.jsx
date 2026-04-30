@@ -13,6 +13,7 @@ const TXN_TYPE_LABELS = {
   buyer_advance: "Buyer Advance",
   buyer_payment: "Buyer Payment",
   profit_received: "Profit Received",
+  partner_transfer: "Partner Transfer",
   advance_given: "Advance Given",
   buyer_payment_received: "Buyer Payment Received",
   other_expense: "Other Expense",
@@ -24,6 +25,7 @@ const TXN_TYPE_LABELS = {
 
 const OUTFLOW_TYPES = ["advance_to_seller", "remaining_to_seller", "broker_commission", "expense"];
 const INFLOW_TYPES = ["buyer_advance", "buyer_payment", "profit_received"];
+const TRANSFER_TYPES = ["partner_transfer"];
 const LEGACY_OUTFLOW = ["advance_given", "broker_paid", "invested", "other_expense"];
 
 function InfoRow({ label, value }) {
@@ -284,13 +286,16 @@ export default function PartnershipDetail() {
     const txnType = txnForm.txn_type;
     const isOutflow = OUTFLOW_TYPES.includes(txnType);
     const isInflow = INFLOW_TYPES.includes(txnType);
+    const isTransfer = TRANSFER_TYPES.includes(txnType);
 
     let memberId = null;
     if (isOutflow && txnForm.member_id && !txnForm.from_partnership_pot) memberId = parseInt(txnForm.member_id);
+    if (isTransfer && txnForm.member_id) memberId = parseInt(txnForm.member_id); // FROM partner
 
     const isBuyerToSeller = ["buyer_advance", "buyer_payment"].includes(txnType) && txnForm.received_by_member_id === "seller";
     let receivedByMemberId = null;
     if (isInflow && txnForm.received_by_member_id && txnForm.received_by_member_id !== "seller") receivedByMemberId = parseInt(txnForm.received_by_member_id);
+    if (isTransfer && txnForm.received_by_member_id) receivedByMemberId = parseInt(txnForm.received_by_member_id); // TO partner
 
     // Only send account_id if Self is the payer (outflow) or receiver (inflow with no received_by)
     let accountId = null;
@@ -345,6 +350,7 @@ export default function PartnershipDetail() {
     const txnType = editTxnForm.txn_type;
     const isOutflow = OUTFLOW_TYPES.includes(txnType);
     const isInflow = INFLOW_TYPES.includes(txnType);
+    const isTransfer = txnType === "partner_transfer";
 
     // Only send account_id if Self is the payer/receiver
     let accountId = null;
@@ -355,6 +361,14 @@ export default function PartnershipDetail() {
       }
     } else if (isInflow && !editTxnForm.received_by_member_id && editTxnForm.account_id) {
       accountId = parseInt(editTxnForm.account_id);
+    }
+
+    let memberId = editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null;
+    let receivedByMemberId = null;
+    if (isTransfer) {
+      receivedByMemberId = editTxnForm.received_by_member_id ? parseInt(editTxnForm.received_by_member_id) : null;
+    } else {
+      receivedByMemberId = editTxnForm.received_by_member_id && editTxnForm.received_by_member_id !== "seller" ? parseInt(editTxnForm.received_by_member_id) : null;
     }
 
     updateTxnMutation.mutate({
@@ -370,8 +384,8 @@ export default function PartnershipDetail() {
           return (isBTS ? [base, "→ Paid directly to Seller"].filter(Boolean).join(" · ") : base) || null;
         })(),
         account_id: accountId,
-        member_id: editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null,
-        received_by_member_id: editTxnForm.received_by_member_id && editTxnForm.received_by_member_id !== "seller" ? parseInt(editTxnForm.received_by_member_id) : null,
+        member_id: memberId,
+        received_by_member_id: receivedByMemberId,
         plot_buyer_id: editTxnForm.plot_buyer_id ? parseInt(editTxnForm.plot_buyer_id) : null,
         site_plot_id: editTxnForm.site_plot_id ? parseInt(editTxnForm.site_plot_id) : null,
         broker_name: editTxnForm.broker_name?.trim() || null,
@@ -624,24 +638,38 @@ export default function PartnershipDetail() {
                     const selfCollected = m.member?.is_self
                       ? transactions.filter(t => INFLOW_TYPES.includes(t.txn_type) && !t.received_by_member_id).reduce((s, t) => s + parseFloat(t.amount || 0), 0)
                       : 0;
-                    const paidOut = transactions
-                      .filter(t => (t.txn_type === "advance_to_seller" || t.txn_type === "remaining_to_seller") && t.member_id === memberId)
+                    const invested = transactions
+                      .filter(t => (OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type)) && t.member_id === memberId)
+                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const transfersOut = transactions
+                      .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId)
+                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const transfersIn = transactions
+                      .filter(t => t.txn_type === "partner_transfer" && t.received_by_member_id === memberId)
                       .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                     const totalCollected = collected + selfCollected;
-                    return { name, totalCollected, paidOut, net: totalCollected - paidOut };
-                  }).filter(r => r.totalCollected > 0 || r.paidOut > 0);
+                    const netHolding = totalCollected + transfersIn - transfersOut - invested;
+                    return { name, totalCollected, invested, transfersOut, transfersIn, netHolding };
+                  }).filter(r => r.totalCollected > 0 || r.invested > 0 || r.transfersOut > 0 || r.transfersIn > 0);
                   if (fundRows.length === 0) return null;
                   return (
                     <div className="mt-3 pt-3 border-t border-slate-100">
-                      <p className="text-xs font-semibold text-slate-500 mb-2">💰 Partner Fund Balances <span className="font-normal text-slate-400">(buyer money flow)</span></p>
-                      <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-slate-500 mb-2">💰 Partner Ledger <span className="font-normal text-slate-400">(investment, collections & transfers)</span></p>
+                      <div className="space-y-2">
                         {fundRows.map((r, i) => (
-                          <div key={i} className="flex justify-between items-center py-1 border-b border-slate-50 last:border-0">
-                            <span className="text-xs font-medium text-slate-600">{r.name}</span>
-                            <div className="flex gap-3 text-xs text-right">
-                              <span className="text-emerald-600">In: {formatCurrency(r.totalCollected)}</span>
-                              <span className="text-rose-600">Out: {formatCurrency(r.paidOut)}</span>
-                              <span className={`font-bold min-w-[70px] text-right ${r.net > 0 ? "text-amber-600" : "text-slate-400"}`}>Holds: {formatCurrency(Math.max(0, r.net))}</span>
+                          <div key={i} className="p-2 rounded-xl bg-slate-50 border border-slate-100">
+                            <p className="text-xs font-semibold text-slate-700 mb-1.5">{r.name}</p>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                              {r.invested > 0 && <div className="flex justify-between"><span className="text-slate-500">Invested / Paid out</span><span className="text-rose-600 font-medium">−{formatCurrency(r.invested)}</span></div>}
+                              {r.totalCollected > 0 && <div className="flex justify-between"><span className="text-slate-500">Collected from buyers</span><span className="text-emerald-600 font-medium">+{formatCurrency(r.totalCollected)}</span></div>}
+                              {r.transfersIn > 0 && <div className="flex justify-between"><span className="text-slate-500">Received (transfers)</span><span className="text-violet-600 font-medium">+{formatCurrency(r.transfersIn)}</span></div>}
+                              {r.transfersOut > 0 && <div className="flex justify-between"><span className="text-slate-500">Sent (transfers)</span><span className="text-orange-600 font-medium">−{formatCurrency(r.transfersOut)}</span></div>}
+                            </div>
+                            <div className="mt-1.5 pt-1.5 border-t border-slate-200 flex justify-between text-[11px]">
+                              <span className="text-slate-500 font-medium">Net holding</span>
+                              <span className={`font-bold ${r.netHolding > 0 ? "text-amber-600" : r.netHolding < 0 ? "text-rose-600" : "text-slate-400"}`}>
+                                {r.netHolding > 0 ? "+" : ""}{formatCurrency(r.netHolding)}
+                              </span>
                             </div>
                           </div>
                         ))}
@@ -1104,7 +1132,9 @@ export default function PartnershipDetail() {
                         <optgroup label="Inflows (Money Coming In)">
                           <option value="buyer_advance">Buyer Advance</option>
                           <option value="buyer_payment">Buyer Payment</option>
-                          <option value="profit_received">Profit Received</option>
+                        </optgroup>
+                        <optgroup label="Internal — Partner Transfers">
+                          <option value="partner_transfer">Partner Transfer</option>
                         </optgroup>
                       </select>
                     </InputField>
@@ -1327,13 +1357,61 @@ export default function PartnershipDetail() {
                       </>
                     )}
 
+                    {/* ── PARTNER TRANSFER form ── */}
+                    {txnForm.txn_type === "partner_transfer" && (
+                      <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl space-y-3">
+                        <p className="text-xs font-semibold text-violet-800">↕ Internal Transfer — record money moving between partners</p>
+                        <p className="text-[10px] text-violet-600">Use this to track profit distributions, investment returns, advance refunds or any money one partner gives another. This does NOT affect the deal's P&L — it's purely a partner ledger entry.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <InputField label="From Partner *">
+                            <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value }))} className={inputCls}>
+                              <option value="">— Select —</option>
+                              {members.map(m => (
+                                <option key={m.member?.id} value={String(m.member?.id)}>
+                                  {m.member?.is_self ? "Self (Me)" : m.contact?.name || "Partner"}
+                                </option>
+                              ))}
+                            </select>
+                          </InputField>
+                          <InputField label="To Partner *">
+                            <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className={inputCls}>
+                              <option value="">— Select —</option>
+                              {members.map(m => (
+                                <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === txnForm.member_id}>
+                                  {m.member?.is_self ? "Self (Me)" : m.contact?.name || "Partner"}
+                                </option>
+                              ))}
+                            </select>
+                          </InputField>
+                        </div>
+                        <InputField label="Purpose / Reason">
+                          <select value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className={inputCls}>
+                            <option value="">— Select or type below —</option>
+                            <option value="Profit Share">Profit Share</option>
+                            <option value="Investment Return">Investment Return</option>
+                            <option value="Advance Refund">Advance Refund</option>
+                            <option value="Holding Settlement">Holding Settlement</option>
+                            <option value="Partial Distribution">Partial Distribution</option>
+                          </select>
+                        </InputField>
+                      </div>
+                    )}
+
                     <InputField label="Description">
-                      <input type="text" value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className={inputCls} placeholder="Optional" />
+                      <input type="text" value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className={inputCls} placeholder={txnForm.txn_type === "partner_transfer" ? "Add any notes (optional)" : "Optional"} />
                     </InputField>
 
                     <div className="flex gap-2 justify-end">
                       <button onClick={() => setShowTxnForm(false)} className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
-                      <button onClick={handleAddTxn} disabled={!txnForm.amount || addTxnMutation.isPending || (["buyer_advance","buyer_payment"].includes(txnForm.txn_type) && !txnForm.plot_buyer_id && !txnForm.site_plot_id)} className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                      <button
+                        onClick={handleAddTxn}
+                        disabled={
+                          !txnForm.amount || addTxnMutation.isPending ||
+                          (["buyer_advance","buyer_payment"].includes(txnForm.txn_type) && !txnForm.plot_buyer_id && !txnForm.site_plot_id) ||
+                          (txnForm.txn_type === "partner_transfer" && (!txnForm.member_id || !txnForm.received_by_member_id))
+                        }
+                        className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
+                      >
                         {addTxnMutation.isPending ? "Saving..." : "Save"}
                       </button>
                     </div>
@@ -1355,8 +1433,9 @@ export default function PartnershipDetail() {
                         {sortedDates.map((dateKey) => {
                           const dayTxns = grouped[dateKey];
                           const isCollapsed = collapsedDates[dateKey] !== false; // default collapsed
-                          const dayInflow = dayTxns.filter(t => !OUTFLOW_TYPES.includes(t.txn_type) && !LEGACY_OUTFLOW.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                          const dayInflow = dayTxns.filter(t => !OUTFLOW_TYPES.includes(t.txn_type) && !LEGACY_OUTFLOW.includes(t.txn_type) && t.txn_type !== "partner_transfer").reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                           const dayOutflow = dayTxns.filter(t => OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                          const dayTransfer = dayTxns.filter(t => t.txn_type === "partner_transfer").reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                           return (
                             <div key={dateKey} className="border border-slate-100 rounded-xl overflow-hidden">
                               <button
@@ -1371,6 +1450,7 @@ export default function PartnershipDetail() {
                                 <div className="flex gap-2 text-xs">
                                   {dayInflow > 0 && <span className="text-emerald-600 font-medium">+{formatCurrency(dayInflow)}</span>}
                                   {dayOutflow > 0 && <span className="text-rose-600 font-medium">−{formatCurrency(dayOutflow)}</span>}
+                                  {dayTransfer > 0 && <span className="text-violet-500 font-medium">↕{formatCurrency(dayTransfer)}</span>}
                                 </div>
                               </button>
                               {!isCollapsed && (
@@ -1400,7 +1480,10 @@ export default function PartnershipDetail() {
                                                   <optgroup label="Inflows">
                                                     <option value="buyer_advance">Buyer Advance</option>
                                                     <option value="buyer_payment">Buyer Payment</option>
-                                                    <option value="profit_received">Profit Received</option>
+                                                    {editTxnForm.txn_type === "profit_received" && <option value="profit_received">Profit Received (legacy)</option>}
+                                                  </optgroup>
+                                                  <optgroup label="Internal">
+                                                    <option value="partner_transfer">Partner Transfer</option>
                                                   </optgroup>
                                                 </select>
                                               </div>
@@ -1422,6 +1505,24 @@ export default function PartnershipDetail() {
                                                     {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
                                                   </select>
                                                 </div>
+                                              )}
+                                              {editTxnForm.txn_type === "partner_transfer" && (
+                                                <>
+                                                  <div>
+                                                    <label className="block text-xs text-slate-500 mb-0.5">From</label>
+                                                    <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                      <option value="">— Select —</option>
+                                                      {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
+                                                    </select>
+                                                  </div>
+                                                  <div>
+                                                    <label className="block text-xs text-slate-500 mb-0.5">To</label>
+                                                    <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                      <option value="">— Select —</option>
+                                                      {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === editTxnForm.member_id}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
+                                                    </select>
+                                                  </div>
+                                                </>
                                               )}
                                               {INFLOW_TYPES.includes(editTxnForm.txn_type) && (
                                                 <div>
@@ -1504,39 +1605,60 @@ export default function PartnershipDetail() {
                                         ) : (
                                           <div className="flex justify-between items-start">
                                             <div>
-                                              <p className="text-sm font-medium text-slate-800">
-                                                <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
-                                                {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
-                                                {buyerName && !["buyer_advance", "buyer_payment"].includes(txn.txn_type) && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
-                                              </p>
-                                              {["buyer_advance", "buyer_payment"].includes(txn.txn_type) && buyerName && (
-                                                <p className="text-xs font-semibold text-teal-700 ml-3.5">From: {buyerName}</p>
+                                              {txn.txn_type === "partner_transfer" ? (
+                                                <>
+                                                  <p className="text-sm font-medium text-violet-700">
+                                                    <span className="inline-block w-2 h-2 rounded-full mr-1.5 bg-violet-400"></span>
+                                                    ↕ Partner Transfer
+                                                  </p>
+                                                  {(() => {
+                                                    const fromName = txn.member_id
+                                                      ? (members.find(m => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.member_id)?.contact?.name || "Partner")
+                                                      : "?";
+                                                    const toName = txn.received_by_member_id
+                                                      ? (members.find(m => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner")
+                                                      : "?";
+                                                    return <p className="text-xs font-semibold text-violet-600 ml-3.5">{fromName} → {toName}</p>;
+                                                  })()}
+                                                  {txn.description && <p className="text-xs text-slate-400 ml-3.5">{txn.description}</p>}
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <p className="text-sm font-medium text-slate-800">
+                                                    <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
+                                                    {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
+                                                    {buyerName && !["buyer_advance", "buyer_payment"].includes(txn.txn_type) && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
+                                                  </p>
+                                                  {["buyer_advance", "buyer_payment"].includes(txn.txn_type) && buyerName && (
+                                                    <p className="text-xs font-semibold text-teal-700 ml-3.5">From: {buyerName}</p>
+                                                  )}
+                                                  {txn.description?.includes("→ Paid directly to Seller") && (
+                                                    <p className="text-xs font-medium text-rose-500 ml-3.5">→ Buyer paid Seller directly</p>
+                                                  )}
+                                                  {txn.member_id && (() => {
+                                                    const memberName = members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
+                                                      ? "Self"
+                                                      : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner";
+                                                    const label = txn.txn_type === "profit_received" ? "Given by" : "Paid by";
+                                                    return <p className="text-xs text-indigo-600 ml-3.5">{label}: {memberName}</p>;
+                                                  })()}
+                                                  {txn.received_by_member_id && (
+                                                    <p className="text-xs text-amber-600 ml-3.5">
+                                                      Received by: {members.find((m) => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}
+                                                    </p>
+                                                  )}
+                                                  {txn.broker_name && <p className="text-xs text-slate-400 ml-3.5">Broker: {txn.broker_name}</p>}
+                                                  {txn.from_partnership_pot && <p className="text-xs text-violet-600 ml-3.5">Paid from partnership pot</p>}
+                                                  {(() => {
+                                                    const cleanDesc = (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
+                                                    return cleanDesc ? <p className="text-xs text-slate-400 ml-3.5">{cleanDesc}</p> : null;
+                                                  })()}
+                                                </>
                                               )}
-                                              {txn.description?.includes("→ Paid directly to Seller") && (
-                                                <p className="text-xs font-medium text-rose-500 ml-3.5">→ Buyer paid Seller directly</p>
-                                              )}
-                                              {txn.member_id && (() => {
-                                                const memberName = members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
-                                                  ? "Self"
-                                                  : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner";
-                                                const label = txn.txn_type === "profit_received" ? "Given by" : "Paid by";
-                                                return <p className="text-xs text-indigo-600 ml-3.5">{label}: {memberName}</p>;
-                                              })()}
-                                              {txn.received_by_member_id && (
-                                                <p className="text-xs text-amber-600 ml-3.5">
-                                                  Received by: {members.find((m) => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}
-                                                </p>
-                                              )}
-                                              {txn.broker_name && <p className="text-xs text-slate-400 ml-3.5">Broker: {txn.broker_name}</p>}
-                                              {txn.from_partnership_pot && <p className="text-xs text-violet-600 ml-3.5">Paid from partnership pot</p>}
-                                              {(() => {
-                                                const cleanDesc = (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
-                                                return cleanDesc ? <p className="text-xs text-slate-400 ml-3.5">{cleanDesc}</p> : null;
-                                              })()}
                                             </div>
                                             <div className="flex items-center gap-2">
-                                              <span className={`text-sm font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>
-                                                {isOut ? "−" : "+"}{formatCurrency(txn.amount)}
+                                              <span className={`text-sm font-semibold ${txn.txn_type === "partner_transfer" ? "text-violet-600" : isOut ? "text-rose-600" : "text-emerald-600"}`}>
+                                                {txn.txn_type === "partner_transfer" ? "↕" : isOut ? "−" : "+"}{formatCurrency(txn.amount)}
                                               </span>
                                               {isActive && (
                                                 <>
