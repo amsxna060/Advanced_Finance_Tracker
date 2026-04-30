@@ -16,7 +16,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.loan import Loan, LoanPayment
-from app.models.property_deal import PropertyDeal, PropertyTransaction
+from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot, PlotBuyer
 from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.expense import Expense
