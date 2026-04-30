@@ -80,10 +80,14 @@ docker-compose up --build
 
 ## 📖 Documentation
 
-- **QUICKSTART_PHASE2.md** - Quick user guide and troubleshooting
-- **PHASE2_COMPLETE.md** - Complete feature list and technical details
-- **MOMENTO.md** - Living knowledge base (update as you build)
-- **PROMPT.md** - Original requirements and specifications
+- **[CODEBASE_MINDMAP.md](CODEBASE_MINDMAP.md)** — Living index of the entire codebase (start here)
+- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — First-run user guide
+- **[docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md)** — Render.com deployment
+- **[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** / **[docs/TESTING_PLAN.md](docs/TESTING_PLAN.md)** — Test suite + UAT plan
+- **[docs/PAYMENT_TRACKING_GUIDE.md](docs/PAYMENT_TRACKING_GUIDE.md)** — Payment-allocation algorithm
+- **[docs/PropertyandPartnershipPlan.md](docs/PropertyandPartnershipPlan.md)** — Property & partnership feature spec
+- **[docs/MOMENTO.md](docs/MOMENTO.md)** — Living architecture & decision log
+- **[docs/PROMPT.md](docs/PROMPT.md)** — Original requirements (historical reference)
 
 ## 📁 Project Structure
 
@@ -145,8 +149,8 @@ Advanced_Finance_Tracker/
 
 ## 📖 Documentation
 
-- See `PROMPT.md` for complete technical specification
-- See `MOMENTO.md` for development progress and decisions
+- See [docs/PROMPT.md](docs/PROMPT.md) for the complete technical specification
+- See [docs/MOMENTO.md](docs/MOMENTO.md) for development progress and decisions
 
 ## 🔧 Development
 
@@ -217,7 +221,7 @@ For deploying to Render.com or other cloud platforms:
 2. Every deployment will execute pending migrations before starting the server
 3. No manual shell access required - everything is automated
 
-**📖 See [DEPLOY_RENDER.md](DEPLOY_RENDER.md) for complete step-by-step deployment instructions.**
+**📖 See [docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md) for complete step-by-step deployment instructions.**
 
 ### Troubleshooting Cloud Deployments
 

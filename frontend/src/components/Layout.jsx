@@ -150,6 +150,18 @@ const navItems = [
     ),
   },
   {
+    title: "Property Analytics",
+    route: "/analytics/property",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m-1 4h1m-1 4h1m4-8h1m-1 4h1m-1 4h1"
+      />
+    ),
+  },
+  {
     title: "Net Worth & Assets",
     route: "/net-worth",
     icon: (

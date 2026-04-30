@@ -6,7 +6,7 @@ across all modules (loans, properties, partnerships, beesi, accounts).
 """
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func as sa_func, extract, case, literal
@@ -2515,3 +2515,586 @@ def reconciliation_ledger(
         },
         "ledger": ledger,
     }
+
+
+# ── PROPERTY ANALYTICS — money flow per property/plot/partnership ───────────
+
+# Inflows to "us" (the deal pot): money received from buyers / final sale.
+_PROPERTY_INFLOW_TYPES = {"received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"}
+# Outflows from "us": payments to seller, broker, other expenses, refunds.
+_PROPERTY_OUTFLOW_TYPES = {
+    "advance_to_seller", "payment_to_seller", "remaining_to_seller",
+    "commission_paid", "broker_commission", "expense", "other_expense", "refund",
+}
+
+
+def _scope_label(kind: str, obj) -> str:
+    if kind == "property":
+        return f"Property: {obj.title}"
+    if kind == "site_plot":
+        return f"Plot #{obj.plot_number or obj.id}"
+    if kind == "partnership":
+        return f"Partnership: {obj.title}"
+    return kind
+
+
+def _member_label(m: PartnershipMember, contact_map: dict) -> str:
+    if m.is_self:
+        return "Self"
+    c = contact_map.get(m.contact_id)
+    if c:
+        return c.name
+    return f"Member #{m.id}"
+
+
+def _empty_buckets():
+    return {
+        "to_receive_from_buyers": 0.0,
+        "to_pay_to_seller": 0.0,
+        "already_received": 0.0,
+        "already_paid_out": 0.0,
+        "projected_net_profit": 0.0,
+        "projected_gross_profit": 0.0,
+        "total_seller_value": 0.0,
+        "total_buyer_value": 0.0,
+        "broker_commission": 0.0,
+        "other_expenses": 0.0,
+    }
+
+
+def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
+    """Aggregate property-level money flow numbers from the deal + transactions + plot buyers."""
+    b = _empty_buckets()
+
+    seller_value = float(_D(deal.total_seller_value))
+    buyer_value = float(_D(deal.total_buyer_value))
+    broker = float(_D(deal.broker_commission))
+    other_exp = float(_D(deal.other_expenses))
+
+    txns = (
+        db.query(PropertyTransaction)
+        .filter(PropertyTransaction.property_deal_id == deal.id)
+        .all()
+    )
+    paid_to_seller = 0.0
+    received_from_buyer = 0.0
+    paid_out = 0.0
+    received_in = 0.0
+    for t in txns:
+        amt = float(_D(t.amount))
+        ty = t.txn_type or ""
+        if ty in ("advance_to_seller", "payment_to_seller", "remaining_to_seller"):
+            paid_to_seller += amt
+            paid_out += amt
+        elif ty in ("commission_paid", "broker_commission", "expense", "other_expense", "refund"):
+            paid_out += amt
+        elif ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
+            received_from_buyer += amt
+            received_in += amt
+
+    # Outstanding from buyers: prefer plot_buyers if present, else fall back to deal-level totals
+    plot_buyers = (
+        db.query(PlotBuyer)
+        .filter(PlotBuyer.property_deal_id == deal.id)
+        .all()
+    )
+    site_plots = (
+        db.query(SitePlot)
+        .filter(SitePlot.property_deal_id == deal.id)
+        .all()
+    )
+    if plot_buyers or site_plots:
+        outstanding_buyers = 0.0
+        for pb in plot_buyers:
+            tv = float(_D(pb.total_value))
+            paid = float(_D(pb.total_paid))
+            outstanding_buyers += max(0.0, tv - paid)
+        for sp in site_plots:
+            tv = float(_D(sp.calculated_price))
+            paid = float(_D(sp.total_paid))
+            outstanding_buyers += max(0.0, tv - paid)
+        b["to_receive_from_buyers"] = round(outstanding_buyers, 2)
+    else:
+        b["to_receive_from_buyers"] = round(max(0.0, buyer_value - received_from_buyer), 2)
+
+    b["to_pay_to_seller"] = round(max(0.0, seller_value - paid_to_seller), 2)
+    b["already_paid_out"] = round(paid_out, 2)
+    b["already_received"] = round(received_in, 2)
+    b["total_seller_value"] = round(seller_value, 2)
+    b["total_buyer_value"] = round(buyer_value, 2)
+    b["broker_commission"] = round(broker, 2)
+    b["other_expenses"] = round(other_exp, 2)
+    b["projected_gross_profit"] = round(buyer_value - seller_value, 2)
+    b["projected_net_profit"] = round(buyer_value - seller_value - broker - other_exp, 2)
+    return b
+
+
+def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_map: dict) -> List[dict]:
+    """For each member of a partnership, compute in / out / net-holding / projected share."""
+    members = (
+        db.query(PartnershipMember)
+        .filter(PartnershipMember.partnership_id == p.id)
+        .all()
+    )
+    p_txns = (
+        db.query(PartnershipTransaction)
+        .filter(PartnershipTransaction.partnership_id == p.id)
+        .all()
+    )
+
+    # Also pull property transactions where received_by_member_id targets one of our members,
+    # so collections done on the linked property deal flow into per-member holdings.
+    member_ids = [m.id for m in members]
+    prop_txns_for_members = []
+    if member_ids and p.linked_property_deal_id:
+        prop_txns_for_members = (
+            db.query(PropertyTransaction)
+            .filter(
+                PropertyTransaction.property_deal_id == p.linked_property_deal_id,
+                PropertyTransaction.received_by_member_id.in_(member_ids),
+            )
+            .all()
+        )
+
+    # Projected net profit basis — prefer linked property deal, fall back to total_deal_value.
+    if p.linked_property_deal_id:
+        deal = db.query(PropertyDeal).filter(PropertyDeal.id == p.linked_property_deal_id).first()
+        if deal:
+            buckets = _compute_property_buckets(deal, db)
+            projected_net_profit = buckets["projected_net_profit"]
+        else:
+            projected_net_profit = 0.0
+    else:
+        projected_net_profit = float(_D(p.total_deal_value)) - float(_D(p.our_investment))
+
+    breakdown = []
+    for m in members:
+        share_pct = float(_D(m.share_percentage))
+        # Money this member put IN to the pot:
+        cash_in = float(_D(m.advance_contributed))
+        # Money this member RECEIVED out of the pot (profit/transfer):
+        cash_out = 0.0
+        # Money this member COLLECTED on behalf of the pot (e.g. buyer paid them directly):
+        collected_for_pot = 0.0
+        # Money this member paid OUT for pot expenses on their own (e.g. broker paid by them):
+        paid_for_pot = 0.0
+
+        for t in p_txns:
+            amt = float(_D(t.amount))
+            ty = t.txn_type or ""
+            from_pot = bool(t.from_partnership_pot)
+            # Member acted as the payer
+            if t.member_id == m.id and not from_pot:
+                if ty in ("advance_to_seller", "remaining_to_seller", "broker_commission",
+                          "expense", "other_expense", "advance_given", "broker_paid",
+                          "invested"):
+                    paid_for_pot += amt
+                elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
+                    # Buyer paid directly to this member — they are holding pot cash
+                    collected_for_pot += amt
+            # Member is the recipient
+            if t.received_by_member_id == m.id:
+                if ty in ("profit_received", "partner_transfer", "received", "profit_distributed"):
+                    cash_out += amt
+                elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
+                    collected_for_pot += amt
+
+        for t in prop_txns_for_members:
+            if t.received_by_member_id != m.id:
+                continue
+            ty = t.txn_type or ""
+            amt = float(_D(t.amount))
+            if ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
+                collected_for_pot += amt
+
+        contributed = cash_in + paid_for_pot
+        # "currently holding" = pot cash sitting with this member that hasn't been redistributed
+        currently_holding = collected_for_pot - cash_out
+        net_position = collected_for_pot + cash_out - contributed  # positive = net taker so far
+        projected_share = round(projected_net_profit * share_pct / 100.0, 2)
+        # After full settlement, what they'd still receive (positive) or owe back (negative)
+        final_settlement = round(projected_share - net_position, 2)
+
+        if currently_holding > 1e-2:
+            holding_status = "holding_pot_money"
+        elif net_position < -1e-2:
+            holding_status = "pot_owes_them"
+        elif net_position > 1e-2:
+            holding_status = "ahead_of_share"
+        else:
+            holding_status = "balanced"
+
+        breakdown.append({
+            "member_id": m.id,
+            "name": _member_label(m, contact_map),
+            "is_self": bool(m.is_self),
+            "share_percentage": share_pct,
+            "contributed": round(contributed, 2),
+            "advance_contributed": round(cash_in, 2),
+            "paid_for_pot": round(paid_for_pot, 2),
+            "received_out": round(cash_out, 2),
+            "collected_for_pot": round(collected_for_pot, 2),
+            "currently_holding": round(currently_holding, 2),
+            "net_position": round(net_position, 2),
+            "projected_share": projected_share,
+            "final_settlement": final_settlement,
+            "status": holding_status,
+        })
+
+    return breakdown
+
+
+def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, member_map: dict) -> List[dict]:
+    rows = []
+    for t in db.query(PropertyTransaction).filter(PropertyTransaction.property_deal_id == deal_id).all():
+        rows.append({
+            "date": t.txn_date.isoformat() if t.txn_date else None,
+            "type": t.txn_type,
+            "amount": float(_D(t.amount)),
+            "description": t.description,
+            "scope": "property",
+            "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
+            "payment_mode": t.payment_mode,
+        })
+    return rows
+
+
+def _build_timeline_for_partnership(p_id: int, db: Session, member_map: dict) -> List[dict]:
+    rows = []
+    for t in db.query(PartnershipTransaction).filter(PartnershipTransaction.partnership_id == p_id).all():
+        rows.append({
+            "date": t.txn_date.isoformat() if t.txn_date else None,
+            "type": t.txn_type,
+            "amount": float(_D(t.amount)),
+            "description": t.description,
+            "scope": "partnership",
+            "from_member": member_map.get(t.member_id) if t.member_id else None,
+            "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
+            "from_partnership_pot": bool(t.from_partnership_pot),
+            "payment_mode": t.payment_mode,
+        })
+    return rows
+
+
+@router.get("/property")
+def property_analytics(
+    property_ids: Optional[List[int]] = Query(None),
+    site_plot_ids: Optional[List[int]] = Query(None),
+    partnership_ids: Optional[List[int]] = Query(None),
+    scope: Optional[str] = Query(None),  # "all" → aggregate everything; otherwise honor filters
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Property-focused money-flow analytics.
+
+    Returns one block per selected scope (property / site_plot / partnership) plus a
+    combined aggregate. Each block surfaces:
+      - Six money-flow buckets (to_receive_from_buyers, to_pay_to_seller, already_received,
+        already_paid_out, projected_gross_profit, projected_net_profit)
+      - Per-member breakdown (own contribution, received, currently holding, projected share,
+        final settlement after full settlement)
+      - Transaction timeline scoped to that block
+    """
+    property_ids = property_ids or []
+    site_plot_ids = site_plot_ids or []
+    partnership_ids = partnership_ids or []
+
+    # Resolve "all" → load every active property + partnership
+    if scope == "all" and not (property_ids or site_plot_ids or partnership_ids):
+        property_ids = [
+            p.id for p in db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
+        ]
+        partnership_ids = [
+            p.id for p in db.query(Partnership).filter(Partnership.is_deleted == False).all()
+        ]
+
+    # Pre-load contacts for member labelling
+    contacts = db.query(Contact).all()
+    contact_map = {c.id: c for c in contacts}
+
+    blocks = []
+
+    # ── PROPERTY scopes ─────────────────────────────────────────────────────
+    for pid in property_ids:
+        deal = db.query(PropertyDeal).filter(PropertyDeal.id == pid).first()
+        if not deal:
+            continue
+        buckets = _compute_property_buckets(deal, db)
+
+        # Find any partnerships linked to this deal (for member breakdown)
+        linked_partnerships = (
+            db.query(Partnership)
+            .filter(
+                Partnership.linked_property_deal_id == deal.id,
+                Partnership.is_deleted == False,
+            )
+            .all()
+        )
+        members_breakdown = []
+        member_map = {}
+        for lp in linked_partnerships:
+            for row in _compute_partnership_member_breakdown(lp, db, contact_map):
+                row["partnership_id"] = lp.id
+                row["partnership_title"] = lp.title
+                members_breakdown.append(row)
+            for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == lp.id).all():
+                member_map[m.id] = _member_label(m, contact_map)
+
+        timeline = _build_timeline_for_property(deal.id, db, contact_map, member_map)
+        timeline.sort(key=lambda r: r["date"] or "", reverse=True)
+
+        # Plot-buyer summaries
+        plot_buyers = db.query(PlotBuyer).filter(PlotBuyer.property_deal_id == deal.id).all()
+        site_plots = db.query(SitePlot).filter(SitePlot.property_deal_id == deal.id).all()
+        buyer_rows = []
+        for pb in plot_buyers:
+            tv = float(_D(pb.total_value))
+            paid = float(_D(pb.total_paid))
+            buyer_rows.append({
+                "kind": "plot_buyer",
+                "id": pb.id,
+                "name": (contact_map.get(pb.buyer_contact_id).name if pb.buyer_contact_id and contact_map.get(pb.buyer_contact_id) else pb.buyer_name) or "Unknown",
+                "total_value": round(tv, 2),
+                "paid": round(paid, 2),
+                "outstanding": round(max(0.0, tv - paid), 2),
+                "status": pb.status,
+            })
+        for sp in site_plots:
+            tv = float(_D(sp.calculated_price))
+            paid = float(_D(sp.total_paid))
+            buyer_rows.append({
+                "kind": "site_plot",
+                "id": sp.id,
+                "name": (contact_map.get(sp.buyer_contact_id).name if sp.buyer_contact_id and contact_map.get(sp.buyer_contact_id) else sp.buyer_name) or f"Plot {sp.plot_number}",
+                "total_value": round(tv, 2),
+                "paid": round(paid, 2),
+                "outstanding": round(max(0.0, tv - paid), 2),
+                "status": sp.status,
+            })
+
+        seller_name = contact_map.get(deal.seller_contact_id).name if deal.seller_contact_id and contact_map.get(deal.seller_contact_id) else None
+
+        blocks.append({
+            "kind": "property",
+            "id": deal.id,
+            "label": _scope_label("property", deal),
+            "title": deal.title,
+            "status": deal.status,
+            "seller_name": seller_name,
+            "buckets": buckets,
+            "buyers": buyer_rows,
+            "members": members_breakdown,
+            "timeline": timeline,
+            "linked_partnership_ids": [lp.id for lp in linked_partnerships],
+        })
+
+    # ── SITE PLOT scopes ────────────────────────────────────────────────────
+    for sp_id in site_plot_ids:
+        sp = db.query(SitePlot).filter(SitePlot.id == sp_id).first()
+        if not sp:
+            continue
+        deal = db.query(PropertyDeal).filter(PropertyDeal.id == sp.property_deal_id).first()
+        tv = float(_D(sp.calculated_price))
+        paid = float(_D(sp.total_paid))
+
+        # Allocate seller-side proportional to plot area
+        seller_share = 0.0
+        broker_share = 0.0
+        other_share = 0.0
+        if deal:
+            total_area = float(_D(deal.total_area_sqft)) or 1.0
+            plot_area = float(_D(sp.area_sqft))
+            ratio = (plot_area / total_area) if total_area else 0.0
+            seller_share = float(_D(deal.total_seller_value)) * ratio
+            broker_share = float(_D(deal.broker_commission)) * ratio
+            other_share = float(_D(deal.other_expenses)) * ratio
+
+        net_profit = round(tv - seller_share - broker_share - other_share, 2)
+        buckets = {
+            "to_receive_from_buyers": round(max(0.0, tv - paid), 2),
+            "to_pay_to_seller": round(seller_share, 2),
+            "already_received": round(paid, 2),
+            "already_paid_out": 0.0,
+            "projected_net_profit": net_profit,
+            "projected_gross_profit": round(tv - seller_share, 2),
+            "total_buyer_value": round(tv, 2),
+            "total_seller_value": round(seller_share, 2),
+            "broker_commission": round(broker_share, 2),
+            "other_expenses": round(other_share, 2),
+        }
+
+        blocks.append({
+            "kind": "site_plot",
+            "id": sp.id,
+            "label": _scope_label("site_plot", sp),
+            "title": f"Plot {sp.plot_number} — {deal.title if deal else ''}",
+            "status": sp.status,
+            "buyer_name": (contact_map.get(sp.buyer_contact_id).name if sp.buyer_contact_id and contact_map.get(sp.buyer_contact_id) else sp.buyer_name) or "Unallocated",
+            "buckets": buckets,
+            "members": [],
+            "timeline": [],
+            "buyers": [{
+                "kind": "site_plot",
+                "id": sp.id,
+                "name": (contact_map.get(sp.buyer_contact_id).name if sp.buyer_contact_id and contact_map.get(sp.buyer_contact_id) else sp.buyer_name) or "Unallocated",
+                "total_value": round(tv, 2),
+                "paid": round(paid, 2),
+                "outstanding": round(max(0.0, tv - paid), 2),
+                "status": sp.status,
+            }],
+            "property_deal_id": sp.property_deal_id,
+        })
+
+    # ── PARTNERSHIP scopes ─────────────────────────────────────────────────
+    for pp_id in partnership_ids:
+        p = db.query(Partnership).filter(Partnership.id == pp_id).first()
+        if not p:
+            continue
+        members_breakdown = _compute_partnership_member_breakdown(p, db, contact_map)
+        member_map = {}
+        for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == p.id).all():
+            member_map[m.id] = _member_label(m, contact_map)
+
+        # Buckets: borrow from linked property deal, else build from partnership-only data.
+        if p.linked_property_deal_id:
+            deal = db.query(PropertyDeal).filter(PropertyDeal.id == p.linked_property_deal_id).first()
+            if deal:
+                buckets = _compute_property_buckets(deal, db)
+            else:
+                buckets = _empty_buckets()
+        else:
+            buckets = _empty_buckets()
+            buckets["total_buyer_value"] = float(_D(p.total_deal_value))
+            buckets["total_seller_value"] = float(_D(p.our_investment))
+            buckets["projected_gross_profit"] = round(buckets["total_buyer_value"] - buckets["total_seller_value"], 2)
+            buckets["projected_net_profit"] = buckets["projected_gross_profit"]
+
+        timeline = _build_timeline_for_partnership(p.id, db, member_map)
+        # Pull property transactions of the linked deal too — they're material to the partnership view
+        if p.linked_property_deal_id:
+            timeline += _build_timeline_for_property(p.linked_property_deal_id, db, contact_map, member_map)
+        timeline.sort(key=lambda r: r["date"] or "", reverse=True)
+
+        blocks.append({
+            "kind": "partnership",
+            "id": p.id,
+            "label": _scope_label("partnership", p),
+            "title": p.title,
+            "status": p.status,
+            "linked_property_deal_id": p.linked_property_deal_id,
+            "buckets": buckets,
+            "members": members_breakdown,
+            "timeline": timeline,
+            "buyers": [],
+        })
+
+    # ── COMBINED aggregate across blocks ────────────────────────────────────
+    combined_buckets = _empty_buckets()
+    for blk in blocks:
+        for k in combined_buckets:
+            combined_buckets[k] = round(combined_buckets[k] + blk["buckets"].get(k, 0.0), 2)
+
+    # Combine member positions (across partnerships) by member name + is_self
+    # so the user gets an "across-everything" per-partner view.
+    combined_members = {}
+    for blk in blocks:
+        for row in blk.get("members", []):
+            key = (row["name"], row["is_self"])
+            agg = combined_members.setdefault(key, {
+                "name": row["name"],
+                "is_self": row["is_self"],
+                "contributed": 0.0,
+                "received_out": 0.0,
+                "collected_for_pot": 0.0,
+                "currently_holding": 0.0,
+                "projected_share": 0.0,
+                "final_settlement": 0.0,
+            })
+            agg["contributed"] += row.get("contributed", 0.0)
+            agg["received_out"] += row.get("received_out", 0.0)
+            agg["collected_for_pot"] += row.get("collected_for_pot", 0.0)
+            agg["currently_holding"] += row.get("currently_holding", 0.0)
+            agg["projected_share"] += row.get("projected_share", 0.0)
+            agg["final_settlement"] += row.get("final_settlement", 0.0)
+
+    combined_members_list = [
+        {**v, **{k2: round(v[k2], 2) for k2 in v if isinstance(v[k2], float)}}
+        for v in combined_members.values()
+    ]
+    combined_members_list.sort(key=lambda r: (not r["is_self"], -r["projected_share"]))
+
+    # Plain-English sentence for the page header
+    summary_sentence = _build_summary_sentence(combined_buckets, combined_members_list)
+
+    # Available scope options (so the picker can populate without a second call)
+    options = {
+        "properties": [
+            {"id": p.id, "title": p.title, "status": p.status}
+            for p in db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).order_by(PropertyDeal.id.desc()).all()
+        ],
+        "partnerships": [
+            {"id": p.id, "title": p.title, "status": p.status, "linked_property_deal_id": p.linked_property_deal_id}
+            for p in db.query(Partnership).filter(Partnership.is_deleted == False).order_by(Partnership.id.desc()).all()
+        ],
+        "site_plots": [
+            {
+                "id": sp.id,
+                "plot_number": sp.plot_number,
+                "property_deal_id": sp.property_deal_id,
+                "status": sp.status,
+            }
+            for sp in db.query(SitePlot).order_by(SitePlot.id.desc()).all()
+        ],
+    }
+
+    return {
+        "scope": {
+            "property_ids": property_ids,
+            "site_plot_ids": site_plot_ids,
+            "partnership_ids": partnership_ids,
+            "preset": scope,
+        },
+        "summary_sentence": summary_sentence,
+        "combined": {
+            "buckets": combined_buckets,
+            "members": combined_members_list,
+        },
+        "blocks": blocks,
+        "options": options,
+    }
+
+
+def _fmt_inr(n: float) -> str:
+    """Compact INR formatter (₹12.5L / ₹1.2Cr) for the plain-English summary."""
+    n = float(n or 0)
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    if n >= 1_00_00_000:
+        return f"{sign}₹{n/1_00_00_000:.2f}Cr"
+    if n >= 1_00_000:
+        return f"{sign}₹{n/1_00_000:.2f}L"
+    if n >= 1_000:
+        return f"{sign}₹{n/1_000:.1f}K"
+    return f"{sign}₹{int(n)}"
+
+
+def _build_summary_sentence(buckets: dict, members: list) -> str:
+    parts = []
+    if buckets.get("to_receive_from_buyers", 0) > 0:
+        parts.append(f"{_fmt_inr(buckets['to_receive_from_buyers'])} still to come from buyers")
+    if buckets.get("to_pay_to_seller", 0) > 0:
+        parts.append(f"{_fmt_inr(buckets['to_pay_to_seller'])} still owed to seller")
+    self_holding = next((m["currently_holding"] for m in members if m.get("is_self")), 0)
+    if self_holding and abs(self_holding) > 1:
+        parts.append(f"You are holding {_fmt_inr(self_holding)} of pot money")
+    others_holding = sum(m["currently_holding"] for m in members if not m.get("is_self"))
+    if others_holding and abs(others_holding) > 1:
+        parts.append(f"Partners are holding {_fmt_inr(others_holding)}")
+    if buckets.get("projected_net_profit", 0):
+        self_share = next((m["projected_share"] for m in members if m.get("is_self")), 0)
+        parts.append(
+            f"Projected profit {_fmt_inr(buckets['projected_net_profit'])}"
+            + (f" (your share {_fmt_inr(self_share)})" if self_share else "")
+        )
+    return " · ".join(parts) if parts else "Nothing pending — pick a scope above to see the money flow."

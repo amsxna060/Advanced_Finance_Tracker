@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '{print $9, $5}')",
+      "Bash(git rm *)",
+      "Bash(git mv *)",
+      "Bash(python -c \"from app.routers.analytics import router; print\\('OK', len\\(router.routes\\)\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app/routers/analytics.py'\\).read\\(\\)\\); print\\('AST OK'\\)\")",
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/Analytics/PropertyAnalytics.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);console.log\\('OK'\\)\")",
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/Analytics/PropertyAnalytics.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);console.log\\('PropertyAnalytics OK'\\)\")",
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/App.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/components/Layout.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);console.log\\('App+Layout OK'\\)\")"
+    ]
+  }
+}
