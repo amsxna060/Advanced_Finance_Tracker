@@ -1423,7 +1423,7 @@ def update_site_plot_in_partnership(
     """Update a site plot's fields (area, price, status, registry date). Used for 'Close Deal'."""
     partnership = db.query(Partnership).filter(
         Partnership.id == partnership_id,
-        Partnership.user_id == current_user.id,
+        Partnership.created_by == current_user.id,
         Partnership.is_deleted == False,
     ).first()
     if not partnership:
@@ -1486,7 +1486,7 @@ def update_plot_buyer_in_partnership(
     """Update a plot buyer's fields (area, price, status, registry date). Used for 'Close Deal'."""
     partnership = db.query(Partnership).filter(
         Partnership.id == partnership_id,
-        Partnership.user_id == current_user.id,
+        Partnership.created_by == current_user.id,
         Partnership.is_deleted == False,
     ).first()
     if not partnership:
