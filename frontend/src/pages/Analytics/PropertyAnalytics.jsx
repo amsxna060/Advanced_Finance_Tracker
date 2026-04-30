@@ -134,19 +134,22 @@ function MembersTable({ members, showPartnership }) {
           <tr>
             <th className="text-left px-3 py-2 font-semibold">Partner</th>
             {showPartnership && <th className="text-left px-3 py-2 font-semibold">Partnership</th>}
-            <th className="text-right px-3 py-2 font-semibold">Share %</th>
-            <th className="text-right px-3 py-2 font-semibold">Contributed</th>
-            <th className="text-right px-3 py-2 font-semibold">Received Out</th>
-            <th className="text-right px-3 py-2 font-semibold">Collected For Pot</th>
-            <th className="text-right px-3 py-2 font-semibold">Currently Holding</th>
-            <th className="text-right px-3 py-2 font-semibold">Projected Share</th>
-            <th className="text-right px-3 py-2 font-semibold">Final Settlement</th>
-            <th className="text-left px-3 py-2 font-semibold">Status</th>
+            <th className="text-right px-3 py-2 font-semibold" title="Their declared investment share">Share %</th>
+            <th className="text-right px-3 py-2 font-semibold" title="Advance they put in as their investment share">Invested</th>
+            <th className="text-right px-3 py-2 font-semibold" title="Buyer payments received by them (pot money, not their own)">Collected from Buyers</th>
+            <th className="text-right px-3 py-2 font-semibold" title="Payments made to seller or expenses">Paid Out</th>
+            <th className="text-right px-3 py-2 font-semibold" title="Collected minus Paid Out — pot money still with them">Net Holding</th>
+            <th className="text-left px-3 py-2 font-semibold" title="Partner Transfer flows (↓ received, ↑ sent)">Transfers</th>
           </tr>
         </thead>
         <tbody>
           {members.map((m, idx) => {
-            const status = STATUS_LABELS[m.status] || STATUS_LABELS.balanced;
+            const invested = m.own_invested ?? m.advance_contributed ?? m.contributed ?? 0;
+            const collected = m.collected_from_buyers ?? m.collected_for_pot ?? 0;
+            const paidOut = m.all_paid_out ?? m.paid_for_pot ?? 0;
+            const netH = m.net_holding ?? m.currently_holding ?? 0;
+            const tIn = m.transferred_in ?? 0;
+            const tOut = m.transferred_out ?? 0;
             return (
               <tr
                 key={`${m.member_id || m.name}-${idx}`}
@@ -155,41 +158,29 @@ function MembersTable({ members, showPartnership }) {
                 <td className="px-3 py-2 font-medium text-slate-800">
                   {m.name}
                   {m.is_self && (
-                    <span className="ml-2 inline-flex text-[10px] font-semibold bg-blue-600 text-white px-1.5 py-0.5 rounded">
-                      YOU
-                    </span>
+                    <span className="ml-2 inline-flex text-[10px] font-semibold bg-blue-600 text-white px-1.5 py-0.5 rounded">YOU</span>
                   )}
                 </td>
                 {showPartnership && (
                   <td className="px-3 py-2 text-slate-600">{m.partnership_title || "—"}</td>
                 )}
                 <td className="px-3 py-2 text-right text-slate-700">
-                  {m.share_percentage != null ? `${m.share_percentage}%` : "—"}
+                  {m.share_percentage > 0 ? `${m.share_percentage}%` : "—"}
                 </td>
-                <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(m.contributed)}</td>
-                <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(m.received_out)}</td>
-                <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(m.collected_for_pot)}</td>
-                <td
-                  className={`px-3 py-2 text-right font-semibold ${
-                    m.currently_holding > 0 ? "text-amber-700" : m.currently_holding < 0 ? "text-blue-700" : "text-slate-600"
-                  }`}
-                >
-                  {formatCurrency(m.currently_holding)}
-                </td>
-                <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(m.projected_share)}</td>
-                <td
-                  className={`px-3 py-2 text-right font-semibold ${
-                    m.final_settlement > 0 ? "text-emerald-700" : m.final_settlement < 0 ? "text-rose-700" : "text-slate-600"
-                  }`}
-                >
-                  {formatCurrency(m.final_settlement)}
+                <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(invested)}</td>
+                <td className="px-3 py-2 text-right font-medium text-emerald-700">{formatCurrency(collected)}</td>
+                <td className="px-3 py-2 text-right text-rose-700">{formatCurrency(paidOut)}</td>
+                <td className={`px-3 py-2 text-right font-semibold ${netH > 0.5 ? "text-amber-700" : netH < -0.5 ? "text-blue-700" : "text-slate-400"}`}>
+                  {netH > 0.5 ? `+${formatCurrency(netH)}` : netH < -0.5 ? formatCurrency(netH) : "—"}
+                  {netH < -0.5 && <div className="text-[9px] font-normal text-blue-500 mt-0.5">pot owes them</div>}
                 </td>
                 <td className="px-3 py-2">
-                  {m.status && (
-                    <span className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${status.cls}`}>
-                      {status.text}
-                    </span>
-                  )}
+                  {(tIn > 0 || tOut > 0) ? (
+                    <div className="text-xs space-y-0.5">
+                      {tIn > 0 && <div className="text-violet-700">↓ {formatCurrency(tIn)}</div>}
+                      {tOut > 0 && <div className="text-violet-400">↑ {formatCurrency(tOut)}</div>}
+                    </div>
+                  ) : <span className="text-slate-300">—</span>}
                 </td>
               </tr>
             );
@@ -341,7 +332,7 @@ function Block({ block }) {
   );
 }
 
-function ScopePicker({ options, selection, setSelection, allMode, setAllMode }) {
+function ScopePicker({ options, selection, setSelection, allMode, setAllMode, onApply, hasPendingChanges, isLoading }) {
   const toggle = (key, id) => {
     setAllMode(false);
     setSelection((prev) => {
@@ -364,6 +355,7 @@ function ScopePicker({ options, selection, setSelection, allMode, setAllMode }) 
             onClick={() => {
               setAllMode(true);
               setSelection({ propertyIds: [], sitePlotIds: [], partnershipIds: [] });
+              onApply("scope=all");
             }}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
               allMode
@@ -372,6 +364,17 @@ function ScopePicker({ options, selection, setSelection, allMode, setAllMode }) 
             }`}
           >
             Everything Combined
+          </button>
+          <button
+            onClick={() => onApply()}
+            disabled={!hasPendingChanges || isLoading}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+              hasPendingChanges && !isLoading
+                ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
+                : "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+            }`}
+          >
+            {isLoading ? "Loading…" : hasPendingChanges ? "Apply →" : "Applied ✓"}
           </button>
           <button
             onClick={clear}
@@ -468,28 +471,42 @@ function ScopePicker({ options, selection, setSelection, allMode, setAllMode }) 
 }
 
 export default function PropertyAnalytics() {
-  const [allMode, setAllMode] = useState(true);
+  const [allMode, setAllMode] = useState(false);
   const [selection, setSelection] = useState({
     propertyIds: [],
     sitePlotIds: [],
     partnershipIds: [],
   });
+  // appliedQuery: null = nothing loaded yet; string = last applied query
+  const [appliedQuery, setAppliedQuery] = useState(null);
 
-  const queryString = useMemo(
-    () => buildScopeQuery({ ...selection, allMode }),
-    [selection, allMode]
-  );
+  // Lightweight options-only load (no analytics computation) — runs once on mount
+  const { data: optionsMeta } = useQuery({
+    queryKey: ["property-analytics-options"],
+    queryFn: async () => (await api.get("/api/analytics/property")).data,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["property-analytics", queryString],
-    queryFn: async () =>
-      (await api.get(`/api/analytics/property?${queryString}`)).data,
+  // Full analytics — only fires when user explicitly applies a selection
+  const { data: analyticsData, isLoading, isError, error } = useQuery({
+    queryKey: ["property-analytics", appliedQuery],
+    queryFn: async () => (await api.get(`/api/analytics/property?${appliedQuery}`)).data,
+    enabled: appliedQuery !== null,
     keepPreviousData: true,
   });
 
-  const blocks = data?.blocks || [];
-  const combined = data?.combined;
+  const options = analyticsData?.options || optionsMeta?.options || {};
+  const blocks = analyticsData?.blocks || [];
+  const combined = analyticsData?.combined;
   const showCombined = blocks.length > 1 || allMode;
+
+  const pendingQuery = useMemo(
+    () => buildScopeQuery({ ...selection, allMode }),
+    [selection, allMode]
+  );
+  const hasPendingChanges = pendingQuery !== (appliedQuery ?? "§UNSET§");
+
+  const handleApply = (q) => setAppliedQuery(q ?? pendingQuery);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -501,23 +518,26 @@ export default function PropertyAnalytics() {
           </p>
         </div>
 
-        {data?.summary_sentence && (
+        {analyticsData?.summary_sentence && (
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl p-5 shadow-md">
             <div className="text-xs font-semibold uppercase tracking-wider text-indigo-100 mb-1">
               At a glance
             </div>
             <div className="text-base sm:text-lg font-medium leading-relaxed">
-              {data.summary_sentence}
+              {analyticsData.summary_sentence}
             </div>
           </div>
         )}
 
         <ScopePicker
-          options={data?.options}
+          options={options}
           selection={selection}
           setSelection={setSelection}
           allMode={allMode}
           setAllMode={setAllMode}
+          onApply={handleApply}
+          hasPendingChanges={hasPendingChanges}
+          isLoading={isLoading}
         />
 
         {isLoading && (
@@ -532,9 +552,16 @@ export default function PropertyAnalytics() {
           </div>
         )}
 
-        {!isLoading && !isError && blocks.length === 0 && (
+        {!isLoading && !isError && appliedQuery === null && (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500">
-            Pick a property, plot, or partnership above to see the money flow.
+            <p className="text-base font-medium text-slate-700 mb-1">Select properties to analyse</p>
+            <p className="text-sm">Choose from the list above, or click <strong>Everything Combined</strong> to load all.</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && appliedQuery !== null && blocks.length === 0 && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500">
+            Nothing to show for the selected scope.
           </div>
         )}
 

@@ -2592,6 +2592,19 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
             received_from_buyer += amt
             received_in += amt
 
+    # Fallback for partnership-managed deals that store no PropertyTransactions directly.
+    # Use synced fields written by _sync_property_from_partnership.
+    if not txns:
+        paid_to_seller = float(_D(deal.advance_paid))
+        paid_out = paid_to_seller
+        linked_p = db.query(Partnership).filter(
+            Partnership.linked_property_deal_id == deal.id,
+            Partnership.is_deleted == False,
+        ).first()
+        if linked_p:
+            received_in = float(_D(linked_p.total_received))
+            received_from_buyer = received_in
+
     # Outstanding from buyers: prefer plot_buyers if present, else fall back to deal-level totals
     plot_buyers = (
         db.query(PlotBuyer)
@@ -2630,7 +2643,14 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
 
 
 def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_map: dict) -> List[dict]:
-    """For each member of a partnership, compute in / out / net-holding / projected share."""
+    """
+    For each member compute a clean money-flow picture:
+      own_invested      — advance_contributed only (what they explicitly put in as their share)
+      collected_from_buyers — buyer payments received by them (pot money, not their own)
+      all_paid_out      — total they sent to seller / expenses (own + forwarded pot money)
+      net_holding       — collected_from_buyers - all_paid_out  (positive = sitting on pot cash)
+      transferred_in/out — partner_transfer flows
+    """
     members = (
         db.query(PartnershipMember)
         .filter(PartnershipMember.partnership_id == p.id)
@@ -2642,8 +2662,7 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
         .all()
     )
 
-    # Also pull property transactions where received_by_member_id targets one of our members,
-    # so collections done on the linked property deal flow into per-member holdings.
+    # Property-level inflows credited to specific members (legacy data path)
     member_ids = [m.id for m in members]
     prop_txns_for_members = []
     if member_ids and p.linked_property_deal_id:
@@ -2656,48 +2675,40 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
             .all()
         )
 
-    # Projected net profit basis — prefer linked property deal, fall back to total_deal_value.
-    if p.linked_property_deal_id:
-        deal = db.query(PropertyDeal).filter(PropertyDeal.id == p.linked_property_deal_id).first()
-        if deal:
-            buckets = _compute_property_buckets(deal, db)
-            projected_net_profit = buckets["projected_net_profit"]
-        else:
-            projected_net_profit = 0.0
-    else:
-        projected_net_profit = float(_D(p.total_deal_value)) - float(_D(p.our_investment))
-
     breakdown = []
     for m in members:
         share_pct = float(_D(m.share_percentage))
-        # Money this member put IN to the pot:
-        cash_in = float(_D(m.advance_contributed))
-        # Money this member RECEIVED out of the pot (profit/transfer):
-        cash_out = 0.0
-        # Money this member COLLECTED on behalf of the pot (e.g. buyer paid them directly):
-        collected_for_pot = 0.0
-        # Money this member paid OUT for pot expenses on their own (e.g. broker paid by them):
-        paid_for_pot = 0.0
+
+        # Their declared investment share — only this field counts as "own money in"
+        own_invested = float(_D(m.advance_contributed))
+
+        # Buyer money received by this member (they're holding it on behalf of the pot)
+        collected_from_buyers = 0.0
+        # All outflows they made (seller payments, expenses) — from own pocket or collected funds
+        all_paid_out = 0.0
+        # Partner transfers
+        transferred_out = 0.0
+        transferred_in = 0.0
 
         for t in p_txns:
             amt = float(_D(t.amount))
             ty = t.txn_type or ""
-            from_pot = bool(t.from_partnership_pot)
-            # Member acted as the payer
-            if t.member_id == m.id and not from_pot:
+
+            if t.member_id == m.id:
                 if ty in ("advance_to_seller", "remaining_to_seller", "broker_commission",
-                          "expense", "other_expense", "advance_given", "broker_paid",
-                          "invested"):
-                    paid_for_pot += amt
+                          "expense", "other_expense", "advance_given", "broker_paid", "invested"):
+                    all_paid_out += amt
                 elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
-                    # Buyer paid directly to this member — they are holding pot cash
-                    collected_for_pot += amt
-            # Member is the recipient
+                    # Buyer paid directly to this member (they're the collector)
+                    collected_from_buyers += amt
+                elif ty == "partner_transfer":
+                    transferred_out += amt
+
             if t.received_by_member_id == m.id:
-                if ty in ("profit_received", "partner_transfer", "received", "profit_distributed"):
-                    cash_out += amt
-                elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
-                    collected_for_pot += amt
+                if ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
+                    collected_from_buyers += amt
+                elif ty == "partner_transfer":
+                    transferred_in += amt
 
         for t in prop_txns_for_members:
             if t.received_by_member_id != m.id:
@@ -2705,22 +2716,14 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
             ty = t.txn_type or ""
             amt = float(_D(t.amount))
             if ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
-                collected_for_pot += amt
+                collected_from_buyers += amt
 
-        contributed = cash_in + paid_for_pot
-        # "currently holding" = pot cash sitting with this member that hasn't been redistributed
-        currently_holding = collected_for_pot - cash_out
-        net_position = collected_for_pot + cash_out - contributed  # positive = net taker so far
-        projected_share = round(projected_net_profit * share_pct / 100.0, 2)
-        # After full settlement, what they'd still receive (positive) or owe back (negative)
-        final_settlement = round(projected_share - net_position, 2)
+        net_holding = collected_from_buyers - all_paid_out
 
-        if currently_holding > 1e-2:
+        if net_holding > 1e-2:
             holding_status = "holding_pot_money"
-        elif net_position < -1e-2:
+        elif (own_invested + all_paid_out) > (collected_from_buyers + transferred_in) + 1e-2:
             holding_status = "pot_owes_them"
-        elif net_position > 1e-2:
-            holding_status = "ahead_of_share"
         else:
             holding_status = "balanced"
 
@@ -2729,15 +2732,21 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
             "name": _member_label(m, contact_map),
             "is_self": bool(m.is_self),
             "share_percentage": share_pct,
-            "contributed": round(contributed, 2),
-            "advance_contributed": round(cash_in, 2),
-            "paid_for_pot": round(paid_for_pot, 2),
-            "received_out": round(cash_out, 2),
-            "collected_for_pot": round(collected_for_pot, 2),
-            "currently_holding": round(currently_holding, 2),
-            "net_position": round(net_position, 2),
-            "projected_share": projected_share,
-            "final_settlement": final_settlement,
+            "own_invested": round(own_invested, 2),
+            "collected_from_buyers": round(collected_from_buyers, 2),
+            "all_paid_out": round(all_paid_out, 2),
+            "net_holding": round(net_holding, 2),
+            "transferred_out": round(transferred_out, 2),
+            "transferred_in": round(transferred_in, 2),
+            # Legacy aliases kept for backward compat
+            "contributed": round(own_invested, 2),
+            "advance_contributed": round(own_invested, 2),
+            "paid_for_pot": round(all_paid_out, 2),
+            "received_out": round(transferred_in, 2),
+            "collected_for_pot": round(collected_from_buyers, 2),
+            "currently_holding": round(net_holding, 2),
+            "projected_share": 0.0,
+            "final_settlement": 0.0,
             "status": holding_status,
         })
 
@@ -2814,6 +2823,9 @@ def property_analytics(
     contact_map = {c.id: c for c in contacts}
 
     blocks = []
+    # Track which partnership IDs are already processed via a linked property block,
+    # so we don't double-count them when partnership_ids also lists them.
+    already_processed_partnership_ids: set = set()
 
     # ── PROPERTY scopes ─────────────────────────────────────────────────────
     for pid in property_ids:
@@ -2840,6 +2852,7 @@ def property_analytics(
                 members_breakdown.append(row)
             for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == lp.id).all():
                 member_map[m.id] = _member_label(m, contact_map)
+            already_processed_partnership_ids.add(lp.id)
 
         timeline = _build_timeline_for_property(deal.id, db, contact_map, member_map)
         timeline.sort(key=lambda r: r["date"] or "", reverse=True)
@@ -2948,6 +2961,8 @@ def property_analytics(
 
     # ── PARTNERSHIP scopes ─────────────────────────────────────────────────
     for pp_id in partnership_ids:
+        if pp_id in already_processed_partnership_ids:
+            continue  # already counted via its linked property block — avoid double-counting
         p = db.query(Partnership).filter(Partnership.id == pp_id).first()
         if not p:
             continue
@@ -2995,8 +3010,7 @@ def property_analytics(
         for k in combined_buckets:
             combined_buckets[k] = round(combined_buckets[k] + blk["buckets"].get(k, 0.0), 2)
 
-    # Combine member positions (across partnerships) by member name + is_self
-    # so the user gets an "across-everything" per-partner view.
+    # Combine member positions across all blocks by (name, is_self).
     combined_members = {}
     for blk in blocks:
         for row in blk.get("members", []):
@@ -3004,6 +3018,13 @@ def property_analytics(
             agg = combined_members.setdefault(key, {
                 "name": row["name"],
                 "is_self": row["is_self"],
+                "own_invested": 0.0,
+                "collected_from_buyers": 0.0,
+                "all_paid_out": 0.0,
+                "net_holding": 0.0,
+                "transferred_out": 0.0,
+                "transferred_in": 0.0,
+                # Legacy aliases
                 "contributed": 0.0,
                 "received_out": 0.0,
                 "collected_for_pot": 0.0,
@@ -3011,18 +3032,16 @@ def property_analytics(
                 "projected_share": 0.0,
                 "final_settlement": 0.0,
             })
-            agg["contributed"] += row.get("contributed", 0.0)
-            agg["received_out"] += row.get("received_out", 0.0)
-            agg["collected_for_pot"] += row.get("collected_for_pot", 0.0)
-            agg["currently_holding"] += row.get("currently_holding", 0.0)
-            agg["projected_share"] += row.get("projected_share", 0.0)
-            agg["final_settlement"] += row.get("final_settlement", 0.0)
+            for fld in ("own_invested", "collected_from_buyers", "all_paid_out", "net_holding",
+                        "transferred_out", "transferred_in", "contributed", "received_out",
+                        "collected_for_pot", "currently_holding", "projected_share", "final_settlement"):
+                agg[fld] = agg[fld] + row.get(fld, 0.0)
 
     combined_members_list = [
         {**v, **{k2: round(v[k2], 2) for k2 in v if isinstance(v[k2], float)}}
         for v in combined_members.values()
     ]
-    combined_members_list.sort(key=lambda r: (not r["is_self"], -r["projected_share"]))
+    combined_members_list.sort(key=lambda r: (not r["is_self"], -r.get("collected_from_buyers", 0)))
 
     # Plain-English sentence for the page header
     summary_sentence = _build_summary_sentence(combined_buckets, combined_members_list)
@@ -3085,16 +3104,17 @@ def _build_summary_sentence(buckets: dict, members: list) -> str:
         parts.append(f"{_fmt_inr(buckets['to_receive_from_buyers'])} still to come from buyers")
     if buckets.get("to_pay_to_seller", 0) > 0:
         parts.append(f"{_fmt_inr(buckets['to_pay_to_seller'])} still owed to seller")
-    self_holding = next((m["currently_holding"] for m in members if m.get("is_self")), 0)
+    if buckets.get("already_received", 0) > 0:
+        parts.append(f"{_fmt_inr(buckets['already_received'])} already received from buyers")
+    if buckets.get("already_paid_out", 0) > 0:
+        parts.append(f"{_fmt_inr(buckets['already_paid_out'])} paid to seller so far")
+    self_holding = next((m.get("net_holding", m.get("currently_holding", 0)) for m in members if m.get("is_self")), 0)
     if self_holding and abs(self_holding) > 1:
         parts.append(f"You are holding {_fmt_inr(self_holding)} of pot money")
-    others_holding = sum(m["currently_holding"] for m in members if not m.get("is_self"))
-    if others_holding and abs(others_holding) > 1:
+    others_holding = sum(
+        m.get("net_holding", m.get("currently_holding", 0))
+        for m in members if not m.get("is_self") and m.get("net_holding", 0) > 0
+    )
+    if others_holding and others_holding > 1:
         parts.append(f"Partners are holding {_fmt_inr(others_holding)}")
-    if buckets.get("projected_net_profit", 0):
-        self_share = next((m["projected_share"] for m in members if m.get("is_self")), 0)
-        parts.append(
-            f"Projected profit {_fmt_inr(buckets['projected_net_profit'])}"
-            + (f" (your share {_fmt_inr(self_share)})" if self_share else "")
-        )
-    return " · ".join(parts) if parts else "Nothing pending — pick a scope above to see the money flow."
+    return " · ".join(parts) if parts else "Select properties above to see the money flow."
