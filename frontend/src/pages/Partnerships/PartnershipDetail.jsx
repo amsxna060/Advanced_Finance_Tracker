@@ -1345,6 +1345,7 @@ export default function PartnershipDetail() {
                                 </div>
                               </button>
                               {!isCollapsed && (
+                                <>
                                 <div className="divide-y divide-slate-50">
                                   {dayTxns.map((txn) => {
                                     const isOut = OUTFLOW_TYPES.includes(txn.txn_type) || LEGACY_OUTFLOW.includes(txn.txn_type);
@@ -1546,6 +1547,7 @@ export default function PartnershipDetail() {
                                     </div>
                                   );
                                 })()}
+                                </>
                               )}
                             </div>
                           );
