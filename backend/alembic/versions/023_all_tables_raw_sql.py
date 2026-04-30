@@ -32,15 +32,18 @@ def upgrade():
     op.execute("ALTER TABLE plot_buyers ADD COLUMN IF NOT EXISTS side_east_ft NUMERIC(10,3)")
     op.execute("ALTER TABLE plot_buyers ADD COLUMN IF NOT EXISTS side_west_ft NUMERIC(10,3)")
     op.execute("ALTER TABLE plot_buyers ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT false")
+    op.execute("ALTER TABLE plot_buyers ADD COLUMN IF NOT EXISTS buyer_contact_id INTEGER REFERENCES contacts(id)")
 
     # ── property_deals ──────────────────────────────────────────────────────────
-    # negotiating_date added in migration 015 via _col_exists
-    op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS negotiating_date DATE")
-    # Other columns that may have been added in later migrations
+    # Added in migration 011 via _col_exists (may have been skipped on Supabase)
     op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS side_north_ft NUMERIC(10,3)")
     op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS side_south_ft NUMERIC(10,3)")
     op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS side_east_ft NUMERIC(10,3)")
     op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS side_west_ft NUMERIC(10,3)")
+    op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS road_count INTEGER")
+    op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS roads_json TEXT")
+    # negotiating_date added in migration 015 via _col_exists
+    op.execute("ALTER TABLE property_deals ADD COLUMN IF NOT EXISTS negotiating_date DATE")
 
     # ── partnerships ────────────────────────────────────────────────────────────
     op.execute("ALTER TABLE partnerships ADD COLUMN IF NOT EXISTS our_investment NUMERIC(15,2) DEFAULT 0")
