@@ -297,7 +297,7 @@ export default function PartnershipDetail() {
     if (isInflow && txnForm.received_by_member_id && txnForm.received_by_member_id !== "seller") receivedByMemberId = parseInt(txnForm.received_by_member_id);
     if (isTransfer && txnForm.received_by_member_id) receivedByMemberId = parseInt(txnForm.received_by_member_id); // TO partner
 
-    // Only send account_id if Self is the payer (outflow) or receiver (inflow with no received_by)
+    // Only send account_id if Self is the payer (outflow) or receiver (inflow/transfer)
     let accountId = null;
     if (isOutflow) {
       const payerMember = members.find(m => String(m.member?.id) === String(txnForm.member_id));
@@ -307,6 +307,9 @@ export default function PartnershipDetail() {
     } else if (isInflow && !txnForm.received_by_member_id && txnForm.account_id) {
       // Self received (no received_by_member_id means Self)
       accountId = parseInt(txnForm.account_id);
+    } else if (isTransfer && txnForm.account_id) {
+      const toMember = members.find(m => String(m.member?.id) === String(txnForm.received_by_member_id));
+      if (toMember?.member?.is_self) accountId = parseInt(txnForm.account_id);
     }
 
     addTxnMutation.mutate({
@@ -361,6 +364,9 @@ export default function PartnershipDetail() {
       }
     } else if (isInflow && !editTxnForm.received_by_member_id && editTxnForm.account_id) {
       accountId = parseInt(editTxnForm.account_id);
+    } else if (isTransfer && editTxnForm.account_id) {
+      const toMember = members.find(m => String(m.member?.id) === String(editTxnForm.received_by_member_id));
+      if (toMember?.member?.is_self) accountId = parseInt(editTxnForm.account_id);
     }
 
     let memberId = editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null;
@@ -1374,7 +1380,7 @@ export default function PartnershipDetail() {
                             </select>
                           </InputField>
                           <InputField label="To Partner *">
-                            <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className={inputCls}>
+                            <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value, account_id: "" }))} className={inputCls}>
                               <option value="">— Select —</option>
                               {members.map(m => (
                                 <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === txnForm.member_id}>
@@ -1384,6 +1390,14 @@ export default function PartnershipDetail() {
                             </select>
                           </InputField>
                         </div>
+                        {(() => { const toMember = members.find(m => String(m.member?.id) === String(txnForm.received_by_member_id)); return toMember?.member?.is_self && accounts.length > 0; })() && (
+                          <InputField label="Received into Account">
+                            <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className={inputCls}>
+                              <option value="">— No specific account —</option>
+                              {accounts.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                            </select>
+                          </InputField>
+                        )}
                         <InputField label="Purpose / Reason">
                           <select value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className={inputCls}>
                             <option value="">— Select or type below —</option>
@@ -1517,11 +1531,20 @@ export default function PartnershipDetail() {
                                                   </div>
                                                   <div>
                                                     <label className="block text-xs text-slate-500 mb-0.5">To</label>
-                                                    <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                    <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value, account_id: "" }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
                                                       <option value="">— Select —</option>
                                                       {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === editTxnForm.member_id}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
                                                     </select>
                                                   </div>
+                                                  {(() => { const toMember = members.find(m => String(m.member?.id) === String(editTxnForm.received_by_member_id)); return toMember?.member?.is_self && accounts.length > 0; })() && (
+                                                    <div>
+                                                      <label className="block text-xs text-slate-500 mb-0.5">Into Account</label>
+                                                      <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                        <option value="">— None —</option>
+                                                        {accounts.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                                                      </select>
+                                                    </div>
+                                                  )}
                                                 </>
                                               )}
                                               {INFLOW_TYPES.includes(editTxnForm.txn_type) && (
