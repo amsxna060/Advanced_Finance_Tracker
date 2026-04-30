@@ -649,6 +649,12 @@ export default function PropertyDetail() {
                     <span className="text-xs text-slate-500">Advance Paid</span>
                     <span className="text-xs font-semibold text-amber-700">{formatCurrency(property.advance_paid || 0)}</span>
                   </div>
+                  {remainingPaidToSeller > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-xs text-slate-500">Further Paid to Seller</span>
+                      <span className="text-xs font-semibold text-amber-700">{formatCurrency(remainingPaidToSeller)}</span>
+                    </div>
+                  )}
                   {parseFloat(property.broker_commission || 0) > 0 && (
                     <div className="flex justify-between py-1.5 border-b border-slate-100">
                       <span className="text-xs text-slate-500">Broker Commission</span>
@@ -670,8 +676,8 @@ export default function PropertyDetail() {
                   {parseFloat(property.total_seller_value || 0) > 0 && (
                     <div className="flex justify-between py-1.5 border-t border-slate-300 mt-2">
                       <span className="text-xs font-semibold text-slate-700">Seller Remaining</span>
-                      <span className="text-xs font-bold text-rose-600">
-                        {formatCurrency(parseFloat(property.total_seller_value || 0) - parseFloat(property.advance_paid || 0))}
+                      <span className={`text-xs font-bold ${remainingOwedToSeller > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                        {remainingOwedToSeller > 0 ? formatCurrency(remainingOwedToSeller) : "Fully Paid ✓"}
                       </span>
                     </div>
                   )}
