@@ -268,6 +268,17 @@ export default function PartnershipDetail() {
     onError: (err) => alert(err?.response?.data?.detail || "Failed to update plot"),
   });
 
+  const deletePlotMutation = useMutation({
+    mutationFn: ({ type, plotId }) => {
+      const url = type === "site_plot"
+        ? `/api/partnerships/${id}/site-plots/${plotId}`
+        : `/api/partnerships/${id}/plot-buyers/${plotId}`;
+      return api.delete(url);
+    },
+    onSuccess: () => invalidate(),
+    onError: (err) => alert(err?.response?.data?.detail || "Failed to delete plot"),
+  });
+
   // ─── Handlers ───────────────────────────────────────────
   const handleAddTxn = () => {
     const txnType = txnForm.txn_type;
@@ -875,6 +886,15 @@ export default function PartnershipDetail() {
                                       Edit
                                     </button>
                                   )}
+                                  {isActive && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete this plot buyer${b.buyer_name ? " (" + b.buyer_name + ")" : ""}? This cannot be undone.`)) deletePlotMutation.mutate({ type: "plot_buyer", plotId: b.id }); }}
+                                      disabled={deletePlotMutation.isPending}
+                                      className="text-xs text-red-600 hover:underline font-medium border border-red-200 px-2 py-0.5 rounded-lg bg-red-50 disabled:opacity-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
                                   {isActive && b.status !== "registry_done" && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "plot_buyer", id: b.id, label: b.buyer_name || `Plot #${b.id}`, area_sqft: b.area_sqft, rate_per_sqft: b.rate_per_sqft }); setCloseDealForm({ area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), registry_date: "", notes: "" }); }}
@@ -994,6 +1014,15 @@ export default function PartnershipDetail() {
                                       className="text-xs text-slate-600 hover:underline font-medium border border-slate-200 px-2 py-0.5 rounded-lg"
                                     >
                                       Edit
+                                    </button>
+                                  )}
+                                  {isActive && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete this site plot${sp.buyer_name || sp.plot_number ? " (" + (sp.buyer_name || sp.plot_number) + ")" : ""}? This cannot be undone.`)) deletePlotMutation.mutate({ type: "site_plot", plotId: sp.id }); }}
+                                      disabled={deletePlotMutation.isPending}
+                                      className="text-xs text-red-600 hover:underline font-medium border border-red-200 px-2 py-0.5 rounded-lg bg-red-50 disabled:opacity-50"
+                                    >
+                                      Delete
                                     </button>
                                   )}
                                   {isActive && sp.status !== "sold" && sp.status !== "registered" && (

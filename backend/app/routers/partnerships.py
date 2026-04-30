@@ -1534,3 +1534,81 @@ def update_plot_buyer_in_partnership(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to save plot buyer: {exc}")
     return PlotBuyerOut.model_validate(buyer)
+
+
+@router.delete("/{partnership_id}/site-plots/{plot_id}", status_code=204)
+def delete_site_plot(
+    partnership_id: int,
+    plot_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Delete a site plot subdivision and all its associated transactions, then re-sync."""
+    partnership = db.query(Partnership).filter(
+        Partnership.id == partnership_id,
+        Partnership.created_by == current_user.id,
+        Partnership.is_deleted == False,
+    ).first()
+    if not partnership:
+        raise HTTPException(status_code=404, detail="Partnership not found")
+
+    plot = db.query(SitePlot).filter(
+        SitePlot.id == plot_id,
+        SitePlot.property_deal_id == partnership.linked_property_deal_id,
+    ).first()
+    if not plot:
+        raise HTTPException(status_code=404, detail="Site plot not found")
+
+    # Nullify FK references in partnership_transactions before deleting
+    db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.site_plot_id == plot_id,
+    ).update({"site_plot_id": None}, synchronize_session=False)
+
+    db.delete(plot)
+    db.flush()
+
+    try:
+        _sync_property_from_partnership(partnership_id, db)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete site plot: {exc}")
+
+
+@router.delete("/{partnership_id}/plot-buyers/{buyer_id}", status_code=204)
+def delete_plot_buyer(
+    partnership_id: int,
+    buyer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Delete a plot buyer subdivision and all its associated transactions, then re-sync."""
+    partnership = db.query(Partnership).filter(
+        Partnership.id == partnership_id,
+        Partnership.created_by == current_user.id,
+        Partnership.is_deleted == False,
+    ).first()
+    if not partnership:
+        raise HTTPException(status_code=404, detail="Partnership not found")
+
+    buyer = db.query(PlotBuyer).filter(
+        PlotBuyer.id == buyer_id,
+        PlotBuyer.property_deal_id == partnership.linked_property_deal_id,
+    ).first()
+    if not buyer:
+        raise HTTPException(status_code=404, detail="Plot buyer not found")
+
+    # Nullify FK references in partnership_transactions before deleting
+    db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.plot_buyer_id == buyer_id,
+    ).update({"plot_buyer_id": None}, synchronize_session=False)
+
+    db.delete(buyer)
+    db.flush()
+
+    try:
+        _sync_property_from_partnership(partnership_id, db)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete plot buyer: {exc}")
