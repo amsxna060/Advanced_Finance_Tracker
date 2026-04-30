@@ -2618,38 +2618,56 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
     )
     if plot_buyers or site_plots:
         outstanding_buyers = 0.0
+        registered_buyer_value = 0.0
         for pb in plot_buyers:
             tv = float(_D(pb.total_value))
             paid = float(_D(pb.total_paid))
             outstanding_buyers += max(0.0, tv - paid)
+            registered_buyer_value += tv
         for sp in site_plots:
             tv = float(_D(sp.calculated_price))
             paid = float(_D(sp.total_paid))
             outstanding_buyers += max(0.0, tv - paid)
+            registered_buyer_value += tv
         b["to_receive_from_buyers"] = round(outstanding_buyers, 2)
+        # For projection use deal.total_buyer_value when the user has set it higher than
+        # the sum of registered buyers (i.e. they know the full expected sale value).
+        # Otherwise fall back to the sum of registered buyers.
+        effective_buyer_value = max(buyer_value, registered_buyer_value)
+        b["registered_buyer_value"] = round(registered_buyer_value, 2)
+        b["is_partial_projection"] = registered_buyer_value < (seller_value * 0.95)
     else:
         b["to_receive_from_buyers"] = round(max(0.0, buyer_value - received_from_buyer), 2)
+        effective_buyer_value = buyer_value
+        b["registered_buyer_value"] = round(buyer_value, 2)
+        b["is_partial_projection"] = False
 
     b["to_pay_to_seller"] = round(max(0.0, seller_value - paid_to_seller), 2)
     b["already_paid_out"] = round(paid_out, 2)
     b["already_received"] = round(received_in, 2)
     b["total_seller_value"] = round(seller_value, 2)
-    b["total_buyer_value"] = round(buyer_value, 2)
+    b["total_buyer_value"] = round(effective_buyer_value, 2)
     b["broker_commission"] = round(broker, 2)
     b["other_expenses"] = round(other_exp, 2)
-    b["projected_gross_profit"] = round(buyer_value - seller_value, 2)
-    b["projected_net_profit"] = round(buyer_value - seller_value - broker - other_exp, 2)
+    b["projected_gross_profit"] = round(effective_buyer_value - seller_value, 2)
+    b["projected_net_profit"] = round(effective_buyer_value - seller_value - broker - other_exp, 2)
     return b
 
 
-def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_map: dict) -> List[dict]:
+def _compute_partnership_member_breakdown(
+    p: Partnership, db: Session, contact_map: dict, projected_net_profit: float = 0.0
+) -> List[dict]:
     """
     For each member compute a clean money-flow picture:
-      own_invested      — advance_contributed only (what they explicitly put in as their share)
+      own_invested          — advance_contributed only (capital they put in as their share)
       collected_from_buyers — buyer payments received by them (pot money, not their own)
-      all_paid_out      — total they sent to seller / expenses (own + forwarded pot money)
-      net_holding       — collected_from_buyers - all_paid_out  (positive = sitting on pot cash)
-      transferred_in/out — partner_transfer flows
+      all_paid_out          — seller payments & expenses they made from collected / own cash
+                              NOTE: "invested" txn type is NOT counted here (double-count with
+                              advance_contributed).
+      net_holding           — collected_from_buyers - all_paid_out (positive = sitting on pot cash)
+      transferred_in/out    — partner_transfer flows (internal rebalancing between members)
+      projected_share       — their % of projected_net_profit
+      settlement_balance    — what they will still receive (or owe) at full settlement
     """
     members = (
         db.query(PartnershipMember)
@@ -2695,11 +2713,12 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
             ty = t.txn_type or ""
 
             if t.member_id == m.id:
+                # "invested" is intentionally excluded — it's the same money as
+                # advance_contributed and counting it here would double-count.
                 if ty in ("advance_to_seller", "remaining_to_seller", "broker_commission",
-                          "expense", "other_expense", "advance_given", "broker_paid", "invested"):
+                          "expense", "other_expense", "advance_given", "broker_paid"):
                     all_paid_out += amt
                 elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
-                    # Buyer paid directly to this member (they're the collector)
                     collected_from_buyers += amt
                 elif ty == "partner_transfer":
                     transferred_out += amt
@@ -2718,7 +2737,13 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
             if ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
                 collected_from_buyers += amt
 
-        net_holding = collected_from_buyers - all_paid_out
+        net_holding = round(collected_from_buyers - all_paid_out, 2)
+
+        # projected_share: what they're entitled to from the deal's net profit
+        projected_share = round(projected_net_profit * share_pct / 100.0, 2)
+        # settlement_balance: positive = pot will pay them this more; negative = they owe pot
+        # Logic: at settlement they hand in their net_holding and receive their projected_share.
+        settlement_balance = round(projected_share - net_holding, 2)
 
         if net_holding > 1e-2:
             holding_status = "holding_pot_money"
@@ -2735,18 +2760,19 @@ def _compute_partnership_member_breakdown(p: Partnership, db: Session, contact_m
             "own_invested": round(own_invested, 2),
             "collected_from_buyers": round(collected_from_buyers, 2),
             "all_paid_out": round(all_paid_out, 2),
-            "net_holding": round(net_holding, 2),
+            "net_holding": net_holding,
             "transferred_out": round(transferred_out, 2),
             "transferred_in": round(transferred_in, 2),
-            # Legacy aliases kept for backward compat
+            "projected_share": projected_share,
+            "settlement_balance": settlement_balance,
+            # Legacy aliases kept for backward compat with frontend fallback chains
             "contributed": round(own_invested, 2),
             "advance_contributed": round(own_invested, 2),
             "paid_for_pot": round(all_paid_out, 2),
             "received_out": round(transferred_in, 2),
             "collected_for_pot": round(collected_from_buyers, 2),
-            "currently_holding": round(net_holding, 2),
-            "projected_share": 0.0,
-            "final_settlement": 0.0,
+            "currently_holding": net_holding,
+            "final_settlement": settlement_balance,
             "status": holding_status,
         })
 
@@ -2846,7 +2872,9 @@ def property_analytics(
         members_breakdown = []
         member_map = {}
         for lp in linked_partnerships:
-            for row in _compute_partnership_member_breakdown(lp, db, contact_map):
+            for row in _compute_partnership_member_breakdown(
+                lp, db, contact_map, projected_net_profit=buckets["projected_net_profit"]
+            ):
                 row["partnership_id"] = lp.id
                 row["partnership_title"] = lp.title
                 members_breakdown.append(row)
@@ -2854,7 +2882,11 @@ def property_analytics(
                 member_map[m.id] = _member_label(m, contact_map)
             already_processed_partnership_ids.add(lp.id)
 
+        # Include both property-level AND linked-partnership transactions in the timeline
+        # so the full money history is visible in one place.
         timeline = _build_timeline_for_property(deal.id, db, contact_map, member_map)
+        for lp in linked_partnerships:
+            timeline += _build_timeline_for_partnership(lp.id, db, member_map)
         timeline.sort(key=lambda r: r["date"] or "", reverse=True)
 
         # Plot-buyer summaries
@@ -2966,7 +2998,6 @@ def property_analytics(
         p = db.query(Partnership).filter(Partnership.id == pp_id).first()
         if not p:
             continue
-        members_breakdown = _compute_partnership_member_breakdown(p, db, contact_map)
         member_map = {}
         for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == p.id).all():
             member_map[m.id] = _member_label(m, contact_map)
@@ -2980,10 +3011,16 @@ def property_analytics(
                 buckets = _empty_buckets()
         else:
             buckets = _empty_buckets()
+
+        if not p.linked_property_deal_id:
             buckets["total_buyer_value"] = float(_D(p.total_deal_value))
             buckets["total_seller_value"] = float(_D(p.our_investment))
             buckets["projected_gross_profit"] = round(buckets["total_buyer_value"] - buckets["total_seller_value"], 2)
             buckets["projected_net_profit"] = buckets["projected_gross_profit"]
+
+        members_breakdown = _compute_partnership_member_breakdown(
+            p, db, contact_map, projected_net_profit=buckets["projected_net_profit"]
+        )
 
         timeline = _build_timeline_for_partnership(p.id, db, member_map)
         # Pull property transactions of the linked deal too — they're material to the partnership view

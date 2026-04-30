@@ -139,6 +139,8 @@ function MembersTable({ members, showPartnership }) {
             <th className="text-right px-3 py-2 font-semibold" title="Buyer payments received by them (pot money, not their own)">Collected from Buyers</th>
             <th className="text-right px-3 py-2 font-semibold" title="Payments made to seller or expenses">Paid Out</th>
             <th className="text-right px-3 py-2 font-semibold" title="Collected minus Paid Out — pot money still with them">Net Holding</th>
+            <th className="text-right px-3 py-2 font-semibold" title="Their % of projected net profit">Profit Share</th>
+            <th className="text-right px-3 py-2 font-semibold" title="What they will receive (or owe) at full settlement = Profit Share − Net Holding">At Settlement</th>
             <th className="text-left px-3 py-2 font-semibold" title="Partner Transfer flows (↓ received, ↑ sent)">Transfers</th>
           </tr>
         </thead>
@@ -150,6 +152,8 @@ function MembersTable({ members, showPartnership }) {
             const netH = m.net_holding ?? m.currently_holding ?? 0;
             const tIn = m.transferred_in ?? 0;
             const tOut = m.transferred_out ?? 0;
+            const projShare = m.projected_share ?? 0;
+            const settlement = m.settlement_balance ?? m.final_settlement ?? 0;
             return (
               <tr
                 key={`${m.member_id || m.name}-${idx}`}
@@ -173,6 +177,16 @@ function MembersTable({ members, showPartnership }) {
                 <td className={`px-3 py-2 text-right font-semibold ${netH > 0.5 ? "text-amber-700" : netH < -0.5 ? "text-blue-700" : "text-slate-400"}`}>
                   {netH > 0.5 ? `+${formatCurrency(netH)}` : netH < -0.5 ? formatCurrency(netH) : "—"}
                   {netH < -0.5 && <div className="text-[9px] font-normal text-blue-500 mt-0.5">pot owes them</div>}
+                </td>
+                <td className="px-3 py-2 text-right font-medium text-indigo-700">
+                  {projShare ? formatCurrency(projShare) : "—"}
+                </td>
+                <td className={`px-3 py-2 text-right font-bold ${settlement > 0.5 ? "text-emerald-700" : settlement < -0.5 ? "text-rose-700" : "text-slate-400"}`}>
+                  {settlement > 0.5
+                    ? `+${formatCurrency(settlement)}`
+                    : settlement < -0.5
+                    ? formatCurrency(settlement)
+                    : "—"}
                 </td>
                 <td className="px-3 py-2">
                   {(tIn > 0 || tOut > 0) ? (
@@ -308,6 +322,17 @@ function Block({ block }) {
         )}
       </div>
       <div className="p-6 space-y-6">
+        {block.buckets?.is_partial_projection && (
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+            <span className="text-lg leading-none mt-0.5">⚠️</span>
+            <div>
+              <strong>Partial projection.</strong> Only{" "}
+              {formatCurrency(block.buckets.registered_buyer_value)} of buyer value is registered
+              so far (vs seller cost of {formatCurrency(block.buckets.total_seller_value)}).
+              Add the remaining plot buyers to see the true projected profit.
+            </div>
+          </div>
+        )}
         <BucketCards buckets={block.buckets} />
         {block.buyers && block.buyers.length > 0 && (
           <div>
