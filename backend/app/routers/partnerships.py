@@ -1465,9 +1465,13 @@ def update_site_plot_in_partnership(
     if data.side_west_ft is not None:
         plot.side_west_ft = data.side_west_ft
 
-    _sync_property_from_partnership(partnership_id, db)
-    db.commit()
-    db.refresh(plot)
+    try:
+        _sync_property_from_partnership(partnership_id, db)
+        db.commit()
+        db.refresh(plot)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save plot: {exc}")
     return SitePlotOut.model_validate(plot)
 
 
@@ -1522,7 +1526,11 @@ def update_plot_buyer_in_partnership(
     if data.side_west_ft is not None:
         buyer.side_west_ft = data.side_west_ft
 
-    _sync_property_from_partnership(partnership_id, db)
-    db.commit()
-    db.refresh(buyer)
+    try:
+        _sync_property_from_partnership(partnership_id, db)
+        db.commit()
+        db.refresh(buyer)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save plot buyer: {exc}")
     return PlotBuyerOut.model_validate(buyer)
