@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  PieChart, Pie, Cell, Tooltip as RTooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
+  PieChart, Pie, Cell, Tooltip as RTooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend,
 } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
@@ -43,9 +43,9 @@ const STATUS_BADGE = {
 };
 
 const ANOMALY_SEVERITY = {
-  critical: { cls: "bg-red-50 border-red-300 text-red-800",    dot: "bg-red-500",    icon: "🔴" },
-  warning:  { cls: "bg-amber-50 border-amber-300 text-amber-800", dot: "bg-amber-400", icon: "🟡" },
-  info:     { cls: "bg-blue-50 border-blue-200 text-blue-800",  dot: "bg-blue-400",   icon: "🔵" },
+  critical: { icon: "🔴" },
+  warning:  { icon: "🟡" },
+  info:     { icon: "🔵" },
 };
 
 function txnLabel(t) { return TXN_LABELS[t] || (t || "Other").replace(/_/g, " "); }
@@ -53,83 +53,54 @@ function formatArea(sqft) {
   if (sqft == null) return "—";
   return `${new Intl.NumberFormat("en-IN").format(Math.round(sqft))} sqft`;
 }
-function normalizeName(name) { return (name || "").trim().toLowerCase().replace(/\s+/g, " "); }
+function normalizeName(n) { return (n || "").trim().toLowerCase().replace(/\s+/g, " "); }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CSV EXPORT UTILITY
+// CSV EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
 function escapeCsv(val) {
   if (val == null) return "";
   const s = String(val);
   return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
 }
-function rowsToCsv(headers, rows) {
-  return [headers.map(escapeCsv).join(","), ...rows.map((r) => headers.map((h) => escapeCsv(r[h])).join(","))].join("\n");
-}
 export function exportAnalyticsCSV(blocks, combinedMembers, combinedSellers, filename = "property_analytics.csv") {
   const sections = [];
-
-  // Section 1: Money Flow per Property
   sections.push("=== MONEY FLOW PER PROPERTY ===");
-  const flowHeaders = ["Property", "Seller", "Total Seller Value", "Paid to Seller", "Advance Paid", "Remaining to Seller", "Collected from Buyers", "Buyers Still to Pay", "Partner Capital"];
-  sections.push(flowHeaders.join(","));
+  sections.push(["Property", "Seller", "Total Seller Value", "Paid to Seller", "Advance Paid",
+    "Remaining to Seller", "Collected from Buyers", "Buyers Still to Pay", "Partner Capital"].join(","));
   for (const b of blocks) {
     const bk = b.buckets || {};
-    sections.push([
-      b.title || b.label,
-      b.seller_name || "",
-      bk.total_seller_value || 0,
-      bk.paid_to_seller || 0,
-      bk.paid_to_seller_advance || 0,
-      bk.to_pay_to_seller || 0,
-      bk.already_received || 0,
-      bk.to_receive_from_buyers || 0,
-      bk.partner_advances || 0,
+    sections.push([b.title || b.label, b.seller_name || "", bk.total_seller_value || 0,
+      bk.paid_to_seller || 0, bk.paid_to_seller_advance || 0, bk.to_pay_to_seller || 0,
+      bk.already_received || 0, bk.to_receive_from_buyers || 0, bk.partner_advances || 0,
     ].map(escapeCsv).join(","));
   }
-
-  // Section 2: Partner Totals
   sections.push("\n=== PARTNER TOTALS ===");
-  const pHeaders = ["Partner", "Self?", "Advance Given", "Collected from Buyers", "Sent to Seller", "Transferred Out", "Transferred In", "Current Holding"];
-  sections.push(pHeaders.join(","));
+  sections.push(["Partner", "Self?", "Advance Given", "Collected from Buyers", "Sent to Seller",
+    "Expenses Paid", "Transferred Out", "Transferred In", "Current Holding"].join(","));
   for (const m of (combinedMembers || [])) {
-    sections.push([
-      m.name, m.is_self ? "Yes" : "No",
-      m.own_invested || 0,
-      m.collected_from_buyers || 0,
-      m.paid_to_seller || 0,
-      m.transferred_out || 0,
-      m.transferred_in || 0,
-      m.current_holding || 0,
+    sections.push([m.name, m.is_self ? "Yes" : "No", m.own_invested || 0,
+      m.collected_from_buyers || 0, m.paid_to_seller || 0, m.expenses_paid || 0,
+      m.transferred_out || 0, m.transferred_in || 0, m.current_holding || 0,
     ].map(escapeCsv).join(","));
   }
-
-  // Section 3: Seller Totals
   sections.push("\n=== SELLER TOTALS ===");
-  const sHeaders = ["Seller", "Properties", "Total Deal Value", "Advance Received", "Further Payments", "Pending Balance"];
-  sections.push(sHeaders.join(","));
+  sections.push(["Seller", "Properties", "Total Deal Value", "Advance Received",
+    "Further Payments", "Pending Balance"].join(","));
   for (const s of (combinedSellers || [])) {
-    sections.push([
-      s.name,
-      (s.property_titles || []).join("; "),
-      s.total_value || 0,
-      s.advance_received || 0,
-      s.remaining_received || 0,
-      s.pending_balance || 0,
+    sections.push([s.name, (s.property_titles || []).join("; "), s.total_value || 0,
+      s.advance_received || 0, s.remaining_received || 0, s.pending_balance || 0,
     ].map(escapeCsv).join(","));
   }
-
   const blob = new Blob([sections.join("\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
+  a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CLIENT-SIDE AGGREGATION (fallback when backend combined.sellers not present)
+// CLIENT-SIDE AGGREGATIONS
 // ─────────────────────────────────────────────────────────────────────────────
 function aggregateSellerData(blocks) {
   const map = {};
@@ -160,19 +131,24 @@ function aggregatePartnerData(blocks) {
   for (const block of blocks) {
     for (const member of block.members || []) {
       const key = normalizeName(member.name);
-      if (!map[key]) map[key] = { name: member.name, is_self: member.is_self, own_invested: 0, collected_from_buyers: 0, paid_to_seller: 0, transferred_out: 0, transferred_in: 0, current_holding: 0, events: { items: [], total: 0, has_more: false }, property_titles: [] };
+      if (!map[key]) map[key] = {
+        name: member.name, is_self: member.is_self,
+        own_invested: 0, collected_from_buyers: 0, paid_to_seller: 0,
+        expenses_paid: 0, transferred_out: 0, transferred_in: 0, current_holding: 0,
+        events: { items: [], total: 0, has_more: false }, property_titles: [],
+      };
       const p = map[key];
-      p.is_self = p.is_self || member.is_self;
+      p.is_self               = p.is_self || member.is_self;
       p.own_invested          += member.own_invested          || 0;
       p.collected_from_buyers += member.collected_from_buyers || 0;
       p.paid_to_seller        += member.paid_to_seller        || 0;
+      p.expenses_paid         += member.expenses_paid         || 0;
       p.transferred_out       += member.transferred_out       || 0;
       p.transferred_in        += member.transferred_in        || 0;
       p.current_holding       += member.current_holding       || 0;
-      // Merge paginated events
       const evts = member.events?.items ?? member.events ?? [];
       p.events.items.push(...evts);
-      p.events.total += member.events?.total ?? evts.length;
+      p.events.total   += member.events?.total ?? evts.length;
       p.events.has_more = p.events.has_more || (member.events?.has_more ?? false);
       if (block.title) p.property_titles.push(block.title);
     }
@@ -280,9 +256,8 @@ function LandDonutChart({ buckets }) {
   const remaining = buckets?.remaining_area || 0;
   const total     = buckets?.total_land_area || 0;
   if (!total) return null;
-  const data = sold || remaining
-    ? [{ name: "Sold",      value: sold,      fill: DONUT_COLORS.sold      },
-       { name: "Remaining", value: remaining, fill: DONUT_COLORS.remaining }]
+  const data = (sold || remaining)
+    ? [{ name: "Sold", value: sold, fill: DONUT_COLORS.sold }, { name: "Remaining", value: remaining, fill: DONUT_COLORS.remaining }]
     : [{ name: "No data", value: 1, fill: DONUT_COLORS.none }];
   const pct = total > 0 ? Math.round((sold / total) * 100) : 0;
   const customLabel = ({ cx, cy }) => (
@@ -325,7 +300,6 @@ const INR_COMPACT = (v) => {
   if (v >= 1e3) return `₹${(v / 1e3).toFixed(0)}K`;
   return `₹${v}`;
 };
-
 function MoneyFlowBarChart({ blocks }) {
   if (!blocks?.length) return null;
   const data = blocks.map((b) => {
@@ -369,7 +343,7 @@ function PropertySelector({ options, pending, setPending, onApply, isLoading }) 
       <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-base font-semibold text-slate-800">Select Properties</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Choose one or more properties, then click Apply to load analytics.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Choose one or more properties, then click Apply.</p>
         </div>
         <div className="flex items-center gap-2">
           {properties.length > 0 && (
@@ -411,11 +385,11 @@ function PropertySelector({ options, pending, setPending, onApply, isLoading }) 
 function MoneyFlowBar({ buckets }) {
   const paidToSeller = buckets.paid_to_seller ?? buckets.already_paid_out ?? 0;
   const metrics = [
-    { label: "Collected from Buyers", value: formatCurrency(buckets.already_received), sub: null, accent: "emerald" },
-    { label: "Buyers Still to Pay",   value: formatCurrency(buckets.to_receive_from_buyers), sub: null, accent: "amber" },
-    { label: "Total Paid to Seller",  value: formatCurrency(paidToSeller), sub: buckets.paid_to_seller_advance > 0 ? `Adv: ${formatCurrency(buckets.paid_to_seller_advance)}` : null, accent: "rose" },
-    { label: "Remaining to Seller",   value: formatCurrency(buckets.to_pay_to_seller), sub: null, accent: "red" },
-    { label: "Partner Capital",       value: formatCurrency(buckets.partner_advances), sub: null, accent: "purple" },
+    { label: "Collected from Buyers",  value: formatCurrency(buckets.already_received),       sub: null, accent: "emerald" },
+    { label: "Buyers Still to Pay",    value: formatCurrency(buckets.to_receive_from_buyers),  sub: null, accent: "amber"   },
+    { label: "Total Paid to Seller",   value: formatCurrency(paidToSeller),                    sub: buckets.paid_to_seller_advance > 0 ? `Adv: ${formatCurrency(buckets.paid_to_seller_advance)}` : null, accent: "rose" },
+    { label: "Remaining to Seller",    value: formatCurrency(buckets.to_pay_to_seller),        sub: null, accent: "red"     },
+    { label: "Partner Capital",        value: formatCurrency(buckets.partner_advances),        sub: null, accent: "purple"  },
   ];
   const accentMap = { emerald: "border-emerald-200 bg-emerald-50 text-emerald-800", amber: "border-amber-200 bg-amber-50 text-amber-800", rose: "border-rose-200 bg-rose-50 text-rose-800", red: "border-red-200 bg-red-50 text-red-800", purple: "border-purple-200 bg-purple-50 text-purple-800" };
   const labelMap  = { emerald: "text-emerald-600", amber: "text-amber-600", rose: "text-rose-600", red: "text-red-600", purple: "text-purple-600" };
@@ -467,8 +441,7 @@ function SellerCard({ seller, isMultiProperty }) {
       </div>
       <div className="px-5 pt-3">
         <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-          <span>Payment progress</span>
-          <span>{formatCurrency(totalPaid)} of {formatCurrency(seller.total_value)}</span>
+          <span>Payment progress</span><span>{formatCurrency(totalPaid)} of {formatCurrency(seller.total_value)}</span>
         </div>
         <ProgressBar value={totalPaid} total={seller.total_value} color={pct >= 100 ? "emerald" : pct >= 50 ? "amber" : "rose"} />
       </div>
@@ -481,8 +454,7 @@ function SellerCard({ seller, isMultiProperty }) {
         <>
           <div className="border-t border-slate-100">
             <button onClick={() => setOpen((v) => !v)} className="w-full px-5 py-2.5 text-xs font-medium text-rose-600 hover:bg-rose-50/60 flex items-center justify-between transition-colors">
-              <span>Payment history ({events.length})</span>
-              <ChevronIcon open={open} />
+              <span>Payment history ({events.length})</span><ChevronIcon open={open} />
             </button>
           </div>
           {open && (
@@ -510,7 +482,7 @@ function SellerCard({ seller, isMultiProperty }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PARTNER CARD  (handles paginated events from backend)
+// PARTNER CARD — paginated events + Expenses Paid metric
 // ─────────────────────────────────────────────────────────────────────────────
 function PartnerTimeline({ events }) {
   if (!events?.length) return <div className="text-xs text-slate-400 italic py-3 text-center">No events recorded.</div>;
@@ -537,17 +509,22 @@ function PartnerTimeline({ events }) {
   );
 }
 
-function PartnerCard({ member, isMultiProperty }) {
+function PartnerCard({ member, isMultiProperty, onLoadMore }) {
   const [open, setOpen] = useState(false);
+
   // Support both paginated {items, total, has_more} and plain array
   const eventsPayload = member.events ?? { items: [], total: 0, has_more: false };
-  const eventItems = eventsPayload.items ?? eventsPayload;
-  const eventsTotal = eventsPayload.total ?? eventItems.length;
-  const hasMore = eventsPayload.has_more ?? false;
-  const hasEvents = eventsTotal > 0;
+  const eventItems    = Array.isArray(eventsPayload) ? eventsPayload : (eventsPayload.items ?? []);
+  const eventsTotal   = eventsPayload.total ?? eventItems.length;
+  const hasMore       = eventsPayload.has_more ?? false;
+  const hasEvents     = eventsTotal > 0 || eventItems.length > 0;
+
+  const expensesPaid  = member.expenses_paid || 0;
+  const hasExpenses   = expensesPaid > 0.01;
 
   return (
     <div className={`rounded-2xl border bg-white shadow-sm overflow-hidden ${member.is_self ? "border-indigo-300 ring-2 ring-indigo-100" : "border-slate-200"}`}>
+      {/* Header */}
       <div className={`px-5 py-4 border-b ${member.is_self ? "bg-indigo-50/60 border-indigo-100" : "bg-slate-50/60 border-slate-100"}`}>
         <div className="flex items-center gap-2.5">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold ${member.is_self ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-600"}`}>{(member.name || "?")[0].toUpperCase()}</div>
@@ -565,6 +542,8 @@ function PartnerCard({ member, isMultiProperty }) {
           </div>
         )}
       </div>
+
+      {/* Metrics grid — 2×2 + expenses row */}
       <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 border-b border-slate-100">
         <div className="px-4 py-3.5">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-purple-600 mb-1">Advance Given</div>
@@ -587,6 +566,28 @@ function PartnerCard({ member, isMultiProperty }) {
           <div className="text-[10px] text-slate-400 mt-0.5">Outflow to seller</div>
         </div>
       </div>
+
+      {/* Expenses Paid row — only shown when non-zero */}
+      {hasExpenses && (
+        <div className="px-4 py-3.5 border-b border-slate-100 bg-orange-50/40">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">Expenses Paid</div>
+              <span className="text-[9px] font-medium text-orange-400 bg-orange-100 px-1.5 py-0.5 rounded uppercase tracking-wider">Outflow</span>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-bold text-orange-800 tabular-nums">−{formatCurrency(expensesPaid)}</div>
+              <div className="text-[10px] text-slate-400">Deducted from holding</div>
+            </div>
+          </div>
+          <div className="text-[10px] text-orange-600/70 mt-1.5 italic">
+            Holding = (Collected + Transferred In) − (Sent to Seller + Transferred Out + Expenses Paid)
+          </div>
+        </div>
+      )}
+
+      {/* Transfers row */}
       <div className="px-4 py-3.5 border-b border-slate-100">
         <div className="flex items-center gap-1.5 mb-2"><span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" /><div className="text-[10px] font-semibold uppercase tracking-wider text-violet-600">Transferred to Partners</div></div>
         <div className="grid grid-cols-2 gap-4">
@@ -594,20 +595,35 @@ function PartnerCard({ member, isMultiProperty }) {
           <div><div className="text-[10px] text-slate-400 mb-0.5">Received in</div><div className="text-sm font-bold text-violet-800 tabular-nums">{formatCurrency(member.transferred_in)}</div></div>
         </div>
       </div>
-      <button onClick={() => setOpen((v) => !v)} disabled={!hasEvents} className={`w-full px-5 py-2.5 text-xs font-medium flex items-center justify-between transition-colors ${hasEvents ? "text-indigo-600 hover:bg-indigo-50/50 cursor-pointer" : "text-slate-300 cursor-default"}`}>
+
+      {/* Transaction history toggle */}
+      <button
+        onClick={() => hasEvents && setOpen((v) => !v)}
+        disabled={!hasEvents}
+        className={`w-full px-5 py-2.5 text-xs font-medium flex items-center justify-between transition-colors ${hasEvents ? "text-indigo-600 hover:bg-indigo-50/50 cursor-pointer" : "text-slate-300 cursor-default"}`}
+      >
         <span>
           {hasEvents
-            ? `Transaction history (${eventItems.length}${hasMore ? `+ of ${eventsTotal}` : ""})`
+            ? `Transaction history (${eventItems.length}${hasMore ? ` of ${eventsTotal}+` : ""})`
             : "No transactions recorded"}
         </span>
         {hasEvents && <ChevronIcon open={open} />}
       </button>
+
       {open && (
-        <div className="px-5 py-3 bg-slate-50/60 border-t border-slate-100">
-          <PartnerTimeline events={eventItems} />
+        <div className="bg-slate-50/60 border-t border-slate-100">
+          <div className="px-5 py-3">
+            <PartnerTimeline events={eventItems} />
+          </div>
           {hasMore && (
-            <div className="pt-2 text-center">
-              <span className="text-[11px] text-slate-400 italic">{eventsTotal - eventItems.length} more — increase event_limit query param to see all</span>
+            <div className="px-5 pb-4 pt-1 text-center border-t border-slate-100">
+              <button
+                onClick={() => onLoadMore?.()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75m4.5-4.5v12m0 0-3.75-3.75M17.25 21 21 17.25" /></svg>
+                Load more ({eventsTotal - eventItems.length} remaining)
+              </button>
             </div>
           )}
         </div>
@@ -677,9 +693,10 @@ function BuyersSection({ buyers }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROPERTY BLOCK  (accordion — collapsed by default)
+// PROPERTY BLOCK — accordion, collapsed by default
+// BUG FIX: removed overflow-hidden from <section> so content renders correctly
 // ─────────────────────────────────────────────────────────────────────────────
-function PropertyBlock({ block }) {
+function PropertyBlock({ block, onLoadMore }) {
   const [expanded, setExpanded] = useState(false);
   const sellers  = useMemo(() => aggregateSellerData([block]),  [block]);
   const partners = useMemo(() => aggregatePartnerData([block]), [block]);
@@ -689,11 +706,13 @@ function PropertyBlock({ block }) {
     : 0;
 
   return (
-    <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Accordion Header */}
+    // NOTE: No overflow-hidden here — it was clipping expanded accordion content
+    <section className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+      {/* Accordion header */}
       <button
+        type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex items-center gap-4 text-left hover:bg-slate-50/80 transition-colors"
+        className="w-full px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex items-center gap-4 text-left hover:bg-slate-50/80 transition-colors rounded-t-2xl"
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
@@ -704,7 +723,6 @@ function PropertyBlock({ block }) {
             <h3 className="text-base font-bold text-slate-900">{block.title || block.label}</h3>
             {block.seller_name && <span className="text-xs text-slate-400">Seller: <span className="text-slate-600 font-medium">{block.seller_name}</span></span>}
           </div>
-          {/* Mini metrics preview */}
           {!expanded && (
             <div className="flex items-center gap-4 mt-1.5 flex-wrap">
               {bk.already_received > 0 && <span className="text-[11px] text-emerald-600 font-medium">↑ {formatCurrency(bk.already_received)} collected</span>}
@@ -714,7 +732,11 @@ function PropertyBlock({ block }) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link to={`/properties/${block.id}`} onClick={(e) => e.stopPropagation()} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
+          <Link
+            to={`/properties/${block.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5"
+          >
             Open<svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
           </Link>
           <div className={`text-slate-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}>
@@ -723,7 +745,7 @@ function PropertyBlock({ block }) {
         </div>
       </button>
 
-      {/* Expanded Content */}
+      {/* Expanded content — no overflow-hidden parent so it renders in normal flow */}
       {expanded && (
         <div className="p-6 space-y-8">
           {bk.is_partial_projection && (
@@ -734,10 +756,7 @@ function PropertyBlock({ block }) {
           )}
           <div><SectionLabel>Money Flow</SectionLabel><MoneyFlowBar buckets={bk} /></div>
           {bk.total_land_area > 0 && (
-            <div>
-              <SectionLabel>Area</SectionLabel>
-              <LandDonutChart buckets={bk} />
-            </div>
+            <div><SectionLabel>Area</SectionLabel><LandDonutChart buckets={bk} /></div>
           )}
           {sellers.length > 0 && (
             <div>
@@ -752,7 +771,9 @@ function PropertyBlock({ block }) {
           {partners.length > 0 && (
             <div>
               <SectionLabel extra={<span className="text-slate-400 text-xs font-normal">({partners.length})</span>}>Partners</SectionLabel>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{partners.map((m, i) => <PartnerCard key={`${m.name}-${i}`} member={m} isMultiProperty={false} />)}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {partners.map((m, i) => <PartnerCard key={`${m.name}-${i}`} member={m} isMultiProperty={false} onLoadMore={onLoadMore} />)}
+              </div>
             </div>
           )}
         </div>
@@ -762,75 +783,33 @@ function PropertyBlock({ block }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMBINED VIEW  (sticky + charts + CSV export)
+// COMBINED STICKY HEADER — ONLY this strip is sticky
+// Fixes the blank-scroll bug: the rest of the page is normal flow
 // ─────────────────────────────────────────────────────────────────────────────
-function CombinedView({ blocks, combined, onExport }) {
-  // Prefer server-side sellers from combined.sellers; fall back to client aggregation
-  const sellers  = useMemo(
-    () => combined?.sellers?.length ? combined.sellers : aggregateSellerData(blocks),
-    [blocks, combined]
-  );
-  const partners = useMemo(() => aggregatePartnerData(blocks), [blocks]);
+function CombinedStickyHeader({ combined, blocks, onExport }) {
   const bk = combined?.buckets || {};
-
   return (
-    <div className="sticky top-0 z-30 space-y-0">
-      {/* ── Sticky header card ─────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-br from-indigo-50/90 via-white/95 to-purple-50/80 backdrop-blur-sm rounded-2xl border border-indigo-200 shadow-md overflow-hidden">
-        <div className="px-6 py-4 border-b border-indigo-100 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-500 mb-0.5">Combined · {blocks.length} propert{blocks.length === 1 ? "y" : "ies"}</div>
-            <h2 className="text-lg font-bold text-slate-900">Aggregated Overview</h2>
+    // BUG FIX: sticky is scoped to ONLY this header card, not the whole section
+    <div className="sticky top-0 z-30 bg-gradient-to-br from-indigo-50/95 via-white/98 to-purple-50/90 backdrop-blur-sm rounded-2xl border border-indigo-200 shadow-md">
+      <div className="px-6 py-4 border-b border-indigo-100 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-500 mb-0.5">
+            Combined · {blocks.length} propert{blocks.length === 1 ? "y" : "ies"}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onExport}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-              Download CSV
-            </button>
-            <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
-            </div>
-          </div>
+          <h2 className="text-lg font-bold text-slate-900">Aggregated Overview</h2>
         </div>
-
-        {/* Money flow metrics row — always visible in sticky */}
-        <div className="px-6 py-4">
-          <MoneyFlowBar buckets={bk} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onExport}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+            Download CSV
+          </button>
         </div>
       </div>
-
-      {/* ── Below-the-fold combined content ─────────────────────────────── */}
-      <div className="mt-4 bg-white/80 backdrop-blur-sm rounded-2xl border border-indigo-100 shadow-sm overflow-hidden">
-        <div className="p-6 space-y-8">
-
-          {/* Charts row */}
-          <div>
-            <SectionLabel>Visual Overview</SectionLabel>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {bk.total_land_area > 0 && <LandDonutChart buckets={bk} />}
-              {blocks.length > 0 && <MoneyFlowBarChart blocks={blocks} />}
-            </div>
-          </div>
-
-          {/* Sellers */}
-          {sellers.length > 0 && (
-            <div>
-              <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{sellers.length} unique</span>}>Sellers</SectionLabel>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{sellers.map((s, i) => <SellerCard key={i} seller={s} isMultiProperty />)}</div>
-            </div>
-          )}
-
-          {/* Partners */}
-          {partners.length > 0 && (
-            <div>
-              <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{partners.length} unique</span>}>Partners</SectionLabel>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{partners.map((m, i) => <PartnerCard key={`${m.name}-${i}`} member={m} isMultiProperty />)}</div>
-            </div>
-          )}
-        </div>
+      <div className="px-6 py-4">
+        <MoneyFlowBar buckets={bk} />
       </div>
     </div>
   );
@@ -838,18 +817,29 @@ function CombinedView({ blocks, combined, onExport }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ROOT PAGE COMPONENT
+// Layout order (per UX spec):
+//   1. Anomaly banner
+//   2. Property selector
+//   3. [Multi only] Sticky combined header (money metrics)
+//   4. [Multi only] Visual Overview (charts)
+//   5. Individual Property Breakdown (accordions) ← ABOVE sellers/partners
+//   6. [Multi only] Combined Sellers
+//   7. [Multi only] Combined Partners
 // ─────────────────────────────────────────────────────────────────────────────
 export default function PropertyAnalytics() {
-  const [pendingIds, setPendingIds] = useState([]);
-  const [appliedIds, setAppliedIds] = useState(null);
+  const [pendingIds,  setPendingIds]  = useState([]);
+  const [appliedIds,  setAppliedIds]  = useState(null);
+  // Pagination: increasing this triggers a re-fetch of the analytics query
+  // with more events per partner. Shared across all PartnerCards.
+  const [eventLimit,  setEventLimit]  = useState(10);
 
   const queryString = useMemo(() => {
     if (!appliedIds?.length) return "";
     const p = new URLSearchParams();
     appliedIds.forEach((id) => p.append("property_ids", id));
-    p.set("event_limit", "10");
+    p.set("event_limit", String(eventLimit));
     return p.toString();
-  }, [appliedIds]);
+  }, [appliedIds, eventLimit]);
 
   const { data, isFetching, isError, error } = useQuery({
     queryKey: ["property-analytics", queryString],
@@ -866,7 +856,6 @@ export default function PropertyAnalytics() {
     retry: false,
   });
 
-  // Anomalies: trigger scan on load, then fetch results
   const { data: anomaliesData } = useQuery({
     queryKey: ["property-anomalies"],
     queryFn: async () => {
@@ -882,11 +871,19 @@ export default function PropertyAnalytics() {
   const combined = data?.combined;
   const isMulti  = blocks.length > 1;
 
-  const handleApply = useCallback(() => {
-    if (pendingIds.length > 0) setAppliedIds([...pendingIds]);
-  }, [pendingIds]);
+  // Combined sellers: prefer server-side aggregation, fall back to client-side
+  const combinedSellers  = useMemo(
+    () => isMulti ? (combined?.sellers?.length ? combined.sellers : aggregateSellerData(blocks)) : [],
+    [isMulti, blocks, combined],
+  );
+  const combinedPartners = useMemo(
+    () => isMulti ? aggregatePartnerData(blocks) : [],
+    [isMulti, blocks],
+  );
 
-  const handleExport = useCallback(() => {
+  const handleApply   = useCallback(() => { if (pendingIds.length > 0) setAppliedIds([...pendingIds]); }, [pendingIds]);
+  const handleLoadMore = useCallback(() => setEventLimit((v) => v + 20), []);
+  const handleExport  = useCallback(() => {
     exportAnalyticsCSV(
       blocks,
       combined?.members || [],
@@ -913,7 +910,7 @@ export default function PropertyAnalytics() {
           )}
         </div>
 
-        {/* Anomaly banner (only when anomalies exist) */}
+        {/* Anomaly banner */}
         {anomaliesData?.length > 0 && <AnomalyBanner anomalies={anomaliesData} />}
 
         {/* Property selector */}
@@ -935,7 +932,7 @@ export default function PropertyAnalytics() {
           </div>
         )}
 
-        {/* Empty initial state */}
+        {/* Empty state */}
         {!appliedIds && !isFetching && (
           <div className="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-dashed border-slate-200">
             <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
@@ -946,18 +943,34 @@ export default function PropertyAnalytics() {
           </div>
         )}
 
-        {/* No data after apply */}
         {appliedIds && !isFetching && !isError && blocks.length === 0 && (
           <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">No data found for the selected properties.</div>
         )}
 
-        {/* Results */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            RESULTS SECTION
+            Order: sticky header → charts → property accordions → sellers → partners
+            ═══════════════════════════════════════════════════════════════════ */}
         {!isFetching && !isError && blocks.length > 0 && (
           <div className="space-y-6">
-            {/* Sticky combined overview (only for multi-property) */}
-            {isMulti && <CombinedView blocks={blocks} combined={combined} onExport={handleExport} />}
 
-            {/* Per-property accordion blocks */}
+            {/* 1. Sticky combined summary header (multi only) */}
+            {isMulti && (
+              <CombinedStickyHeader combined={combined} blocks={blocks} onExport={handleExport} />
+            )}
+
+            {/* 2. Visual overview charts (multi only) — normal flow, NOT sticky */}
+            {isMulti && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-4">
+                <SectionLabel>Visual Overview</SectionLabel>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {(combined?.buckets?.total_land_area > 0) && <LandDonutChart buckets={combined.buckets} />}
+                  <MoneyFlowBarChart blocks={blocks} />
+                </div>
+              </div>
+            )}
+
+            {/* 3. Individual Property Breakdown — ABOVE sellers/partners (UX spec) */}
             <div className="space-y-4">
               {isMulti && (
                 <div className="flex items-center justify-between">
@@ -965,8 +978,36 @@ export default function PropertyAnalytics() {
                   <span className="text-xs text-slate-400">{blocks.length} properties — click to expand</span>
                 </div>
               )}
-              {blocks.map((b) => <PropertyBlock key={`${b.kind}-${b.id}`} block={b} />)}
+              {blocks.map((b) => (
+                <PropertyBlock key={`${b.kind}-${b.id}`} block={b} onLoadMore={handleLoadMore} />
+              ))}
             </div>
+
+            {/* 4. Combined Sellers (multi only) */}
+            {isMulti && combinedSellers.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{combinedSellers.length} unique</span>}>
+                  Sellers
+                </SectionLabel>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {combinedSellers.map((s, i) => <SellerCard key={i} seller={s} isMultiProperty />)}
+                </div>
+              </div>
+            )}
+
+            {/* 5. Combined Partners (multi only) */}
+            {isMulti && combinedPartners.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{combinedPartners.length} unique</span>}>
+                  Partners
+                </SectionLabel>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {combinedPartners.map((m, i) => (
+                    <PartnerCard key={`${m.name}-${i}`} member={m} isMultiProperty onLoadMore={handleLoadMore} />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Export button for single property view */}
             {!isMulti && (
@@ -977,8 +1018,10 @@ export default function PropertyAnalytics() {
                 </button>
               </div>
             )}
+
           </div>
         )}
+
       </div>
     </div>
   );

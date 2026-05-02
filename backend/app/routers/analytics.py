@@ -2774,7 +2774,9 @@ def _compute_partnership_member_breakdown(
         collected_from_buyers = 0.0
         # Money they paid TO the property seller (only)
         paid_to_seller_by_member = 0.0
-        # Other pot expenses (broker, misc) — kept for legacy/back-compat
+        # Property-related expenses paid by this partner out of project funds
+        expenses_paid = 0.0
+        # Other pot outflows (broker fees, misc) — kept for legacy/back-compat
         other_paid_out = 0.0
         # Partner-to-partner transfers
         transferred_out = 0.0
@@ -2787,7 +2789,10 @@ def _compute_partnership_member_breakdown(
             if t.member_id == m.id:
                 if ty in ("advance_to_seller", "remaining_to_seller", "payment_to_seller"):
                     paid_to_seller_by_member += amt
-                elif ty in ("broker_commission", "broker_paid", "expense", "other_expense"):
+                elif ty in ("expense", "other_expense"):
+                    # Expenses are tracked separately so they appear in Current Holding
+                    expenses_paid += amt
+                elif ty in ("broker_commission", "broker_paid"):
                     other_paid_out += amt
                 # NOTE: "invested" and "advance_given" intentionally excluded — they represent
                 # the same capital that's already captured in advance_contributed; counting them
@@ -2811,14 +2816,29 @@ def _compute_partnership_member_breakdown(
             if ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
                 collected_from_buyers += amt
 
-        # Total outflows they personally moved through their hands (seller + broker + expenses).
-        all_paid_out = paid_to_seller_by_member + other_paid_out
+        # For the "self" member: also count property-level Expense records linked to the deal.
+        # These expenses are recorded in the expenses table (not as PartnershipTransactions)
+        # and are always attributed to the self user who paid them.
+        if m.is_self and p.linked_property_deal_id:
+            prop_expenses_total = (
+                db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0))
+                .filter(
+                    Expense.linked_type == "property",
+                    Expense.linked_id == p.linked_property_deal_id,
+                )
+                .scalar()
+            )
+            expenses_paid += float(_D(prop_expenses_total))
+
+        # Total outflows they personally moved (seller + expenses + broker).
+        all_paid_out = paid_to_seller_by_member + expenses_paid + other_paid_out
 
         # Current Holding (per spec):
-        #   = (received from buyers) + (received from other partners)
-        #     − (paid to other partners) − (paid to property seller)
+        #   = (Collected from Buyers + Transferred IN)
+        #     − (Sent to Seller + Transferred OUT + Expenses Paid)
         current_holding = round(
-            collected_from_buyers + transferred_in - transferred_out - paid_to_seller_by_member,
+            collected_from_buyers + transferred_in
+            - transferred_out - paid_to_seller_by_member - expenses_paid,
             2,
         )
 
@@ -2843,6 +2863,7 @@ def _compute_partnership_member_breakdown(
             "own_invested": round(own_invested, 2),
             "collected_from_buyers": round(collected_from_buyers, 2),
             "paid_to_seller": round(paid_to_seller_by_member, 2),
+            "expenses_paid": round(expenses_paid, 2),
             "other_paid_out": round(other_paid_out, 2),
             "all_paid_out": round(all_paid_out, 2),
             "current_holding": current_holding,
@@ -3312,6 +3333,7 @@ def property_analytics(
                 "own_invested": 0.0,
                 "collected_from_buyers": 0.0,
                 "paid_to_seller": 0.0,
+                "expenses_paid": 0.0,
                 "other_paid_out": 0.0,
                 "all_paid_out": 0.0,
                 "net_holding": 0.0,
@@ -3326,8 +3348,8 @@ def property_analytics(
                 "projected_share": 0.0,
                 "final_settlement": 0.0,
             })
-            for fld in ("own_invested", "collected_from_buyers", "paid_to_seller", "other_paid_out",
-                        "all_paid_out", "net_holding", "current_holding",
+            for fld in ("own_invested", "collected_from_buyers", "paid_to_seller", "expenses_paid",
+                        "other_paid_out", "all_paid_out", "net_holding", "current_holding",
                         "transferred_out", "transferred_in", "contributed", "received_out",
                         "collected_for_pot", "currently_holding", "projected_share", "final_settlement"):
                 agg[fld] = agg[fld] + row.get(fld, 0.0)
