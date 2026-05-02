@@ -34,6 +34,8 @@ def _d(v) -> Decimal:
 def _current_balance(account: CashAccount) -> Decimal:
     balance = _d(account.opening_balance)
     for txn in account.transactions:
+        if getattr(txn, "is_voided", False):
+            continue
         if txn.txn_type == "credit":
             balance += _d(txn.amount)
         else:
@@ -72,6 +74,7 @@ def _txn_dict(txn: AccountTransaction) -> dict:
         "linked_id": txn.linked_id,
         "reference_number": txn.reference_number,
         "payment_mode": txn.payment_mode,
+        "is_voided": bool(getattr(txn, "is_voided", False)),
         "created_at": txn.created_at.isoformat() if txn.created_at else None,
     }
 
@@ -189,6 +192,7 @@ def delete_account(
 def list_transactions(
     account_id: int,
     limit: int = Query(200, ge=1, le=1000),
+    include_voided: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -198,13 +202,10 @@ def list_transactions(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    txns = (
-        db.query(AccountTransaction)
-        .filter(AccountTransaction.account_id == account_id)
-        .order_by(AccountTransaction.txn_date.desc())
-        .limit(limit)
-        .all()
-    )
+    q = db.query(AccountTransaction).filter(AccountTransaction.account_id == account_id)
+    if not include_voided:
+        q = q.filter(AccountTransaction.is_voided == False)
+    txns = q.order_by(AccountTransaction.txn_date.desc()).limit(limit).all()
     return [_txn_dict(t) for t in txns]
 
 
@@ -313,14 +314,19 @@ def transfer_between_accounts(
 
 
 @router.delete("/transactions/{txn_id}", response_model=dict)
-def delete_transaction(
+def void_transaction(
     txn_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    txn = db.query(AccountTransaction).filter(AccountTransaction.id == txn_id).first()
+    """Soft-void a transaction. The row is kept for audit trail; is_voided=True
+    excludes it from all balance calculations and default ledger queries."""
+    txn = db.query(AccountTransaction).filter(
+        AccountTransaction.id == txn_id,
+        AccountTransaction.is_voided == False,
+    ).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    db.delete(txn)
+    txn.is_voided = True
     db.commit()
-    return {"message": "Transaction deleted"}
+    return {"message": "Transaction voided", "id": txn_id}

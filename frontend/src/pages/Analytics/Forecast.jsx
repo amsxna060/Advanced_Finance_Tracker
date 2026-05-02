@@ -2,6 +2,9 @@
  * Forecast & Liquidity — Enterprise Edition
  *
  * Features:
+ *  - Sandbox "Mark paid/received": local simulation only, no DB mutation
+ *  - Principal shown per individual item row (not just group header)
+ *  - Loading overlay + disabled controls while fetching new timeframe
  *  - Account multi-select: Starting Balance + item filtering per account
  *  - Smart defaults: low-priority loan items start unchecked
  *  - Settle Principal shortcut on loan items
@@ -81,23 +84,40 @@ function isItemIncluded(item) {
 /* ── Cache patching helpers ─────────────────────────────────────── */
 const sumBy = (arr, k) => arr.reduce((s, g) => s + (g[k] || 0), 0);
 
-function recomputeGroup(g) {
+/**
+ * Recompute group-level totals from its items.
+ * simulatedPaid items are counted as skipped so the group expected_total
+ * and scorecard both reflect the sandbox state.
+ */
+function recomputeGroup(g, simulatedPaid) {
   let calc = 0, expected = 0, fulfilled = 0, skipped = 0;
   let hasOverdue = false;
   for (const it of g.items) {
     calc += it.effective_amount;
     if (it.is_overdue) hasOverdue = true;
+    if (simulatedPaid.has(it.id)) {
+      skipped += it.effective_amount;
+      continue;
+    }
     const ov = it.override;
     if (ov?.status === "fulfilled") fulfilled += it.effective_amount;
     else if (!isItemIncluded(it)) skipped += it.effective_amount;
     else expected += it.effective_amount;
   }
-  return { ...g, calculated_total: calc, expected_total: expected, fulfilled_total: fulfilled, skipped_total: skipped, has_overdue: hasOverdue };
+  return {
+    ...g,
+    calculated_total: calc,
+    expected_total: expected,
+    fulfilled_total: fulfilled,
+    skipped_total: skipped,
+    has_overdue: hasOverdue,
+  };
 }
 
-function recomputeForecast(data) {
-  const inflow_groups = data.inflow_groups.map(recomputeGroup);
-  const outflow_groups = data.outflow_groups.map(recomputeGroup);
+function recomputeForecast(data, simulatedPaid) {
+  const sp = simulatedPaid || new Set();
+  const inflow_groups = data.inflow_groups.map((g) => recomputeGroup(g, sp));
+  const outflow_groups = data.outflow_groups.map((g) => recomputeGroup(g, sp));
   const expected_inflow = sumBy(inflow_groups, "expected_total");
   const required_outflow = sumBy(outflow_groups, "expected_total");
   const starting = data.balances?.total_liquid ?? 0;
@@ -119,10 +139,19 @@ function recomputeForecast(data) {
 
 function patchItem(data, itemId, mutator) {
   let touched = false;
-  const patchItems = (items) => items.map((it) => { if (it.id !== itemId) return it; touched = true; return mutator(it); });
-  const patchGroup = (g) => { const newItems = patchItems(g.items); return newItems === g.items ? g : { ...g, items: newItems }; };
-  const next = { ...data, inflow_groups: data.inflow_groups.map(patchGroup), outflow_groups: data.outflow_groups.map(patchGroup) };
-  return touched ? recomputeForecast(next) : data;
+  const patchItems = (items) =>
+    items.map((it) => { if (it.id !== itemId) return it; touched = true; return mutator(it); });
+  const patchGroup = (g) => {
+    const newItems = patchItems(g.items);
+    return newItems === g.items ? g : { ...g, items: newItems };
+  };
+  const next = {
+    ...data,
+    inflow_groups: data.inflow_groups.map(patchGroup),
+    outflow_groups: data.outflow_groups.map(patchGroup),
+  };
+  // Pass empty set here — simulatedPaid is applied in the outer useMemo
+  return touched ? recomputeForecast(next, new Set()) : data;
 }
 
 function applyOverrideMutator(action, body) {
@@ -131,12 +160,6 @@ function applyOverrideMutator(action, body) {
       return { ...it, override: null, effective_amount: it.amount };
     }
     const prev = it.override || { included: true, status: "pending" };
-    if (action === "fulfill") {
-      return {
-        ...it,
-        override: { ...prev, included: true, status: "fulfilled", fulfilled_amount: parseFloat(body.fulfilled_amount), fulfilled_at: body.fulfilled_at || new Date().toISOString().slice(0, 10), notes: body.notes ?? prev.notes ?? null },
-      };
-    }
     let nextOv = { ...prev };
     if (body.included !== undefined) {
       nextOv.included = body.included;
@@ -145,7 +168,10 @@ function applyOverrideMutator(action, body) {
     }
     if (body.amount_override !== undefined) nextOv.amount_override = parseFloat(body.amount_override);
     if (body.notes !== undefined) nextOv.notes = body.notes;
-    const eff = nextOv.amount_override != null && !Number.isNaN(nextOv.amount_override) ? nextOv.amount_override : it.amount;
+    const eff =
+      nextOv.amount_override != null && !Number.isNaN(nextOv.amount_override)
+        ? nextOv.amount_override
+        : it.amount;
     return { ...it, override: nextOv, effective_amount: eff };
   };
 }
@@ -164,12 +190,16 @@ export default function Forecast() {
   // Account filter state
   const [selectedAccountIds, setSelectedAccountIds] = useState([]);
 
+  // Sandbox "simulated paid" state — purely local, never written to DB
+  const [simulatedPaid, setSimulatedPaid] = useState(() => new Set());
+
   // Recurring modal state
   const [showManageRecurring, setShowManageRecurring] = useState(false);
 
   const params = buildParams(mode, preset, customDays, fromDate, toDate);
   const queryKey = useMemo(
     () => ["forecast", params, selectedAccountIds],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(params), JSON.stringify(selectedAccountIds)],
   );
 
@@ -182,28 +212,49 @@ export default function Forecast() {
     placeholderData: (prev) => prev,
   });
 
-  // Apply smart defaults (low-priority items start unchecked) as local transform
-  const data = useMemo(() => rawData ? recomputeForecast(rawData) : null, [rawData]);
+  // Apply smart defaults + sandbox state as a local transform — no extra network call
+  const data = useMemo(
+    () => (rawData ? recomputeForecast(rawData, simulatedPaid) : null),
+    [rawData, simulatedPaid],
+  );
+
+  // Toggle sandbox paid for one item; clear when timeframe changes
+  const toggleSimulated = useCallback((id) => {
+    setSimulatedPaid((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Reset simulation when the user fetches a fresh window
+  const handleTimeframeChange = useCallback((changeFn) => {
+    setSimulatedPaid(new Set());
+    changeFn();
+  }, []);
 
   const makeMutation = (path, action) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     useMutation({
       mutationFn: (body) => api.post(path, body),
       onMutate: async (body) => {
         await qc.cancelQueries({ queryKey });
         const prev = qc.getQueryData(queryKey);
-        if (prev) qc.setQueryData(queryKey, patchItem(prev, body.item_id, applyOverrideMutator(action, body)));
+        if (prev) {
+          qc.setQueryData(queryKey, patchItem(prev, body.item_id, applyOverrideMutator(action, body)));
+        }
         return { prev };
       },
-      onError: (_err, _body, ctx) => { if (ctx?.prev) qc.setQueryData(queryKey, ctx.prev); },
+      onError: (_err, _body, ctx) => {
+        if (ctx?.prev) qc.setQueryData(queryKey, ctx.prev);
+      },
     });
 
   const upsertMutation = makeMutation("/api/forecast/overrides", "upsert");
-  const fulfillMutation = makeMutation("/api/forecast/overrides/fulfill", "fulfill");
-  const clearMutation = makeMutation("/api/forecast/overrides/clear", "clear");
+  const clearMutation  = makeMutation("/api/forecast/overrides/clear", "clear");
 
   const onUpsert = useCallback((body) => upsertMutation.mutate(body), [upsertMutation]);
-  const onFulfill = useCallback((body) => fulfillMutation.mutate(body), [fulfillMutation]);
-  const onClear = useCallback((body) => clearMutation.mutate(body), [clearMutation]);
+  const onClear  = useCallback((body) => clearMutation.mutate(body),  [clearMutation]);
 
   const toggleAccount = useCallback((id) => {
     setSelectedAccountIds((prev) =>
@@ -219,9 +270,10 @@ export default function Forecast() {
     );
   }
 
-  const t = data.totals;
+  const t  = data.totals;
   const lr = data.liquidity;
   const accounts = data.balances?.accounts || [];
+  const hasSandbox = simulatedPaid.size > 0;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
@@ -229,7 +281,14 @@ export default function Forecast() {
       <div className="sticky top-0 z-20 bg-slate-50/90 backdrop-blur border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-baseline justify-between mb-2">
-            <h1 className="text-xl font-bold text-slate-900">Forecast & Liquidity</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-slate-900">Forecast & Liquidity</h1>
+              {hasSandbox && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-700 font-medium">
+                  SIMULATION — {simulatedPaid.size} item{simulatedPaid.size !== 1 ? "s" : ""} marked paid
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-slate-500">
               As of {data.as_of_date} · period {data.period_key}
               {isFetching ? " · refreshing…" : ""}
@@ -239,22 +298,27 @@ export default function Forecast() {
             <Score
               label="Projected Inflows"
               value={t.expected_inflow}
-              sub={t.fulfilled_inflow > 0 ? `${formatCurrency(t.fulfilled_inflow)} already in` : null}
+              sub={hasSandbox ? "sandbox adjusted" : (t.fulfilled_inflow > 0 ? `${formatCurrency(t.fulfilled_inflow)} already in` : null)}
               tone="emerald"
+              simulated={hasSandbox}
             />
             <Score
               label="Required Outflows"
               value={t.required_outflow}
-              sub={t.overdue_outflow > 0 ? `${formatCurrency(t.overdue_outflow)} overdue` : null}
+              sub={hasSandbox ? "sandbox adjusted" : (t.overdue_outflow > 0 ? `${formatCurrency(t.overdue_outflow)} overdue` : null)}
               tone="rose"
+              simulated={hasSandbox}
             />
             <Score
               label="Proj. Ending Liquidity"
               value={t.projected_ending_liquidity ?? t.net_liquidity}
-              sub={lr.coverage_ratio < 999
-                ? `Coverage ${lr.coverage_ratio}× · runway ${lr.runway_days}d`
-                : "No outflows"}
+              sub={
+                hasSandbox
+                  ? "sandbox scenario"
+                  : (lr.coverage_ratio < 999 ? `Coverage ${lr.coverage_ratio}× · runway ${lr.runway_days}d` : "No outflows")
+              }
               tone={(t.projected_ending_liquidity ?? t.net_liquidity) >= 0 ? "indigo" : "rose"}
+              simulated={hasSandbox}
             />
           </div>
         </div>
@@ -280,30 +344,61 @@ export default function Forecast() {
           toDate={toDate} setToDate={setToDate}
           window={{ from: data.from_date, to: data.to_date, days: data.timeframe_days }}
           onManageRecurring={() => setShowManageRecurring(true)}
+          isFetching={isFetching}
+          onTimeframeChange={handleTimeframeChange}
         />
 
         {/* ── Liquid balance summary ──────────────────── */}
         <LiquidityBanner balances={data.balances} liquidity={lr} />
 
-        {/* ── Two-column flows ─────────────────────────── */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <ColumnSection
-            title="Money Coming In"
-            tone="emerald"
-            groups={data.inflow_groups}
-            onUpsert={onUpsert}
-            onFulfill={onFulfill}
-            onClear={onClear}
-          />
-          <ColumnSection
-            title="Money Going Out"
-            tone="rose"
-            groups={data.outflow_groups}
-            onUpsert={onUpsert}
-            onFulfill={onFulfill}
-            onClear={onClear}
-          />
+        {/* ── Two-column flows (with loading overlay) ──── */}
+        <div className="relative">
+          {/* Overlay while fetching a new timeframe (not initial load) */}
+          {isFetching && (
+            <div className="absolute inset-0 z-10 bg-white/60 backdrop-blur-[2px] rounded-xl flex items-center justify-center pointer-events-none">
+              <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-2 shadow-sm">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600" />
+                <span className="text-xs font-medium text-slate-600">Updating forecast…</span>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <ColumnSection
+              title="Money Coming In"
+              tone="emerald"
+              groups={data.inflow_groups}
+              onUpsert={onUpsert}
+              onClear={onClear}
+              simulatedPaid={simulatedPaid}
+              onSimulatePaid={toggleSimulated}
+            />
+            <ColumnSection
+              title="Money Going Out"
+              tone="rose"
+              groups={data.outflow_groups}
+              onUpsert={onUpsert}
+              onClear={onClear}
+              simulatedPaid={simulatedPaid}
+              onSimulatePaid={toggleSimulated}
+            />
+          </div>
         </div>
+
+        {/* ── Sandbox reset hint ─────────────────────────── */}
+        {hasSandbox && (
+          <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+            <p className="text-xs text-amber-700">
+              <span className="font-semibold">Simulation mode</span> — {simulatedPaid.size} item{simulatedPaid.size !== 1 ? "s" : ""} virtually marked as settled. Totals reflect the adjusted scenario.
+            </p>
+            <button
+              onClick={() => setSimulatedPaid(new Set())}
+              className="text-xs px-3 py-1 rounded-lg bg-amber-100 border border-amber-300 text-amber-800 hover:bg-amber-200 transition"
+            >
+              Clear simulation
+            </button>
+          </div>
+        )}
 
         {/* ── Charts ─────────────────────────────────── */}
         {data.timeline?.length > 0 && (
@@ -316,7 +411,7 @@ export default function Forecast() {
                 <AreaChart data={data.timeline} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                   <defs>
                     <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                      <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.25} />
                       <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                   </defs>
@@ -324,7 +419,9 @@ export default function Forecast() {
                   <XAxis dataKey="day_label" tick={{ fontSize: 10, fill: "#94a3b8" }} interval="preserveStartEnd" />
                   <YAxis
                     tick={{ fontSize: 10, fill: "#94a3b8" }}
-                    tickFormatter={(v) => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                    tickFormatter={(v) =>
+                      v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v
+                    }
                   />
                   <Tooltip content={<TimelineTooltip />} />
                   <Area type="monotone" dataKey="running_balance" stroke="#6366f1" strokeWidth={2} fill="url(#balGrad)" name="Balance" />
@@ -349,11 +446,16 @@ export default function Forecast() {
                   <XAxis dataKey="day_label" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                   <YAxis
                     tick={{ fontSize: 10, fill: "#94a3b8" }}
-                    tickFormatter={(v) => v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                    tickFormatter={(v) =>
+                      v >= 100000 ? `${(v / 100000).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v
+                    }
                   />
-                  <Tooltip formatter={(v) => formatCurrency(v)} contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0", fontSize: "13px" }} />
+                  <Tooltip
+                    formatter={(v) => formatCurrency(v)}
+                    contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0", fontSize: "13px" }}
+                  />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="inflow" fill="#10b981" radius={[4, 4, 0, 0]} name="Inflow" />
+                  <Bar dataKey="inflow"  fill="#10b981" radius={[4, 4, 0, 0]} name="Inflow" />
                   <Bar dataKey="outflow" fill="#ef4444" radius={[4, 4, 0, 0]} name="Outflow" />
                 </BarChart>
               </ResponsiveContainer>
@@ -374,14 +476,14 @@ export default function Forecast() {
 }
 
 /* ── Score Tile ────────────────────────────────────────────── */
-function Score({ label, value, sub, tone }) {
+function Score({ label, value, sub, tone, simulated }) {
   const tones = {
     emerald: "bg-emerald-50 border-emerald-200 text-emerald-800",
-    rose: "bg-rose-50 border-rose-200 text-rose-800",
-    indigo: "bg-indigo-50 border-indigo-200 text-indigo-800",
+    rose:    "bg-rose-50 border-rose-200 text-rose-800",
+    indigo:  "bg-indigo-50 border-indigo-200 text-indigo-800",
   };
   return (
-    <div className={`rounded-lg border p-3 ${tones[tone] || tones.indigo}`}>
+    <div className={`rounded-lg border p-3 transition-all ${tones[tone] || tones.indigo} ${simulated ? "ring-1 ring-amber-300" : ""}`}>
       <p className="text-[10px] uppercase tracking-wider font-medium opacity-70">{label}</p>
       <p className="text-xl font-extrabold mt-0.5">{formatCurrency(value)}</p>
       {sub && <p className="text-[10px] mt-0.5 opacity-70">{sub}</p>}
@@ -393,9 +495,7 @@ function Score({ label, value, sub, tone }) {
 function AccountSelector({ accounts, selectedIds, onToggle, onReset }) {
   const [open, setOpen] = useState(false);
   const allSelected = selectedIds.length === 0;
-  const label = allSelected
-    ? "All Accounts"
-    : `${selectedIds.length} account${selectedIds.length > 1 ? "s" : ""} selected`;
+  const label = allSelected ? "All Accounts" : `${selectedIds.length} account${selectedIds.length > 1 ? "s" : ""} selected`;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
@@ -433,8 +533,8 @@ function AccountSelector({ accounts, selectedIds, onToggle, onReset }) {
                     }`}
                   >
                     <span className="flex items-center gap-2">
-                      <span className={`w-3 h-3 rounded border flex-shrink-0 ${sel ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}>
-                        {sel && <span className="text-white text-[8px] flex items-center justify-center">✓</span>}
+                      <span className={`w-3 h-3 rounded border flex-shrink-0 flex items-center justify-center ${sel ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}>
+                        {sel && <span className="text-white text-[8px]">✓</span>}
                       </span>
                       <span className="truncate">{acct.name}</span>
                     </span>
@@ -472,17 +572,21 @@ function AccountSelector({ accounts, selectedIds, onToggle, onReset }) {
 /* ── Timeframe Picker ──────────────────────────────────────── */
 function TimeframePicker({
   mode, setMode, preset, setPreset, customDays, setCustomDays,
-  fromDate, setFromDate, toDate, setToDate, window: win, onManageRecurring,
+  fromDate, setFromDate, toDate, setToDate,
+  window: win, onManageRecurring, isFetching, onTimeframeChange,
 }) {
+  const disabled = isFetching;
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-slate-600 mr-1">Timeframe:</span>
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+        <div className={`flex gap-1 bg-slate-100 rounded-lg p-1 ${disabled ? "opacity-60 pointer-events-none" : ""}`}>
           {PRESETS.map((p) => (
             <button
               key={p.key}
-              onClick={() => { setMode("preset"); setPreset(p.key); }}
+              disabled={disabled}
+              onClick={() => onTimeframeChange(() => { setMode("preset"); setPreset(p.key); })}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
                 mode === "preset" && preset === p.key
                   ? "bg-indigo-600 text-white shadow-sm"
@@ -494,16 +598,25 @@ function TimeframePicker({
           ))}
         </div>
         <button
-          onClick={() => setMode("monthEnd")}
+          disabled={disabled}
+          onClick={() => onTimeframeChange(() => setMode("monthEnd"))}
           className={`px-3 py-1.5 text-xs font-medium rounded-md border transition ${
             mode === "monthEnd"
               ? "bg-indigo-600 text-white border-indigo-600"
               : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
-          }`}
+          } ${disabled ? "opacity-60 pointer-events-none" : ""}`}
         >
           End of month
         </button>
+
         <div className="ml-auto flex items-center gap-3">
+          {/* Inline fetch indicator in the toolbar */}
+          {isFetching && (
+            <div className="flex items-center gap-1.5 text-[11px] text-indigo-600">
+              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-indigo-600" />
+              Loading…
+            </div>
+          )}
           <span className="text-[11px] text-slate-500">
             {win.from} → {win.to} <span className="text-slate-400">({win.days}d)</span>
           </span>
@@ -516,28 +629,28 @@ function TimeframePicker({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-slate-100">
+      <div className={`flex flex-wrap items-center gap-3 pt-1 border-t border-slate-100 ${disabled ? "opacity-60 pointer-events-none" : ""}`}>
         <label className={`flex items-center gap-2 text-xs ${mode === "days" ? "text-slate-900" : "text-slate-500"}`}>
-          <input type="radio" name="tf" checked={mode === "days"} onChange={() => setMode("days")} className="accent-indigo-600" />
+          <input type="radio" name="tf" checked={mode === "days"} onChange={() => onTimeframeChange(() => setMode("days"))} className="accent-indigo-600" />
           Custom days
           <input
             type="number" min="1" max="730" value={customDays}
-            onChange={(e) => { setMode("days"); setCustomDays(parseInt(e.target.value) || 30); }}
+            onChange={(e) => onTimeframeChange(() => { setMode("days"); setCustomDays(parseInt(e.target.value) || 30); })}
             className="w-20 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </label>
         <label className={`flex items-center gap-2 text-xs ${mode === "range" ? "text-slate-900" : "text-slate-500"}`}>
-          <input type="radio" name="tf" checked={mode === "range"} onChange={() => setMode("range")} className="accent-indigo-600" />
+          <input type="radio" name="tf" checked={mode === "range"} onChange={() => onTimeframeChange(() => setMode("range"))} className="accent-indigo-600" />
           Date range
           <input
             type="date" value={fromDate}
-            onChange={(e) => { setMode("range"); setFromDate(e.target.value); }}
+            onChange={(e) => onTimeframeChange(() => { setMode("range"); setFromDate(e.target.value); })}
             className="px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <span className="text-slate-400">→</span>
           <input
             type="date" value={toDate}
-            onChange={(e) => { setMode("range"); setToDate(e.target.value); }}
+            onChange={(e) => onTimeframeChange(() => { setMode("range"); setToDate(e.target.value); })}
             className="px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </label>
@@ -553,16 +666,11 @@ function LiquidityBanner({ balances, liquidity }) {
   return (
     <div className={`rounded-xl border p-4 ${ok ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200"}`}>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-        <Mini label="Cash on hand" value={formatCurrency(balances.cash)} />
-        <Mini label="In bank" value={formatCurrency(balances.bank)} />
-        <Mini label="Starting balance" value={formatCurrency(balances.total_liquid)} bold />
+        <Mini label="Cash on hand"      value={formatCurrency(balances.cash)} />
+        <Mini label="In bank"           value={formatCurrency(balances.bank)} />
+        <Mini label="Starting balance"  value={formatCurrency(balances.total_liquid)} bold />
         {pl != null && (
-          <Mini
-            label="Proj. ending balance"
-            value={formatCurrency(pl)}
-            bold
-            tone={pl >= 0 ? "emerald" : "rose"}
-          />
+          <Mini label="Proj. ending balance" value={formatCurrency(pl)} bold tone={pl >= 0 ? "emerald" : "rose"} />
         )}
         <Mini
           label="Liquidity status"
@@ -587,12 +695,13 @@ function Mini({ label, value, sub, bold, tone }) {
 }
 
 /* ── Column Section ────────────────────────────────────────── */
-const ColumnSection = memo(function ColumnSection({ title, tone, groups, onUpsert, onFulfill, onClear }) {
+const ColumnSection = memo(function ColumnSection({
+  title, tone, groups, onUpsert, onClear, simulatedPaid, onSimulatePaid,
+}) {
   const total = useMemo(() => (groups || []).reduce((s, g) => s + g.expected_total, 0), [groups]);
-  const fulfilledTotal = useMemo(() => (groups || []).reduce((s, g) => s + g.fulfilled_total, 0), [groups]);
   const tones = {
     emerald: { ring: "border-emerald-200", text: "text-emerald-700" },
-    rose: { ring: "border-rose-200", text: "text-rose-700" },
+    rose:    { ring: "border-rose-200",    text: "text-rose-700" },
   };
   const c = tones[tone] || tones.emerald;
 
@@ -600,19 +709,22 @@ const ColumnSection = memo(function ColumnSection({ title, tone, groups, onUpser
     <div className={`bg-white rounded-xl border ${c.ring} overflow-hidden`}>
       <div className="px-5 py-3 border-b border-slate-100 flex items-baseline justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">{title}</h2>
-        <div className="flex items-baseline gap-3">
-          {fulfilledTotal > 0 && (
-            <span className="text-xs text-slate-500">{formatCurrency(fulfilledTotal)} fulfilled</span>
-          )}
-          <span className={`text-lg font-extrabold ${c.text}`}>{formatCurrency(total)}</span>
-        </div>
+        <span className={`text-lg font-extrabold ${c.text}`}>{formatCurrency(total)}</span>
       </div>
       {(!groups || groups.length === 0) ? (
         <div className="p-6 text-center text-sm text-slate-400">No items in this window</div>
       ) : (
         <ul className="divide-y divide-slate-100">
           {groups.map((g) => (
-            <EntityCard key={g.key} group={g} tone={tone} onUpsert={onUpsert} onFulfill={onFulfill} onClear={onClear} />
+            <EntityCard
+              key={g.key}
+              group={g}
+              tone={tone}
+              onUpsert={onUpsert}
+              onClear={onClear}
+              simulatedPaid={simulatedPaid}
+              onSimulatePaid={onSimulatePaid}
+            />
           ))}
         </ul>
       )}
@@ -621,10 +733,11 @@ const ColumnSection = memo(function ColumnSection({ title, tone, groups, onUpser
 });
 
 /* ── Entity Accordion Card ─────────────────────────────────── */
-const EntityCard = memo(function EntityCard({ group, tone, onUpsert, onFulfill, onClear }) {
+const EntityCard = memo(function EntityCard({
+  group, tone, onUpsert, onClear, simulatedPaid, onSimulatePaid,
+}) {
   const [open, setOpen] = useState(group.has_overdue);
   const c = tone === "rose" ? "text-rose-700" : "text-emerald-700";
-  const isLoanGroup = group.principal_amount != null;
 
   return (
     <li>
@@ -645,10 +758,7 @@ const EntityCard = memo(function EntityCard({ group, tone, onUpsert, onFulfill, 
           <p className="text-[11px] text-slate-500 mt-0.5">
             {group.item_count} item{group.item_count !== 1 ? "s" : ""}
             {group.fulfilled_total > 0 ? ` · ${formatCurrency(group.fulfilled_total)} fulfilled` : ""}
-            {group.skipped_total > 0 ? ` · ${formatCurrency(group.skipped_total)} skipped` : ""}
-            {isLoanGroup && group.principal_amount > 0 && (
-              <span className="text-slate-400"> · Principal: {formatCurrency(group.principal_amount)}</span>
-            )}
+            {group.skipped_total > 0 ? ` · ${formatCurrency(group.skipped_total)} excluded` : ""}
           </p>
         </div>
         <div className="text-right shrink-0">
@@ -662,7 +772,15 @@ const EntityCard = memo(function EntityCard({ group, tone, onUpsert, onFulfill, 
       {open && (
         <ul className="bg-slate-50/60 border-t border-slate-100">
           {group.items.map((it) => (
-            <ItemRow key={it.id} item={it} tone={tone} onUpsert={onUpsert} onFulfill={onFulfill} onClear={onClear} />
+            <ItemRow
+              key={it.id}
+              item={it}
+              tone={tone}
+              onUpsert={onUpsert}
+              onClear={onClear}
+              isSimulated={simulatedPaid.has(it.id)}
+              onSimulatePaid={onSimulatePaid}
+            />
           ))}
         </ul>
       )}
@@ -671,34 +789,46 @@ const EntityCard = memo(function EntityCard({ group, tone, onUpsert, onFulfill, 
 });
 
 /* ── Item Row ──────────────────────────────────────────────── */
-const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear }) {
+const ItemRow = memo(function ItemRow({
+  item, tone, onUpsert, onClear, isSimulated, onSimulatePaid,
+}) {
   const ov = item.override;
-  const isFulfilled = ov?.status === "fulfilled";
-  const currentlyIncluded = !isFulfilled && isItemIncluded(item);
-  const isSkipped = !isFulfilled && !currentlyIncluded;
+  const isFulfilledByDB = ov?.status === "fulfilled";
+  const currentlyIncluded = !isFulfilledByDB && !isSimulated && isItemIncluded(item);
+  const isExcluded = !isFulfilledByDB && !isSimulated && !currentlyIncluded;
   const isLowPriorityDefault = item.loan_priority === "low" && !ov;
 
   const [editingAmount, setEditingAmount] = useState(false);
   const [draftAmount, setDraftAmount] = useState(item.effective_amount);
-  const [showFulfill, setShowFulfill] = useState(false);
-  const [fulfillAmt, setFulfillAmt] = useState(item.effective_amount);
 
-  const c = tone === "rose" ? "text-rose-700" : "text-emerald-700";
+  const c       = tone === "rose" ? "text-rose-700" : "text-emerald-700";
   const confCls = CONFIDENCE_STYLE[item.confidence] || CONFIDENCE_STYLE.medium;
-  const isLoanItem = item.kind?.startsWith("loan_");
+  const isLoanItem         = item.kind?.startsWith("loan_");
   const hasRemainingPrincipal = isLoanItem && item.remaining_principal > 0;
 
+  // Visual treatment when sandbox-simulated as paid
+  const rowCls = isSimulated
+    ? "opacity-40 bg-slate-50/80"
+    : isFulfilledByDB
+    ? "opacity-60"
+    : "";
+
   return (
-    <li className={`px-4 py-2.5 flex flex-wrap items-center gap-2 hover:bg-white ${
+    <li className={`px-4 py-2.5 flex flex-wrap items-center gap-2 hover:bg-white transition-opacity ${
       item.is_overdue ? "border-l-2 border-rose-400" : ""
-    } ${isFulfilled ? "opacity-60" : ""}`}>
-      {/* include toggle */}
+    } ${rowCls}`}>
+      {/* Include toggle — DB override */}
       <input
         type="checkbox"
         checked={currentlyIncluded}
-        disabled={isFulfilled}
+        disabled={isFulfilledByDB || isSimulated}
         onChange={(e) => onUpsert({ item_id: item.id, included: e.target.checked })}
-        title={isFulfilled ? "Already fulfilled" : isLowPriorityDefault ? "Low priority — excluded by default" : "Include in totals"}
+        title={
+          isFulfilledByDB ? "Already fulfilled"
+          : isSimulated ? "Marked as settled (sandbox)"
+          : isLowPriorityDefault ? "Low priority — excluded by default"
+          : "Include in totals"
+        }
         className="accent-indigo-600 shrink-0"
       />
 
@@ -716,18 +846,31 @@ const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear
               {item.loan_priority}
             </span>
           )}
-          <span className="text-xs font-medium text-slate-700 truncate">{item.label}</span>
-          {item.is_overdue && (
+          <span className={`text-xs font-medium text-slate-700 truncate ${isSimulated ? "line-through text-slate-400" : ""}`}>
+            {item.label}
+          </span>
+          {/* Per-row principal display for loan items */}
+          {isLoanItem && item.principal_amount > 0 && (
+            <span className="text-[10px] text-slate-400 font-normal">
+              · principal {formatCurrency(item.principal_amount)}
+            </span>
+          )}
+          {item.is_overdue && !isSimulated && (
             <span className="text-[10px] px-1.5 py-0.5 rounded border bg-rose-50 border-rose-200 text-rose-700">overdue</span>
           )}
-          {isFulfilled && (
+          {isFulfilledByDB && (
             <span className="text-[10px] px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-200 text-emerald-700">
               ✓ fulfilled {formatCurrency(ov.fulfilled_amount)} · {ov.fulfilled_at}
             </span>
           )}
-          {isSkipped && !isFulfilled && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-100 border-slate-200 text-slate-600">
-              {isLowPriorityDefault ? "low priority (excluded)" : "skipped"}
+          {isSimulated && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-amber-50 border-amber-200 text-amber-700">
+              ✓ simulated paid
+            </span>
+          )}
+          {isExcluded && !isFulfilledByDB && !isSimulated && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-100 border-slate-200 text-slate-500">
+              {isLowPriorityDefault ? "low priority" : "excluded"}
             </span>
           )}
         </div>
@@ -739,32 +882,32 @@ const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear
         </p>
       </div>
 
-      {/* amount column */}
+      {/* Amount column */}
       <div className="text-right shrink-0">
         {editingAmount ? (
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              autoFocus
-              value={draftAmount}
-              onChange={(e) => setDraftAmount(e.target.value)}
-              onBlur={() => {
-                setEditingAmount(false);
-                const num = parseFloat(draftAmount);
-                if (!isNaN(num) && num !== item.amount) onUpsert({ item_id: item.id, amount_override: num });
-              }}
-              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
-              className="w-24 px-2 py-1 border border-indigo-300 rounded text-xs text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
+          <input
+            type="number"
+            autoFocus
+            value={draftAmount}
+            onChange={(e) => setDraftAmount(e.target.value)}
+            onBlur={() => {
+              setEditingAmount(false);
+              const num = parseFloat(draftAmount);
+              if (!isNaN(num) && num !== item.amount) onUpsert({ item_id: item.id, amount_override: num });
+            }}
+            onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+            className="w-24 px-2 py-1 border border-indigo-300 rounded text-xs text-right focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
         ) : (
           <button
-            onClick={() => !isFulfilled && setEditingAmount(true)}
-            disabled={isFulfilled}
-            className={`text-right ${!isFulfilled ? "hover:bg-indigo-50 px-2 py-0.5 rounded cursor-text" : ""}`}
+            onClick={() => !isFulfilledByDB && !isSimulated && setEditingAmount(true)}
+            disabled={isFulfilledByDB || isSimulated}
+            className={`text-right ${!isFulfilledByDB && !isSimulated ? "hover:bg-indigo-50 px-2 py-0.5 rounded cursor-text" : ""}`}
             title="Click to override expected amount"
           >
-            <span className={`text-sm font-bold ${c}`}>{formatCurrency(item.effective_amount)}</span>
+            <span className={`text-sm font-bold ${c} ${isSimulated ? "line-through text-slate-400" : ""}`}>
+              {formatCurrency(item.effective_amount)}
+            </span>
             {ov?.amount_override != null && ov.amount_override !== item.amount && (
               <p className="text-[10px] text-slate-400 line-through">{formatCurrency(item.amount)}</p>
             )}
@@ -772,21 +915,28 @@ const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear
         )}
       </div>
 
-      {/* row actions */}
+      {/* Row actions */}
       <div className="w-full flex items-center justify-end gap-1.5 mt-1 flex-wrap">
-        {!isFulfilled && (
+        {/* Sandbox "Mark paid/received" — local state only, no DB call */}
+        {!isFulfilledByDB && (
           <button
-            onClick={() => { setFulfillAmt(item.effective_amount); setShowFulfill(true); }}
-            className={`text-[10px] px-2 py-0.5 rounded border bg-white ${
-              tone === "rose"
-                ? "border-rose-200 text-rose-700 hover:bg-rose-50"
-                : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            onClick={() => onSimulatePaid(item.id)}
+            className={`text-[10px] px-2 py-0.5 rounded border transition ${
+              isSimulated
+                ? "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                : tone === "rose"
+                ? "bg-white border-rose-200 text-rose-700 hover:bg-rose-50"
+                : "bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50"
             }`}
           >
-            {tone === "rose" ? "Mark paid" : "Mark received"}
+            {isSimulated
+              ? "Undo"
+              : tone === "rose" ? "Mark paid" : "Mark received"}
           </button>
         )}
-        {!isFulfilled && hasRemainingPrincipal && (
+
+        {/* Settle Principal — DB override */}
+        {!isFulfilledByDB && !isSimulated && hasRemainingPrincipal && (
           <button
             onClick={() => onUpsert({ item_id: item.id, amount_override: item.remaining_principal })}
             className="text-[10px] px-2 py-0.5 rounded border bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100"
@@ -795,7 +945,9 @@ const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear
             Settle Principal
           </button>
         )}
-        {ov && (
+
+        {/* Reset — DB override clear */}
+        {ov && !isSimulated && (
           <button
             onClick={() => onClear({ item_id: item.id })}
             className="text-[10px] px-2 py-0.5 rounded border bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -804,33 +956,6 @@ const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear
           </button>
         )}
       </div>
-
-      {showFulfill && (
-        <div className="w-full mt-2 p-2 bg-white rounded border border-emerald-200 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-slate-600">{tone === "rose" ? "Paid amount:" : "Received amount:"}</span>
-          <input
-            type="number"
-            value={fulfillAmt}
-            onChange={(e) => setFulfillAmt(e.target.value)}
-            className="w-28 px-2 py-1 border border-slate-200 rounded text-xs text-right focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-          <button
-            onClick={() => {
-              const num = parseFloat(fulfillAmt);
-              if (!isNaN(num)) { onFulfill({ item_id: item.id, fulfilled_amount: num }); setShowFulfill(false); }
-            }}
-            className="text-[11px] px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-          >
-            Confirm
-          </button>
-          <button
-            onClick={() => setShowFulfill(false)}
-            className="text-[11px] px-3 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
     </li>
   );
 });
@@ -894,7 +1019,7 @@ function ManageRecurringModal({ accounts, onClose }) {
           {isLoading ? (
             <div className="text-center py-8 text-slate-400 text-sm">Loading…</div>
           ) : items.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm">No recurring transactions yet. Add one to get started.</div>
+            <div className="text-center py-8 text-slate-400 text-sm">No recurring transactions yet.</div>
           ) : (
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
               {items.map((rt) => {
@@ -905,16 +1030,11 @@ function ManageRecurringModal({ accounts, onClose }) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-slate-800">{rt.title}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-slate-200 text-slate-500 capitalize">
-                          {rt.frequency}
-                        </span>
-                        {!rt.is_active && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">paused</span>
-                        )}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-slate-200 text-slate-500 capitalize">{rt.frequency}</span>
+                        {!rt.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">paused</span>}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Next: {rt.next_due_date}
-                        {acct ? ` · ${acct.name}` : ""}
+                        Next: {rt.next_due_date}{acct ? ` · ${acct.name}` : ""}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -923,19 +1043,10 @@ function ManageRecurringModal({ accounts, onClose }) {
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => { setEditItem(rt); setShowForm(false); }}
-                        className="text-[10px] px-2 py-0.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
-                      >
-                        Edit
-                      </button>
+                      <button onClick={() => { setEditItem(rt); setShowForm(false); }} className="text-[10px] px-2 py-0.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-50">Edit</button>
                       <button
                         onClick={() => updateMutation.mutate({ id: rt.id, is_active: !rt.is_active })}
-                        className={`text-[10px] px-2 py-0.5 rounded border ${
-                          rt.is_active
-                            ? "border-orange-200 text-orange-600 hover:bg-orange-50"
-                            : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-                        }`}
+                        className={`text-[10px] px-2 py-0.5 rounded border ${rt.is_active ? "border-orange-200 text-orange-600 hover:bg-orange-50" : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"}`}
                       >
                         {rt.is_active ? "Pause" : "Resume"}
                       </button>
@@ -966,48 +1077,32 @@ function RecurringForm({ initial, accounts, onSubmit, onCancel, isLoading }) {
     frequency: initial?.frequency || "monthly",
     next_due_date: initial?.next_due_date || new Date().toISOString().slice(0, 10),
     account_id: initial?.account_id || "",
-    is_active: initial?.is_active ?? true,
   });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit({
-      ...form,
-      amount: parseFloat(form.amount),
-      account_id: form.account_id ? parseInt(form.account_id) : null,
-    });
-  };
-
   return (
     <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-800 mb-3">{initial ? "Edit Recurring Transaction" : "New Recurring Transaction"}</h3>
-      <form onSubmit={handleSubmit} className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <h3 className="text-sm font-semibold text-slate-800 mb-3">{initial ? "Edit" : "New"} Recurring Transaction</h3>
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...form, amount: parseFloat(form.amount), account_id: form.account_id ? parseInt(form.account_id) : null }); }} className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="col-span-2 sm:col-span-3">
           <label className="block text-[11px] text-slate-500 mb-1">Title</label>
-          <input
-            required value={form.title} onChange={set("title")} placeholder="e.g. Monthly Salary, Office Rent"
-            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input required value={form.title} onChange={set("title")} placeholder="e.g. Monthly Salary, Office Rent" className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
         </div>
         <div>
           <label className="block text-[11px] text-slate-500 mb-1">Type</label>
-          <select value={form.type} onChange={set("type")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+          <select value={form.type} onChange={set("type")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
             <option value="inflow">Inflow (income)</option>
             <option value="outflow">Outflow (expense)</option>
           </select>
         </div>
         <div>
           <label className="block text-[11px] text-slate-500 mb-1">Amount (₹)</label>
-          <input
-            required type="number" min="1" step="0.01" value={form.amount} onChange={set("amount")}
-            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input required type="number" min="1" step="0.01" value={form.amount} onChange={set("amount")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
         </div>
         <div>
           <label className="block text-[11px] text-slate-500 mb-1">Frequency</label>
-          <select value={form.frequency} onChange={set("frequency")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+          <select value={form.frequency} onChange={set("frequency")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
             <option value="yearly">Yearly</option>
@@ -1015,22 +1110,17 @@ function RecurringForm({ initial, accounts, onSubmit, onCancel, isLoading }) {
         </div>
         <div>
           <label className="block text-[11px] text-slate-500 mb-1">Next Due Date</label>
-          <input
-            required type="date" value={form.next_due_date} onChange={set("next_due_date")}
-            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input required type="date" value={form.next_due_date} onChange={set("next_due_date")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
         </div>
-        <div>
+        <div className="col-span-2">
           <label className="block text-[11px] text-slate-500 mb-1">Account (optional)</label>
-          <select value={form.account_id} onChange={set("account_id")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+          <select value={form.account_id} onChange={set("account_id")} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
             <option value="">— No account —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </div>
         <div className="col-span-2 sm:col-span-3 flex items-center justify-end gap-2 pt-1">
-          <button type="button" onClick={onCancel} className="px-4 py-1.5 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
-            Cancel
-          </button>
+          <button type="button" onClick={onCancel} className="px-4 py-1.5 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Cancel</button>
           <button type="submit" disabled={isLoading} className="px-4 py-1.5 text-xs rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
             {isLoading ? "Saving…" : initial ? "Update" : "Create"}
           </button>
@@ -1040,14 +1130,14 @@ function RecurringForm({ initial, accounts, onSubmit, onCancel, isLoading }) {
   );
 }
 
-/* ── Tooltip ───────────────────────────────────────────────── */
+/* ── Timeline Tooltip ──────────────────────────────────────── */
 function TimelineTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-lg text-xs">
       <p className="font-semibold text-slate-700 mb-1">{d.day_label}</p>
-      {d.inflow > 0 && <p className="text-emerald-600">↑ Inflow: {formatCurrency(d.inflow)}</p>}
+      {d.inflow  > 0 && <p className="text-emerald-600">↑ Inflow: {formatCurrency(d.inflow)}</p>}
       {d.outflow > 0 && <p className="text-rose-600">↓ Outflow: {formatCurrency(d.outflow)}</p>}
       <p className="text-indigo-600 font-semibold mt-1">Balance: {formatCurrency(d.running_balance)}</p>
     </div>

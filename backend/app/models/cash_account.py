@@ -14,6 +14,7 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+
 class CashAccount(Base):
     __tablename__ = "cash_accounts"
 
@@ -58,6 +59,8 @@ class AccountTransaction(Base):
 
     reference_number = Column(String(100))
     payment_mode = Column(String(30))                      # cash | upi | bank_transfer | cheque | neft | rtgs
+
+    is_voided = Column(Boolean, nullable=False, default=False, server_default="false")
 
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

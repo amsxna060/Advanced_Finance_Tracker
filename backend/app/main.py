@@ -70,6 +70,22 @@ app.include_router(recurring_router.router)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def _ensure_v027_schema(conn):
+    """
+    Safety net: apply migration-027 DDL (is_voided on account_transactions).
+    All statements are idempotent — safe to run even when already applied.
+    """
+    stmts = [
+        "DO $$ BEGIN ALTER TABLE account_transactions ADD COLUMN is_voided BOOLEAN NOT NULL DEFAULT FALSE; EXCEPTION WHEN duplicate_column THEN null; END $$",
+        "CREATE INDEX IF NOT EXISTS ix_account_txn_is_voided ON account_transactions (is_voided)",
+    ]
+    for stmt in stmts:
+        try:
+            conn.execute(text(stmt))
+        except Exception as e:
+            print(f"⚠️  _ensure_v027_schema: {e}")
+
+
 def _ensure_v026_schema(conn):
     """
     Safety net: apply migration-026 DDL directly if Alembic missed it.
@@ -132,6 +148,15 @@ def startup():
         print("✅ v026 schema verified (recurring_transactions + loans.priority)")
     except Exception as e:
         print(f"⚠️  v026 schema safety-net failed: {e}")
+
+    # Apply migration-027 schema directly (idempotent safety net)
+    try:
+        with engine.connect() as conn:
+            _ensure_v027_schema(conn)
+            conn.commit()
+        print("✅ v027 schema verified (account_transactions.is_voided)")
+    except Exception as e:
+        print(f"⚠️  v027 schema safety-net failed: {e}")
 
     # Seed admin user if no users exist
     db = next(get_db())

@@ -2057,11 +2057,17 @@ def reconciliation_ledger(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     account_id: Optional[int] = Query(None),
+    include_voided: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Transaction ledger with reconciliation: running balance, unlinked items flagged.
+    Transaction ledger with reconciliation: running balance, unlinked items flagged,
+    and optional soft-voided transaction display.
+
+    Running balance is computed chronologically from only non-voided transactions.
+    Voided rows (when include_voided=True) show the effective balance at their position
+    without contributing to the balance chain.
     """
     today = date.today()
     start = date.fromisoformat(from_date) if from_date else today - timedelta(days=30)
@@ -2076,28 +2082,51 @@ def reconciliation_ledger(
     )
     if account_id:
         q = q.filter(AccountTransaction.account_id == account_id)
+    if not include_voided:
+        q = q.filter(AccountTransaction.is_voided == False)
 
     txns = q.order_by(AccountTransaction.txn_date.asc(), AccountTransaction.id.asc()).all()
 
+    # Opening balances always exclude voided transactions
     opening_balances = {}
     for acct in accts:
         if account_id and acct.id != account_id:
             continue
         running = _D(acct.opening_balance)
         for t in (acct.transactions or []):
-            if t.txn_date < start:
+            if t.txn_date < start and not getattr(t, "is_voided", False):
                 running += _D(t.amount) if t.txn_type == "credit" else -_D(t.amount)
         opening_balances[acct.id] = float(running)
 
     ledger = []
     running_map = dict(opening_balances)
     unlinked_count = 0
+    voided_count = 0
     total_credits = Decimal("0")
     total_debits = Decimal("0")
 
     for t in txns:
         amt = _D(t.amount)
         acct_name = acct_map[t.account_id].name if t.account_id in acct_map else "Unknown"
+        is_voided = bool(getattr(t, "is_voided", False))
+        is_unlinked = not t.linked_type or t.linked_type == "manual"
+
+        if is_voided:
+            # Voided: retain in ledger for audit trail but freeze the running balance
+            voided_count += 1
+            ledger.append({
+                "id": t.id, "date": t.txn_date.isoformat(),
+                "account": acct_name, "account_id": t.account_id,
+                "type": t.txn_type, "amount": float(amt),
+                "description": t.description or "", "source": t.linked_type or "unlinked",
+                "linked_id": t.linked_id, "payment_mode": t.payment_mode or "",
+                "reference": t.reference_number or "",
+                "running_balance": round(running_map.get(t.account_id, 0), 2),
+                "is_unlinked": is_unlinked,
+                "is_voided": True,
+            })
+            continue
+
         prev_bal = running_map.get(t.account_id, 0.0)
         if t.txn_type == "credit":
             new_bal = prev_bal + float(amt)
@@ -2107,7 +2136,6 @@ def reconciliation_ledger(
             total_debits += amt
         running_map[t.account_id] = new_bal
 
-        is_unlinked = not t.linked_type or t.linked_type == "manual"
         if is_unlinked:
             unlinked_count += 1
 
@@ -2120,11 +2148,14 @@ def reconciliation_ledger(
             "reference": t.reference_number or "",
             "running_balance": round(new_bal, 2),
             "is_unlinked": is_unlinked,
+            "is_voided": False,
         })
 
     # Reverse so newest transactions appear first; running_balance per row
     # still represents the balance at that point in chronological time.
     ledger.reverse()
+
+    active_count = len(ledger) - voided_count
 
     return {
         "period": {"from": start.isoformat(), "to": end.isoformat()},
@@ -2135,8 +2166,9 @@ def reconciliation_ledger(
             "total_credits": float(total_credits),
             "total_debits": float(total_debits),
             "net": float(total_credits - total_debits),
-            "transaction_count": len(ledger),
+            "transaction_count": active_count,
             "unlinked_count": unlinked_count,
+            "voided_count": voided_count,
         },
         "ledger": ledger,
     }
