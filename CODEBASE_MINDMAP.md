@@ -2,7 +2,7 @@
 
 > Living index of the entire codebase. Update this file whenever you add, move, rename, or delete anything significant. Treat it as the first thing to read in a new session.
 >
-> **Last updated:** 2026-04-30 (Property Analytics feature added)
+> **Last updated:** 2026-05-02 (Forecast & Liquidity v2 — entity-grouped, persisted overrides, fulfill/skip auto-rollover)
 
 ---
 
@@ -105,6 +105,8 @@ Advanced_Finance_Tracker/
 | `beesi.py` | `Beesi`, `BeesiInstallment`, `BeesiWithdrawal` |
 | `cash_account.py` | `CashAccount`, `AccountTransaction` |
 | `obligation.py` | `MoneyObligation`, `ObligationSettlement` |
+| `property_anomaly.py` | `PropertyAnomaly` |
+| `forecast_override.py` | `ForecastOverride` (per-user, per-item, per-month forecast adjustments) |
 
 ---
 
@@ -125,7 +127,8 @@ Advanced_Finance_Tracker/
 | `categories.py` | `/categories` | CRUD |
 | `category_limits.py` | `/category-limits` | CRUD |
 | `dashboard.py` | `/dashboard` | `GET /summary`, `GET /quick-links` |
-| `analytics.py` | `/analytics` | `/net-worth`, `/expense-trends`, `/money-flow`, `/property` (per-property/plot/partnership money flow + per-partner positions), forecast |
+| `analytics.py` | `/analytics` | `/net-worth`, `/expense-trends`, `/money-flow`, `/property` (per-property/plot/partnership money flow + per-partner positions), legacy `/forecast` and `/smart-forecast` (used by Analytics dashboard mini-card) |
+| `forecast.py` | `/api/forecast` | `GET /` (entity-grouped, supports timeframe presets / custom days / date range / month-end), `POST /overrides`, `POST /overrides/fulfill`, `POST /overrides/clear`, `GET /overrides` |
 | `reports.py` | `/reports` | `GET /{module}/export` (CSV/Excel) |
 | `admin.py` | `/admin` | `POST /mark-legacy`, migration helpers |
 | `chatbot.py` | `/chatbot` | `POST /query` (Gemini-backed) |
@@ -145,12 +148,13 @@ Advanced_Finance_Tracker/
 | `excel_generator.py` | `.xlsx` export for any list endpoint via `openpyxl`. |
 | `pdf_generator.py` | PDF statements (loan, property, partnership) via `reportlab`. |
 | `chatbot_tools.py` | Gemini tool-use definitions for financial queries. |
+| `forecast_engine.py` | Forecast & Liquidity engine — generates cash-flow items (loans / obligations / property / beesi), applies per-user `ForecastOverride` rows scoped to current calendar month, groups by entity, computes totals + daily timeline + liquidity coverage. Period-scoped overrides give "auto-rollover next month" without mutating any source record. |
 
 ---
 
 ## 7. Database Migrations (`backend/alembic/versions/`)
 
-Run in order. The latest is `023_all_tables_raw_sql`.
+Run in order. The latest is `025_forecast_overrides`.
 
 | # | Slug | Purpose |
 |---|------|---------|
@@ -177,6 +181,8 @@ Run in order. The latest is `023_all_tables_raw_sql`.
 | 21 | `021_site_plots_missing_columns` | Supabase column fix |
 | 22 | `022_site_plots_raw_sql` | Raw SQL (PgBouncer compat) |
 | 23 | `023_all_tables_raw_sql` | Comprehensive idempotent column fix |
+| 24 | `024_property_anomalies` | Property-anomaly tracker table |
+| 25 | `025_forecast_overrides` | `forecast_overrides` — per-user/item/month toggle + amount + fulfilled status |
 
 ---
 
@@ -210,7 +216,7 @@ Run in order. The latest is `023_all_tables_raw_sql`.
 | Accounts | `AccountList`, `AccountForm`, `AccountDetail` | `/accounts[...]` |
 | Expenses | `ExpenseList` | `/expenses` |
 | Obligations | `ObligationList` | `/obligations` |
-| Analytics | `ExpenseAnalytics`, `Forecast`, `NetWorth`, `Reconciliation`, `PropertyAnalytics` | `/expense-analytics`, `/forecast`, `/net-worth`, `/reconciliation`, `/analytics/property` |
+| Analytics | `ExpenseAnalytics`, `Forecast` (entity-grouped + persisted overrides), `NetWorth`, `Reconciliation`, `PropertyAnalytics` | `/expense-analytics`, `/forecast`, `/net-worth`, `/reconciliation`, `/analytics/property` |
 | Reports | `Reports` | `/reports` |
 | Admin | `AdminMigration` | `/admin/migration` |
 
@@ -276,6 +282,7 @@ Run in order. The latest is `023_all_tables_raw_sql`.
 
 ## 13. Recent Notable Commits
 
+- **Forecast & Liquidity v2** (2026-05-02) — new `/api/forecast` router + `forecast_engine` service + `forecast_overrides` table (migration 025). Replaces the old [Forecast.jsx](frontend/src/pages/Analytics/Forecast.jsx) — items now grouped by entity (contact/property/beesi/institution), accordion-expanded; per-item include toggle, amount-override input, "Mark fulfilled" capture; sticky scorecard (Projected Inflows / Required Outflows / Net Liquidity); timeframe presets 15/30/60/90 + custom days + custom date range + "until month end". Overrides persist scoped to current `YYYY-MM` so they auto-clear at month boundaries — items not actually settled reappear next month as overdue, no manual rollover. Old `/api/analytics/forecast` and `/api/analytics/smart-forecast` remain in place for the Analytics dashboard mini-card.
 - **Property Analytics page** — `GET /api/analytics/property` + `/analytics/property` route. Six money-flow buckets (to-receive/to-pay/already-in/already-out/projected gross+net), per-partner money positions (contributed, received, currently holding, projected share, final settlement) with self highlighted, plain-English summary sentence, multi-scope picker (properties / partnerships / site plots / "Everything Combined"), transaction timeline. Read-only, no migration.
 - `b927443` — Replace "Profit Received" with "Partner Transfer" for internal partnership tracking.
 - `8cbbf1c` — Delete buttons for site_plots and plot_buyers.

@@ -12,6 +12,7 @@ from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.obligation import MoneyObligation, ObligationSettlement
 from app.models.property_anomaly import PropertyAnomaly
+from app.models.forecast_override import ForecastOverride
 
 __all__ = [
     "User",
@@ -37,4 +38,5 @@ __all__ = [
     "MoneyObligation",
     "ObligationSettlement",
     "PropertyAnomaly",
+    "ForecastOverride",
 ]

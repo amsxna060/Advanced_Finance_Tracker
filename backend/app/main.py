@@ -17,7 +17,7 @@ import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Propert
 
 # Import routers
 from app.routers import auth, contacts, loans, collateral, property_deals, partnerships, expenses, dashboard, reports
-from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot
+from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot, forecast
 
 # Rate limiter — keyed by remote IP
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
@@ -59,6 +59,7 @@ app.include_router(category_limits.router)
 app.include_router(categories.router)
 app.include_router(admin.router)
 app.include_router(chatbot.router)
+app.include_router(forecast.router)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
