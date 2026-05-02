@@ -9,7 +9,8 @@
       "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/Analytics/PropertyAnalytics.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);console.log\\('OK'\\)\")",
       "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/Analytics/PropertyAnalytics.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);console.log\\('PropertyAnalytics OK'\\)\")",
       "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/App.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/components/Layout.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\);console.log\\('App+Layout OK'\\)\")",
-      "Bash(python3 -m py_compile app/routers/analytics.py app/services/forecast_engine.py app/routers/forecast.py app/models/forecast_override.py)"
+      "Bash(python3 -m py_compile app/routers/analytics.py app/services/forecast_engine.py app/routers/forecast.py app/models/forecast_override.py)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
