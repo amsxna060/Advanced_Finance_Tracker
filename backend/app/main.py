@@ -69,6 +69,39 @@ app.include_router(recurring_router.router)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def _ensure_v026_schema(conn):
+    """
+    Safety net: apply migration-026 DDL directly if Alembic missed it.
+    All statements are idempotent — safe to run even when already applied.
+    """
+    stmts = [
+        "DO $$ BEGIN CREATE TYPE recurring_type_enum AS ENUM ('inflow','outflow'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE recurring_frequency_enum AS ENUM ('weekly','monthly','yearly'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        "DO $$ BEGIN CREATE TYPE loan_priority_enum AS ENUM ('high','medium','low'); EXCEPTION WHEN duplicate_object THEN null; END $$",
+        """CREATE TABLE IF NOT EXISTS recurring_transactions (
+            id SERIAL PRIMARY KEY,
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            title VARCHAR(255) NOT NULL,
+            type recurring_type_enum NOT NULL,
+            amount NUMERIC(15,2) NOT NULL,
+            frequency recurring_frequency_enum NOT NULL,
+            next_due_date DATE NOT NULL,
+            account_id INTEGER REFERENCES cash_accounts(id),
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_recurring_transactions_created_by ON recurring_transactions (created_by)",
+        "CREATE INDEX IF NOT EXISTS ix_recurring_transactions_next_due_date ON recurring_transactions (next_due_date)",
+        "DO $$ BEGIN ALTER TABLE loans ADD COLUMN priority loan_priority_enum DEFAULT 'medium'; EXCEPTION WHEN duplicate_column THEN null; END $$",
+    ]
+    for stmt in stmts:
+        try:
+            conn.execute(stmt)
+        except Exception as e:
+            print(f"⚠️  _ensure_v026_schema: {e}")
+
+
 @app.on_event("shutdown")
 def shutdown():
     stop_scheduler()
@@ -89,6 +122,15 @@ def startup():
     else:
         print("❌ Could not connect to database after 10 attempts")
         return
+
+    # Apply migration-026 schema directly (idempotent safety net)
+    try:
+        with engine.connect() as conn:
+            _ensure_v026_schema(conn)
+            conn.commit()
+        print("✅ v026 schema verified (recurring_transactions + loans.priority)")
+    except Exception as e:
+        print(f"⚠️  v026 schema safety-net failed: {e}")
 
     # Seed admin user if no users exist
     db = next(get_db())

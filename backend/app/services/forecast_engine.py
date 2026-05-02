@@ -561,45 +561,48 @@ def _recurring_items(
     items: List[dict] = []
     today = date.today()
 
-    query = db.query(RecurringTransaction).filter(
-        RecurringTransaction.created_by == user_id,
-        RecurringTransaction.is_active == True,
-        RecurringTransaction.next_due_date >= from_dt,
-        RecurringTransaction.next_due_date < to_dt,
-    )
-    if account_ids:
-        # Include items tied to selected accounts OR with no account
-        query = query.filter(
-            (RecurringTransaction.account_id == None) |
-            (RecurringTransaction.account_id.in_(account_ids))
+    try:
+        query = db.query(RecurringTransaction).filter(
+            RecurringTransaction.created_by == user_id,
+            RecurringTransaction.is_active == True,
+            RecurringTransaction.next_due_date >= from_dt,
+            RecurringTransaction.next_due_date < to_dt,
         )
-
-    for rt in query.all():
-        direction = "inflow" if rt.type.value == "inflow" else "outflow"
-        is_overdue = rt.next_due_date < today
-        prefix = "recurring_in" if direction == "inflow" else "recurring_out"
-        items.append({
-            "id": f"{prefix}:{rt.id}",
-            "kind": "recurring",
-            "direction": direction,
-            "entity_key": f"recurring:{rt.id}",
-            "entity_name": rt.title,
-            "entity_type": "recurring",
-            "entity_url": None,
-            "linked_id": rt.id,
-            "linked_url": None,
-            "label": f"{rt.title} ({rt.frequency.value})",
-            "amount": float(_D(rt.amount)),
-            "due_date": rt.next_due_date.isoformat(),
-            "is_overdue": is_overdue,
-            "confidence": "high",
-            "period_key": rt.next_due_date.strftime("%Y-%m"),
-            "principal_amount": None,
-            "remaining_principal": None,
-            "loan_priority": None,
-            "is_recurring": True,
-            "frequency": rt.frequency.value,
-        })
+        if account_ids:
+            query = query.filter(
+                (RecurringTransaction.account_id == None) |
+                (RecurringTransaction.account_id.in_(account_ids))
+            )
+        for rt in query.all():
+            direction = "inflow" if rt.type.value == "inflow" else "outflow"
+            is_overdue = rt.next_due_date < today
+            prefix = "recurring_in" if direction == "inflow" else "recurring_out"
+            items.append({
+                "id": f"{prefix}:{rt.id}",
+                "kind": "recurring",
+                "direction": direction,
+                "entity_key": f"recurring:{rt.id}",
+                "entity_name": rt.title,
+                "entity_type": "recurring",
+                "entity_url": None,
+                "linked_id": rt.id,
+                "linked_url": None,
+                "label": f"{rt.title} ({rt.frequency.value})",
+                "amount": float(_D(rt.amount)),
+                "due_date": rt.next_due_date.isoformat(),
+                "is_overdue": is_overdue,
+                "confidence": "high",
+                "period_key": rt.next_due_date.strftime("%Y-%m"),
+                "principal_amount": None,
+                "remaining_principal": None,
+                "loan_priority": None,
+                "is_recurring": True,
+                "frequency": rt.frequency.value,
+            })
+    except Exception as exc:
+        # Table may not yet exist during migration window — degrade gracefully
+        print(f"[forecast] recurring_items skipped: {exc}")
+        db.rollback()
     return items
 
 
