@@ -2559,6 +2559,15 @@ def _empty_buckets():
         "total_buyer_value": 0.0,
         "broker_commission": 0.0,
         "other_expenses": 0.0,
+        # Area metrics
+        "total_land_area": 0.0,
+        "sold_area": 0.0,
+        "remaining_area": 0.0,
+        # Capital metrics
+        "partner_advances": 0.0,
+        # Set in _compute_property_buckets when applicable
+        "registered_buyer_value": 0.0,
+        "is_partial_projection": False,
     }
 
 
@@ -2616,6 +2625,7 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
         .filter(SitePlot.property_deal_id == deal.id)
         .all()
     )
+    sold_area = 0.0
     if plot_buyers or site_plots:
         outstanding_buyers = 0.0
         registered_buyer_value = 0.0
@@ -2624,15 +2634,16 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
             paid = float(_D(pb.total_paid))
             outstanding_buyers += max(0.0, tv - paid)
             registered_buyer_value += tv
+            sold_area += float(_D(pb.area_sqft))
         for sp in site_plots:
             tv = float(_D(sp.calculated_price))
             paid = float(_D(sp.total_paid))
             outstanding_buyers += max(0.0, tv - paid)
             registered_buyer_value += tv
+            # A site_plot only counts as "sold" when it has a buyer assigned
+            if sp.buyer_contact_id or (sp.buyer_name and sp.buyer_name.strip()):
+                sold_area += float(_D(sp.area_sqft))
         b["to_receive_from_buyers"] = round(outstanding_buyers, 2)
-        # For projection use deal.total_buyer_value when the user has set it higher than
-        # the sum of registered buyers (i.e. they know the full expected sale value).
-        # Otherwise fall back to the sum of registered buyers.
         effective_buyer_value = max(buyer_value, registered_buyer_value)
         b["registered_buyer_value"] = round(registered_buyer_value, 2)
         b["is_partial_projection"] = registered_buyer_value < (seller_value * 0.95)
@@ -2641,6 +2652,11 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
         effective_buyer_value = buyer_value
         b["registered_buyer_value"] = round(buyer_value, 2)
         b["is_partial_projection"] = False
+
+    total_land_area = float(_D(deal.total_area_sqft))
+    b["total_land_area"] = round(total_land_area, 2)
+    b["sold_area"] = round(min(sold_area, total_land_area) if total_land_area else sold_area, 2)
+    b["remaining_area"] = round(max(0.0, total_land_area - sold_area), 2)
 
     b["to_pay_to_seller"] = round(max(0.0, seller_value - paid_to_seller), 2)
     b["already_paid_out"] = round(paid_out, 2)
@@ -2779,6 +2795,146 @@ def _compute_partnership_member_breakdown(
     return breakdown
 
 
+def _txns_for_buyer(deal_id: int, plot_buyer_id: Optional[int], site_plot_id: Optional[int],
+                    db: Session, member_map: dict) -> List[dict]:
+    """Return chronological transactions tied to a specific buyer (plot_buyer or site_plot)."""
+    rows = []
+    if plot_buyer_id:
+        for t in (
+            db.query(PropertyTransaction)
+            .filter(
+                PropertyTransaction.property_deal_id == deal_id,
+                PropertyTransaction.plot_buyer_id == plot_buyer_id,
+            )
+            .all()
+        ):
+            rows.append({
+                "date": t.txn_date.isoformat() if t.txn_date else None,
+                "type": t.txn_type,
+                "amount": float(_D(t.amount)),
+                "description": t.description,
+                "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
+                "payment_mode": t.payment_mode,
+            })
+        for t in (
+            db.query(PartnershipTransaction)
+            .filter(PartnershipTransaction.plot_buyer_id == plot_buyer_id)
+            .all()
+        ):
+            rows.append({
+                "date": t.txn_date.isoformat() if t.txn_date else None,
+                "type": t.txn_type,
+                "amount": float(_D(t.amount)),
+                "description": t.description,
+                "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
+                "from_member": member_map.get(t.member_id) if t.member_id else None,
+                "payment_mode": t.payment_mode,
+            })
+    if site_plot_id:
+        for t in (
+            db.query(PartnershipTransaction)
+            .filter(PartnershipTransaction.site_plot_id == site_plot_id)
+            .all()
+        ):
+            rows.append({
+                "date": t.txn_date.isoformat() if t.txn_date else None,
+                "type": t.txn_type,
+                "amount": float(_D(t.amount)),
+                "description": t.description,
+                "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
+                "from_member": member_map.get(t.member_id) if t.member_id else None,
+                "payment_mode": t.payment_mode,
+            })
+    rows.sort(key=lambda r: r["date"] or "", reverse=True)
+    return rows
+
+
+def _events_for_member(member_id: int, partnership_id: int, deal_id: Optional[int],
+                       db: Session, member_map: dict) -> List[dict]:
+    """
+    Build a member-centric event log:
+      - Advances given (advance_to_seller / remaining_to_seller / etc by them)
+      - Buyer payments they received
+      - Partner transfers in/out
+      - Property-level inflows credited to them
+    """
+    events = []
+    p_txns = (
+        db.query(PartnershipTransaction)
+        .filter(PartnershipTransaction.partnership_id == partnership_id)
+        .filter(
+            (PartnershipTransaction.member_id == member_id)
+            | (PartnershipTransaction.received_by_member_id == member_id)
+        )
+        .all()
+    )
+    for t in p_txns:
+        ty = t.txn_type or ""
+        amt = float(_D(t.amount))
+        is_payer = (t.member_id == member_id)
+        is_receiver = (t.received_by_member_id == member_id)
+
+        if ty in ("advance_to_seller", "remaining_to_seller", "advance_given") and is_payer:
+            kind, direction = "paid_to_seller", "out"
+        elif ty in ("broker_commission", "broker_paid") and is_payer:
+            kind, direction = "paid_broker", "out"
+        elif ty in ("expense", "other_expense") and is_payer:
+            kind, direction = "paid_expense", "out"
+        elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received") and (is_receiver or is_payer):
+            kind, direction = "received_from_buyer", "in"
+        elif ty == "partner_transfer" and is_receiver:
+            kind, direction = "transfer_in", "in"
+        elif ty == "partner_transfer" and is_payer:
+            kind, direction = "transfer_out", "out"
+        elif ty == "invested" and is_payer:
+            kind, direction = "advance_given", "out"
+        else:
+            continue
+
+        if is_payer and t.received_by_member_id:
+            counterparty = member_map.get(t.received_by_member_id)
+        elif is_receiver and t.member_id:
+            counterparty = member_map.get(t.member_id)
+        else:
+            counterparty = None
+
+        events.append({
+            "date": t.txn_date.isoformat() if t.txn_date else None,
+            "kind": kind,
+            "type": ty,
+            "amount": amt,
+            "direction": direction,
+            "description": t.description,
+            "counterparty": counterparty,
+            "payment_mode": t.payment_mode,
+        })
+
+    if deal_id:
+        for t in (
+            db.query(PropertyTransaction)
+            .filter(
+                PropertyTransaction.property_deal_id == deal_id,
+                PropertyTransaction.received_by_member_id == member_id,
+            )
+            .all()
+        ):
+            ty = t.txn_type or ""
+            if ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
+                events.append({
+                    "date": t.txn_date.isoformat() if t.txn_date else None,
+                    "kind": "received_from_buyer",
+                    "type": ty,
+                    "amount": float(_D(t.amount)),
+                    "direction": "in",
+                    "description": t.description,
+                    "counterparty": None,
+                    "payment_mode": t.payment_mode,
+                })
+
+    events.sort(key=lambda r: r["date"] or "", reverse=True)
+    return events
+
+
 def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, member_map: dict, source_label: str = "") -> List[dict]:
     rows = []
     for t in db.query(PropertyTransaction).filter(PropertyTransaction.property_deal_id == deal_id).all():
@@ -2871,27 +3027,34 @@ def property_analytics(
             )
             .all()
         )
-        members_breakdown = []
         member_map = {}
+        partner_advances_total = 0.0
+        # Track member context (which partnership each member belongs to) so we can
+        # build their events later.
+        member_context = []  # [(member_id, partnership_id)]
+        for lp in linked_partnerships:
+            for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == lp.id).all():
+                member_map[m.id] = _member_label(m, contact_map)
+                partner_advances_total += float(_D(m.advance_contributed))
+                member_context.append((m.id, lp.id))
+            already_processed_partnership_ids.add(lp.id)
+
+        members_breakdown = []
         for lp in linked_partnerships:
             for row in _compute_partnership_member_breakdown(
                 lp, db, contact_map, projected_net_profit=buckets["projected_net_profit"]
             ):
                 row["partnership_id"] = lp.id
                 row["partnership_title"] = lp.title
+                # Attach this member's personal event log
+                row["events"] = _events_for_member(
+                    row["member_id"], lp.id, deal.id, db, member_map
+                )
                 members_breakdown.append(row)
-            for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == lp.id).all():
-                member_map[m.id] = _member_label(m, contact_map)
-            already_processed_partnership_ids.add(lp.id)
 
-        # Include both property-level AND linked-partnership transactions in the timeline
-        # so the full money history is visible in one place.
-        timeline = _build_timeline_for_property(deal.id, db, contact_map, member_map, source_label=deal.title or "")
-        for lp in linked_partnerships:
-            timeline += _build_timeline_for_partnership(lp.id, db, member_map, source_label=lp.title or deal.title or "")
-        timeline.sort(key=lambda r: r["date"] or "", reverse=True)
+        buckets["partner_advances"] = round(partner_advances_total, 2)
 
-        # Plot-buyer summaries
+        # Plot-buyer summaries with per-buyer transactions attached
         plot_buyers = db.query(PlotBuyer).filter(PlotBuyer.property_deal_id == deal.id).all()
         site_plots = db.query(SitePlot).filter(SitePlot.property_deal_id == deal.id).all()
         buyer_rows = []
@@ -2902,10 +3065,13 @@ def property_analytics(
                 "kind": "plot_buyer",
                 "id": pb.id,
                 "name": (contact_map.get(pb.buyer_contact_id).name if pb.buyer_contact_id and contact_map.get(pb.buyer_contact_id) else pb.buyer_name) or "Unknown",
+                "area_sqft": round(float(_D(pb.area_sqft)), 2),
+                "rate_per_sqft": round(float(_D(pb.rate_per_sqft)), 3),
                 "total_value": round(tv, 2),
                 "paid": round(paid, 2),
                 "outstanding": round(max(0.0, tv - paid), 2),
                 "status": pb.status,
+                "transactions": _txns_for_buyer(deal.id, pb.id, None, db, member_map),
             })
         for sp in site_plots:
             tv = float(_D(sp.calculated_price))
@@ -2914,10 +3080,13 @@ def property_analytics(
                 "kind": "site_plot",
                 "id": sp.id,
                 "name": (contact_map.get(sp.buyer_contact_id).name if sp.buyer_contact_id and contact_map.get(sp.buyer_contact_id) else sp.buyer_name) or f"Plot {sp.plot_number}",
+                "area_sqft": round(float(_D(sp.area_sqft)), 2),
+                "rate_per_sqft": round(float(_D(sp.sold_price_per_sqft)), 3),
                 "total_value": round(tv, 2),
                 "paid": round(paid, 2),
                 "outstanding": round(max(0.0, tv - paid), 2),
                 "status": sp.status,
+                "transactions": _txns_for_buyer(deal.id, None, sp.id, db, member_map),
             })
 
         seller_name = contact_map.get(deal.seller_contact_id).name if deal.seller_contact_id and contact_map.get(deal.seller_contact_id) else None
@@ -2932,7 +3101,6 @@ def property_analytics(
             "buckets": buckets,
             "buyers": buyer_rows,
             "members": members_breakdown,
-            "timeline": timeline,
             "linked_partnership_ids": [lp.id for lp in linked_partnerships],
         })
 
@@ -3020,16 +3188,18 @@ def property_analytics(
             buckets["projected_gross_profit"] = round(buckets["total_buyer_value"] - buckets["total_seller_value"], 2)
             buckets["projected_net_profit"] = buckets["projected_gross_profit"]
 
+        partner_advances_total = 0.0
+        for m in db.query(PartnershipMember).filter(PartnershipMember.partnership_id == p.id).all():
+            partner_advances_total += float(_D(m.advance_contributed))
+        buckets["partner_advances"] = round(partner_advances_total, 2)
+
         members_breakdown = _compute_partnership_member_breakdown(
             p, db, contact_map, projected_net_profit=buckets["projected_net_profit"]
         )
-
-        timeline = _build_timeline_for_partnership(p.id, db, member_map, source_label=p.title or "")
-        # Pull property transactions of the linked deal too — they're material to the partnership view
-        if p.linked_property_deal_id:
-            prop_label = deal.title if p.linked_property_deal_id and deal else p.title or ""
-            timeline += _build_timeline_for_property(p.linked_property_deal_id, db, contact_map, member_map, source_label=prop_label)
-        timeline.sort(key=lambda r: r["date"] or "", reverse=True)
+        for row in members_breakdown:
+            row["events"] = _events_for_member(
+                row["member_id"], p.id, p.linked_property_deal_id, db, member_map
+            )
 
         blocks.append({
             "kind": "partnership",
@@ -3040,15 +3210,18 @@ def property_analytics(
             "linked_property_deal_id": p.linked_property_deal_id,
             "buckets": buckets,
             "members": members_breakdown,
-            "timeline": timeline,
             "buyers": [],
         })
 
     # ── COMBINED aggregate across blocks ────────────────────────────────────
     combined_buckets = _empty_buckets()
     for blk in blocks:
-        for k in combined_buckets:
-            combined_buckets[k] = round(combined_buckets[k] + blk["buckets"].get(k, 0.0), 2)
+        for k, v in combined_buckets.items():
+            blk_v = blk["buckets"].get(k, 0.0)
+            if isinstance(v, bool) or isinstance(blk_v, bool):
+                combined_buckets[k] = bool(v) or bool(blk_v)
+            else:
+                combined_buckets[k] = round(v + (blk_v or 0.0), 2)
 
     # Combine member positions across all blocks by (name, is_self).
     combined_members = {}
@@ -3082,19 +3255,6 @@ def property_analytics(
         for v in combined_members.values()
     ]
     combined_members_list.sort(key=lambda r: (not r["is_self"], -r.get("collected_from_buyers", 0)))
-
-    # Combined timeline — merge all block timelines sorted newest-first
-    combined_timeline = []
-    seen_txn_keys: set = set()
-    for blk in blocks:
-        for row in blk.get("timeline", []):
-            # Deduplicate: property block and partnership block may both include the same txn
-            # Use (scope, source_label, date, type, amount) as a dedup key
-            key = (row.get("scope"), row.get("source_label"), row.get("date"), row.get("type"), row.get("amount"))
-            if key not in seen_txn_keys:
-                seen_txn_keys.add(key)
-                combined_timeline.append(row)
-    combined_timeline.sort(key=lambda r: r["date"] or "", reverse=True)
 
     # Plain-English sentence for the page header
     summary_sentence = _build_summary_sentence(combined_buckets, combined_members_list)
@@ -3131,7 +3291,6 @@ def property_analytics(
         "combined": {
             "buckets": combined_buckets,
             "members": combined_members_list,
-            "timeline": combined_timeline,
         },
         "blocks": blocks,
         "options": options,

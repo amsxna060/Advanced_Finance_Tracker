@@ -4,12 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 
-const STATUS_LABELS = {
-  holding_pot_money: { text: "Holding pot money", cls: "bg-amber-100 text-amber-800 border-amber-200" },
-  pot_owes_them: { text: "Pot owes them", cls: "bg-blue-100 text-blue-800 border-blue-200" },
-  ahead_of_share: { text: "Ahead of share", cls: "bg-purple-100 text-purple-800 border-purple-200" },
-  balanced: { text: "Balanced", cls: "bg-emerald-100 text-emerald-800 border-emerald-200" },
-};
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const TXN_LABELS = {
   advance_to_seller: "Advance → Seller",
@@ -33,266 +28,463 @@ const TXN_LABELS = {
   profit_distributed: "Profit Distributed",
 };
 
+const EVENT_LABELS = {
+  advance_given: "Gave Advance",
+  paid_to_seller: "Paid to Seller",
+  paid_broker: "Paid Broker",
+  paid_expense: "Paid Expense",
+  received_from_buyer: "Received from Buyer",
+  transfer_in: "Received from Partner",
+  transfer_out: "Sent to Partner",
+};
+
+const EVENT_COLORS = {
+  advance_given: { dot: "bg-purple-500", text: "text-purple-700" },
+  paid_to_seller: { dot: "bg-rose-500", text: "text-rose-700" },
+  paid_broker: { dot: "bg-orange-500", text: "text-orange-700" },
+  paid_expense: { dot: "bg-orange-500", text: "text-orange-700" },
+  received_from_buyer: { dot: "bg-emerald-500", text: "text-emerald-700" },
+  transfer_in: { dot: "bg-blue-500", text: "text-blue-700" },
+  transfer_out: { dot: "bg-violet-500", text: "text-violet-700" },
+};
+
 function txnLabel(t) {
   return TXN_LABELS[t] || (t || "Other").replace(/_/g, " ");
 }
 
-function buildScopeQuery({ propertyIds, sitePlotIds, partnershipIds, allMode }) {
+function buildScopeQuery({ propertyIds, allMode }) {
   const params = new URLSearchParams();
-  if (allMode && !propertyIds.length && !sitePlotIds.length && !partnershipIds.length) {
+  if (allMode && !propertyIds.length) {
     params.append("scope", "all");
   } else {
     propertyIds.forEach((id) => params.append("property_ids", id));
-    sitePlotIds.forEach((id) => params.append("site_plot_ids", id));
-    partnershipIds.forEach((id) => params.append("partnership_ids", id));
   }
   return params.toString();
 }
 
-function MoneyCard({ title, amount, sub, color, icon, hint }) {
+function formatArea(sqft) {
+  if (!sqft && sqft !== 0) return "—";
+  return `${new Intl.NumberFormat("en-IN").format(Math.round(sqft))} sqft`;
+}
+
+// ── Summary cards ────────────────────────────────────────────────────────────
+
+function SummaryCard({ title, value, sub, color, icon }) {
   return (
-    <div className={`rounded-xl border ${color.border} ${color.bg} p-5 shadow-sm`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className={`text-xs font-semibold uppercase tracking-wider ${color.label}`}>
+    <div className={`rounded-xl border ${color.border} ${color.bg} p-4 shadow-sm`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className={`text-[11px] font-semibold uppercase tracking-wider ${color.label}`}>
           {title}
         </span>
-        <span className="text-2xl">{icon}</span>
+        <span className="text-xl">{icon}</span>
       </div>
-      <div className={`text-2xl font-bold ${color.amount}`}>{formatCurrency(amount)}</div>
-      {sub && <div className="text-xs text-slate-600 mt-1">{sub}</div>}
-      {hint && <div className="text-[11px] text-slate-500 mt-2 italic">{hint}</div>}
+      <div className={`text-xl font-bold ${color.amount}`}>{value}</div>
+      {sub && <div className="text-[11px] text-slate-500 mt-1">{sub}</div>}
     </div>
   );
 }
 
-function BucketCards({ buckets }) {
-  const cards = [
-    {
-      title: "To Receive From Buyers",
-      amount: buckets.to_receive_from_buyers,
-      icon: "📥",
-      color: { border: "border-emerald-200", bg: "bg-emerald-50", label: "text-emerald-700", amount: "text-emerald-900" },
-      hint: "Money buyers still owe us",
-    },
-    {
-      title: "To Pay To Seller",
-      amount: buckets.to_pay_to_seller,
-      icon: "📤",
-      color: { border: "border-rose-200", bg: "bg-rose-50", label: "text-rose-700", amount: "text-rose-900" },
-      hint: "What we still owe the seller",
-    },
-    {
-      title: "Already Received",
-      amount: buckets.already_received,
-      icon: "✅",
-      color: { border: "border-green-200", bg: "bg-green-50", label: "text-green-700", amount: "text-green-900" },
-      hint: "Money in so far",
-    },
-    {
-      title: "Already Paid Out",
-      amount: buckets.already_paid_out,
-      icon: "💸",
-      color: { border: "border-orange-200", bg: "bg-orange-50", label: "text-orange-700", amount: "text-orange-900" },
-      hint: "Money out so far",
-    },
-  ];
+function AreaMetricsGroup({ buckets }) {
+  const total = buckets.total_land_area || 0;
+  const sold = buckets.sold_area || 0;
+  const remaining = buckets.remaining_area || 0;
+  const pct = total > 0 ? Math.min(100, (sold / total) * 100) : 0;
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {cards.map((c) => (
-        <MoneyCard key={c.title} {...c} />
-      ))}
-    </div>
-  );
-}
-
-function MembersTable({ members, showPartnership }) {
-  if (!members || members.length === 0) {
-    return (
-      <div className="text-sm text-slate-500 italic p-4 bg-slate-50 rounded-lg border border-slate-200">
-        No partners on this scope.
+    <div>
+      <div className="flex items-baseline justify-between mb-2 px-1">
+        <h3 className="text-sm font-semibold text-slate-700">📐 Area</h3>
+        <span className="text-xs text-slate-500">{pct.toFixed(0)}% sold</span>
       </div>
-    );
-  }
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-slate-600">
-          <tr>
-            <th className="text-left px-3 py-2 font-semibold">Partner</th>
-            {showPartnership && <th className="text-left px-3 py-2 font-semibold">Partnership</th>}
-            <th className="text-right px-3 py-2 font-semibold" title="Their declared investment share">Share %</th>
-            <th className="text-right px-3 py-2 font-semibold" title="Advance they put in as their investment share">Invested</th>
-            <th className="text-right px-3 py-2 font-semibold" title="Buyer payments received by them (pot money, not their own)">Collected from Buyers</th>
-            <th className="text-right px-3 py-2 font-semibold" title="Payments made to seller or expenses">Paid Out</th>
-            <th className="text-right px-3 py-2 font-semibold" title="Collected minus Paid Out — pot money still with them">Net Holding</th>
-            <th className="text-left px-3 py-2 font-semibold" title="Partner Transfer flows (↓ received, ↑ sent)">Transfers</th>
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((m, idx) => {
-            const invested = m.own_invested ?? m.advance_contributed ?? m.contributed ?? 0;
-            const collected = m.collected_from_buyers ?? m.collected_for_pot ?? 0;
-            const paidOut = m.all_paid_out ?? m.paid_for_pot ?? 0;
-            const netH = m.net_holding ?? m.currently_holding ?? 0;
-            const tIn = m.transferred_in ?? 0;
-            const tOut = m.transferred_out ?? 0;
-            return (
-              <tr
-                key={`${m.member_id || m.name}-${idx}`}
-                className={`border-t border-slate-100 ${m.is_self ? "bg-blue-50/40" : ""}`}
-              >
-                <td className="px-3 py-2 font-medium text-slate-800">
-                  {m.name}
-                  {m.is_self && (
-                    <span className="ml-2 inline-flex text-[10px] font-semibold bg-blue-600 text-white px-1.5 py-0.5 rounded">YOU</span>
-                  )}
-                </td>
-                {showPartnership && (
-                  <td className="px-3 py-2 text-slate-600">{m.partnership_title || "—"}</td>
-                )}
-                <td className="px-3 py-2 text-right text-slate-700">
-                  {m.share_percentage > 0 ? `${m.share_percentage}%` : "—"}
-                </td>
-                <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(invested)}</td>
-                <td className="px-3 py-2 text-right font-medium text-emerald-700">{formatCurrency(collected)}</td>
-                <td className="px-3 py-2 text-right text-rose-700">{formatCurrency(paidOut)}</td>
-                <td className={`px-3 py-2 text-right font-semibold ${netH > 0.5 ? "text-amber-700" : netH < -0.5 ? "text-blue-700" : "text-slate-400"}`}>
-                  {netH > 0.5 ? `+${formatCurrency(netH)}` : netH < -0.5 ? formatCurrency(netH) : "—"}
-                  {netH < -0.5 && <div className="text-[9px] font-normal text-blue-500 mt-0.5">pot owes them</div>}
-                </td>
-                <td className="px-3 py-2">
-                  {(tIn > 0 || tOut > 0) ? (
-                    <div className="text-xs space-y-0.5">
-                      {tIn > 0 && <div className="text-violet-700">↓ {formatCurrency(tIn)}</div>}
-                      {tOut > 0 && <div className="text-violet-400">↑ {formatCurrency(tOut)}</div>}
-                    </div>
-                  ) : <span className="text-slate-300">—</span>}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function BuyersList({ buyers }) {
-  if (!buyers || buyers.length === 0) return null;
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-slate-600">
-          <tr>
-            <th className="text-left px-3 py-2 font-semibold">Buyer</th>
-            <th className="text-right px-3 py-2 font-semibold">Total Value</th>
-            <th className="text-right px-3 py-2 font-semibold">Paid</th>
-            <th className="text-right px-3 py-2 font-semibold">Outstanding</th>
-            <th className="text-left px-3 py-2 font-semibold">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {buyers.map((b) => (
-            <tr key={`${b.kind}-${b.id}`} className="border-t border-slate-100">
-              <td className="px-3 py-2 font-medium text-slate-800">{b.name}</td>
-              <td className="px-3 py-2 text-right">{formatCurrency(b.total_value)}</td>
-              <td className="px-3 py-2 text-right text-emerald-700">{formatCurrency(b.paid)}</td>
-              <td
-                className={`px-3 py-2 text-right font-semibold ${
-                  b.outstanding > 0 ? "text-amber-700" : "text-slate-500"
-                }`}
-              >
-                {formatCurrency(b.outstanding)}
-              </td>
-              <td className="px-3 py-2 text-xs text-slate-600">{b.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Timeline({ rows, showSource = false }) {
-  if (!rows || rows.length === 0) {
-    return (
-      <div className="text-sm text-slate-500 italic p-4 bg-slate-50 rounded-lg border border-slate-200">
-        No transactions recorded yet.
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SummaryCard
+          title="Total Land Area"
+          value={formatArea(total)}
+          icon="🗺️"
+          color={{ border: "border-slate-200", bg: "bg-white", label: "text-slate-600", amount: "text-slate-900" }}
+        />
+        <SummaryCard
+          title="Sold Area"
+          value={formatArea(sold)}
+          sub={total > 0 ? `${pct.toFixed(1)}% of total` : null}
+          icon="✅"
+          color={{ border: "border-emerald-200", bg: "bg-emerald-50", label: "text-emerald-700", amount: "text-emerald-900" }}
+        />
+        <SummaryCard
+          title="Remaining Area"
+          value={formatArea(remaining)}
+          sub={total > 0 ? `${(100 - pct).toFixed(1)}% available` : null}
+          icon="🟨"
+          color={{ border: "border-amber-200", bg: "bg-amber-50", label: "text-amber-700", amount: "text-amber-900" }}
+        />
       </div>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      {rows.slice(0, 100).map((t, idx) => {
-        const isInflow = ["received_from_buyer", "sale_proceeds", "buyer_payment",
-          "buyer_advance", "buyer_payment_received", "profit_received", "received"].includes(t.type);
-        const isTransfer = t.type === "partner_transfer";
-        return (
-          <div
-            key={idx}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-200 bg-white"
-          >
-            <span
-              className={`shrink-0 w-2 h-2 rounded-full ${isTransfer ? "bg-violet-400" : isInflow ? "bg-emerald-500" : "bg-rose-500"}`}
+      {total > 0 && (
+        <div className="mt-3 px-1">
+          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+              style={{ width: `${pct}%` }}
             />
-            <span className="text-xs text-slate-400 w-24 shrink-0">{formatDate(t.date)}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {showSource && t.source_label && (
-                  <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
-                    {t.source_label}
-                  </span>
-                )}
-                <span className="text-sm font-medium text-slate-800 truncate">
-                  {txnLabel(t.type)}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                {t.from_member && (
-                  <span className="text-xs text-slate-500">from {t.from_member}</span>
-                )}
-                {t.received_by && (
-                  <span className="text-xs text-slate-500">→ {t.received_by}</span>
-                )}
-                {t.description && (
-                  <span className="text-xs text-slate-400 italic truncate">{t.description}</span>
-                )}
-                {t.payment_mode && (
-                  <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">{t.payment_mode}</span>
-                )}
-              </div>
-            </div>
-            <span
-              className={`text-sm font-semibold tabular-nums shrink-0 ${
-                isTransfer ? "text-violet-700" : isInflow ? "text-emerald-700" : "text-rose-700"
-              }`}
-            >
-              {isTransfer ? "↕" : isInflow ? "+" : "−"}
-              {formatCurrency(t.amount)}
-            </span>
           </div>
-        );
-      })}
-      {rows.length > 100 && (
-        <div className="text-xs text-slate-500 text-center py-2">
-          Showing latest 100 of {rows.length} transactions
         </div>
       )}
     </div>
   );
 }
 
-function Block({ block }) {
-  const linkTo =
-    block.kind === "property" ? `/properties/${block.id}` :
-    block.kind === "partnership" ? `/partnerships/${block.id}` :
-    block.kind === "site_plot" ? `/properties/${block.property_deal_id}` : null;
+function FinancialMetricsGroup({ buckets }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-slate-700 mb-2 px-1">💰 Money Flow</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <SummaryCard
+          title="Total Received"
+          value={formatCurrency(buckets.already_received)}
+          sub="Already paid by buyers"
+          icon="📥"
+          color={{ border: "border-emerald-200", bg: "bg-emerald-50", label: "text-emerald-700", amount: "text-emerald-900" }}
+        />
+        <SummaryCard
+          title="Total Outstanding"
+          value={formatCurrency(buckets.to_receive_from_buyers)}
+          sub="Buyers still to pay"
+          icon="⏳"
+          color={{ border: "border-amber-200", bg: "bg-amber-50", label: "text-amber-700", amount: "text-amber-900" }}
+        />
+        <SummaryCard
+          title="Partner Advances"
+          value={formatCurrency(buckets.partner_advances)}
+          sub="Capital from partners"
+          icon="🤝"
+          color={{ border: "border-purple-200", bg: "bg-purple-50", label: "text-purple-700", amount: "text-purple-900" }}
+        />
+        <SummaryCard
+          title="Paid to Seller"
+          value={formatCurrency(buckets.already_paid_out)}
+          sub="Sent to seller so far"
+          icon="💸"
+          color={{ border: "border-rose-200", bg: "bg-rose-50", label: "text-rose-700", amount: "text-rose-900" }}
+        />
+        <SummaryCard
+          title="Remaining to Pay Seller"
+          value={formatCurrency(buckets.to_pay_to_seller)}
+          sub="Outstanding to seller"
+          icon="📤"
+          color={{ border: "border-red-200", bg: "bg-red-50", label: "text-red-700", amount: "text-red-900" }}
+        />
+        <SummaryCard
+          title="Projected Net Profit"
+          value={formatCurrency(buckets.projected_net_profit)}
+          sub="After broker + expenses"
+          icon="💎"
+          color={{ border: "border-blue-200", bg: "bg-blue-50", label: "text-blue-700", amount: "text-blue-900" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Buyers (expandable rows) ─────────────────────────────────────────────────
+
+function BuyerRow({ buyer }) {
+  const [open, setOpen] = useState(false);
+  const txns = buyer.transactions || [];
+  const hasTxns = txns.length > 0;
+
+  return (
+    <div className="border-t border-slate-100 first:border-t-0">
+      <button
+        type="button"
+        onClick={() => hasTxns && setOpen((v) => !v)}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${
+          hasTxns ? "hover:bg-slate-50 cursor-pointer" : "cursor-default"
+        }`}
+      >
+        <span
+          className={`shrink-0 w-4 text-slate-400 transition-transform ${open ? "rotate-90" : ""} ${
+            hasTxns ? "" : "opacity-30"
+          }`}
+        >
+          ▶
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-slate-800 truncate">{buyer.name}</div>
+          <div className="text-xs text-slate-500">
+            {formatArea(buyer.area_sqft)}
+            {buyer.rate_per_sqft > 0 && ` @ ₹${buyer.rate_per_sqft}/sqft`}
+            {buyer.status && ` · ${buyer.status}`}
+          </div>
+        </div>
+        <div className="hidden sm:block text-right">
+          <div className="text-xs text-slate-500">Total</div>
+          <div className="font-semibold text-slate-800">{formatCurrency(buyer.total_value)}</div>
+        </div>
+        <div className="hidden md:block text-right">
+          <div className="text-xs text-slate-500">Paid</div>
+          <div className="font-semibold text-emerald-700">{formatCurrency(buyer.paid)}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs text-slate-500">Outstanding</div>
+          <div className={`font-semibold ${buyer.outstanding > 0 ? "text-amber-700" : "text-slate-500"}`}>
+            {formatCurrency(buyer.outstanding)}
+          </div>
+        </div>
+      </button>
+      {open && hasTxns && (
+        <div className="bg-slate-50 px-12 py-3 border-t border-slate-100">
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+            Transactions ({txns.length})
+          </div>
+          <div className="space-y-1.5">
+            {txns.map((t, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm"
+              >
+                <span className="text-xs text-slate-500 w-24 shrink-0">{formatDate(t.date)}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="font-medium text-slate-800">{txnLabel(t.type)}</span>
+                  {t.received_by && (
+                    <span className="text-xs text-slate-500 ml-2">
+                      → received by <span className="font-medium text-slate-700">{t.received_by}</span>
+                    </span>
+                  )}
+                  {t.payment_mode && (
+                    <span className="text-[10px] text-slate-400 ml-2 uppercase">{t.payment_mode}</span>
+                  )}
+                  {t.description && (
+                    <div className="text-xs text-slate-500 italic mt-0.5 truncate">{t.description}</div>
+                  )}
+                </span>
+                <span className="font-semibold text-emerald-700 tabular-nums shrink-0">
+                  +{formatCurrency(t.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuyersAccordion({ buyers }) {
+  if (!buyers || buyers.length === 0) {
+    return (
+      <div className="text-sm text-slate-500 italic p-4 bg-slate-50 rounded-lg border border-slate-200">
+        No buyers registered yet.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      {buyers.map((b) => (
+        <BuyerRow key={`${b.kind}-${b.id}`} buyer={b} />
+      ))}
+    </div>
+  );
+}
+
+// ── Partner cards (with embedded timeline) ───────────────────────────────────
+
+function PartnerEvents({ events }) {
+  if (!events || events.length === 0) {
+    return (
+      <div className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-md border border-slate-200">
+        No events recorded for this partner yet.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      {events.map((e, i) => {
+        const meta = EVENT_COLORS[e.kind] || { dot: "bg-slate-400", text: "text-slate-700" };
+        const label = EVENT_LABELS[e.kind] || e.kind;
+        return (
+          <div
+            key={i}
+            className="flex items-center gap-3 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm"
+          >
+            <span className={`shrink-0 w-2 h-2 rounded-full ${meta.dot}`} />
+            <span className="text-xs text-slate-500 w-24 shrink-0">{formatDate(e.date)}</span>
+            <span className="flex-1 min-w-0">
+              <span className={`font-medium ${meta.text}`}>{label}</span>
+              {e.counterparty && (
+                <span className="text-xs text-slate-500 ml-2">
+                  {e.direction === "in" ? "from" : "to"}{" "}
+                  <span className="font-medium text-slate-700">{e.counterparty}</span>
+                </span>
+              )}
+              {e.description && (
+                <div className="text-xs text-slate-500 italic mt-0.5 truncate">{e.description}</div>
+              )}
+            </span>
+            <span
+              className={`font-semibold tabular-nums shrink-0 ${
+                e.direction === "in" ? "text-emerald-700" : "text-rose-700"
+              }`}
+            >
+              {e.direction === "in" ? "+" : "−"}
+              {formatCurrency(e.amount)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PartnerCard({ member }) {
+  const [open, setOpen] = useState(false);
+  const ownInvested = member.own_invested ?? member.advance_contributed ?? 0;
+  const paidOut = member.all_paid_out ?? member.paid_for_pot ?? 0;
+  const collected = member.collected_from_buyers ?? member.collected_for_pot ?? 0;
+  const transferIn = member.transferred_in ?? 0;
+  const transferOut = member.transferred_out ?? 0;
+  const netHolding = member.net_holding ?? member.currently_holding ?? 0;
+  const projShare = member.projected_share ?? 0;
+  const settlement = member.settlement_balance ?? member.final_settlement ?? 0;
+
+  // Net Outflow = own money out of pocket (advance + amounts paid from own funds)
+  const netOutflow = ownInvested + Math.max(0, paidOut - collected);
+  // Current Holding = net_holding (already accounts for collected - paid_out) + transfers
+  const currentHolding = netHolding + transferIn - transferOut;
+
+  const events = member.events || [];
+
+  return (
+    <div
+      className={`rounded-xl border shadow-sm bg-white overflow-hidden ${
+        member.is_self ? "border-blue-300 ring-1 ring-blue-200" : "border-slate-200"
+      }`}
+    >
+      <div className="px-4 py-3 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-bold text-slate-900 truncate">{member.name}</h4>
+              {member.is_self && (
+                <span className="inline-flex text-[10px] font-semibold bg-blue-600 text-white px-1.5 py-0.5 rounded">
+                  YOU
+                </span>
+              )}
+              {member.share_percentage > 0 && (
+                <span className="text-xs text-slate-500">{member.share_percentage}% share</span>
+              )}
+            </div>
+            {member.partnership_title && (
+              <div className="text-[11px] text-slate-500 mt-0.5 truncate">
+                {member.partnership_title}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px bg-slate-100">
+        <div className="bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+            Net Outflow
+          </div>
+          <div className="text-base font-bold text-rose-900 mt-0.5">
+            {formatCurrency(netOutflow)}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">From their own pocket</div>
+        </div>
+        <div className="bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+            Current Holding
+          </div>
+          <div
+            className={`text-base font-bold mt-0.5 ${
+              currentHolding > 0.5 ? "text-amber-700" : currentHolding < -0.5 ? "text-blue-700" : "text-slate-500"
+            }`}
+          >
+            {formatCurrency(currentHolding)}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            {currentHolding > 0.5 ? "Pot money sitting with them" : currentHolding < -0.5 ? "Pot owes them this" : "Settled"}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px bg-slate-100 border-t border-slate-100">
+        <div className="bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
+            Profit Share
+          </div>
+          <div className="text-sm font-semibold text-indigo-900 mt-0.5">
+            {formatCurrency(projShare)}
+          </div>
+        </div>
+        <div className="bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+            At Settlement
+          </div>
+          <div
+            className={`text-sm font-bold mt-0.5 ${
+              settlement > 0.5 ? "text-emerald-700" : settlement < -0.5 ? "text-rose-700" : "text-slate-500"
+            }`}
+          >
+            {settlement > 0.5
+              ? `+${formatCurrency(settlement)}`
+              : settlement < -0.5
+              ? formatCurrency(settlement)
+              : "—"}
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-4 py-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center justify-center gap-1"
+      >
+        <span className={`transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
+        {open ? "Hide" : "Show"} Timeline ({events.length})
+      </button>
+
+      {open && (
+        <div className="bg-slate-50 px-3 py-3 border-t border-slate-100">
+          <PartnerEvents events={events} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnersGrid({ members }) {
+  if (!members || members.length === 0) {
+    return (
+      <div className="text-sm text-slate-500 italic p-4 bg-slate-50 rounded-lg border border-slate-200">
+        No partners on this property.
+      </div>
+    );
+  }
+  // Self first, then sort by descending share percentage
+  const sorted = [...members].sort((a, b) => {
+    if (a.is_self !== b.is_self) return a.is_self ? -1 : 1;
+    return (b.share_percentage || 0) - (a.share_percentage || 0);
+  });
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {sorted.map((m, i) => (
+        <PartnerCard key={`${m.member_id || m.name}-${i}`} member={m} />
+      ))}
+    </div>
+  );
+}
+
+// ── Block (per-property) ─────────────────────────────────────────────────────
+
+function PropertyBlock({ block }) {
+  const linkTo = `/properties/${block.id}`;
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex items-center justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            {block.kind.replace("_", " ")}
+            Property
             {block.status && (
               <span className="ml-2 px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] normal-case">
                 {block.status}
@@ -304,15 +496,11 @@ function Block({ block }) {
             <div className="text-xs text-slate-500 mt-0.5">Seller: {block.seller_name}</div>
           )}
         </div>
-        {linkTo && (
-          <Link
-            to={linkTo}
-            className="text-sm text-indigo-600 hover:text-indigo-700 font-medium shrink-0"
-          >
-            Open →
-          </Link>
-        )}
+        <Link to={linkTo} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium shrink-0">
+          Open →
+        </Link>
       </div>
+
       <div className="p-6 space-y-6">
         {block.buckets?.is_partial_projection && (
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
@@ -320,59 +508,60 @@ function Block({ block }) {
             <div>
               <strong>Partial projection.</strong> Only{" "}
               {formatCurrency(block.buckets.registered_buyer_value)} of buyer value is registered
-              so far (vs seller cost of {formatCurrency(block.buckets.total_seller_value)}).
-              Add the remaining plot buyers to see the true projected profit.
+              against a seller cost of {formatCurrency(block.buckets.total_seller_value)}. Add
+              remaining plot buyers for accurate profit projection.
             </div>
           </div>
         )}
-        <BucketCards buckets={block.buckets} />
-        {block.buyers && block.buyers.length > 0 && (
-          <div>
-            <h4 className="text-sm font-semibold text-slate-700 mb-2">Buyers</h4>
-            <BuyersList buyers={block.buyers} />
-          </div>
-        )}
-        {block.members && block.members.length > 0 && (
-          <div>
-            <h4 className="text-sm font-semibold text-slate-700 mb-2">Per-Partner Money Position</h4>
-            <MembersTable members={block.members} showPartnership={block.kind === "property"} />
-          </div>
-        )}
-        {block.timeline && (
-          <div>
-            <h4 className="text-sm font-semibold text-slate-700 mb-2">Money Flow Timeline</h4>
-            <Timeline rows={block.timeline} />
-          </div>
-        )}
+
+        <AreaMetricsGroup buckets={block.buckets} />
+        <FinancialMetricsGroup buckets={block.buckets} />
+
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">
+            Buyers ({block.buyers?.length || 0})
+          </h4>
+          <BuyersAccordion buyers={block.buyers} />
+        </div>
+
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">
+            Partners ({block.members?.length || 0})
+          </h4>
+          <PartnersGrid members={block.members} />
+        </div>
       </div>
     </section>
   );
 }
 
-function ScopePicker({ options, selection, setSelection, allMode, setAllMode, onApply, hasPendingChanges, isLoading }) {
-  const toggle = (key, id) => {
+// ── Property filter ──────────────────────────────────────────────────────────
+
+function PropertyFilter({ options, selection, setSelection, allMode, setAllMode }) {
+  const toggle = (id) => {
     setAllMode(false);
     setSelection((prev) => {
-      const set = new Set(prev[key]);
+      const set = new Set(prev.propertyIds);
       if (set.has(id)) set.delete(id);
       else set.add(id);
-      return { ...prev, [key]: Array.from(set) };
+      return { propertyIds: Array.from(set) };
     });
   };
-  const clear = () => {
-    setAllMode(false);
-    setSelection({ propertyIds: [], sitePlotIds: [], partnershipIds: [] });
-  };
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-base font-semibold text-slate-800">Choose what to analyze</h2>
+        <div>
+          <h2 className="text-base font-semibold text-slate-800">Choose Properties</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Selecting a property automatically pulls its plots and partners.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
               setAllMode(true);
-              setSelection({ propertyIds: [], sitePlotIds: [], partnershipIds: [] });
-              onApply("scope=all");
+              setSelection({ propertyIds: [] });
             }}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
               allMode
@@ -380,150 +569,84 @@ function ScopePicker({ options, selection, setSelection, allMode, setAllMode, on
                 : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
             }`}
           >
-            Everything Combined
+            All Properties
           </button>
-          <button
-            onClick={() => onApply()}
-            disabled={!hasPendingChanges || isLoading}
-            className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
-              hasPendingChanges && !isLoading
-                ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
-                : "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-            }`}
-          >
-            {isLoading ? "Loading…" : hasPendingChanges ? "Apply →" : "Applied ✓"}
-          </button>
-          <button
-            onClick={clear}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium border bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
-          >
-            Clear
-          </button>
+          {!allMode && selection.propertyIds.length > 0 && (
+            <button
+              onClick={() => setSelection({ propertyIds: [] })}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium border bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
-      <details className="rounded-lg border border-slate-200 open:bg-slate-50/50" open>
-        <summary className="px-4 py-2 cursor-pointer text-sm font-semibold text-slate-700">
-          Properties ({selection.propertyIds.length} selected)
-        </summary>
-        <div className="px-4 py-3 flex flex-wrap gap-2">
-          {(options?.properties || []).map((p) => {
-            const on = selection.propertyIds.includes(p.id);
-            return (
-              <button
-                key={p.id}
-                onClick={() => toggle("propertyIds", p.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  on
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                {p.title}
-                {p.status && <span className="ml-1 opacity-70">· {p.status}</span>}
-              </button>
-            );
-          })}
-          {!options?.properties?.length && (
-            <span className="text-xs text-slate-500 italic">No properties yet.</span>
-          )}
-        </div>
-      </details>
-
-      <details className="rounded-lg border border-slate-200 open:bg-slate-50/50">
-        <summary className="px-4 py-2 cursor-pointer text-sm font-semibold text-slate-700">
-          Partnerships ({selection.partnershipIds.length} selected)
-        </summary>
-        <div className="px-4 py-3 flex flex-wrap gap-2">
-          {(options?.partnerships || []).map((p) => {
-            const on = selection.partnershipIds.includes(p.id);
-            return (
-              <button
-                key={p.id}
-                onClick={() => toggle("partnershipIds", p.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  on
-                    ? "bg-purple-600 text-white border-purple-600"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                {p.title}
-              </button>
-            );
-          })}
-          {!options?.partnerships?.length && (
-            <span className="text-xs text-slate-500 italic">No partnerships yet.</span>
-          )}
-        </div>
-      </details>
-
-      <details className="rounded-lg border border-slate-200 open:bg-slate-50/50">
-        <summary className="px-4 py-2 cursor-pointer text-sm font-semibold text-slate-700">
-          Site Plots ({selection.sitePlotIds.length} selected)
-        </summary>
-        <div className="px-4 py-3 flex flex-wrap gap-2">
-          {(options?.site_plots || []).map((sp) => {
-            const on = selection.sitePlotIds.includes(sp.id);
-            return (
-              <button
-                key={sp.id}
-                onClick={() => toggle("sitePlotIds", sp.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  on
-                    ? "bg-amber-600 text-white border-amber-600"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                Plot {sp.plot_number || sp.id}
-              </button>
-            );
-          })}
-          {!options?.site_plots?.length && (
-            <span className="text-xs text-slate-500 italic">No site plots yet.</span>
-          )}
-        </div>
-      </details>
+      <div className="flex flex-wrap gap-2">
+        {(options?.properties || []).map((p) => {
+          const on = selection.propertyIds.includes(p.id);
+          return (
+            <button
+              key={p.id}
+              onClick={() => toggle(p.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                on
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              {p.title}
+              {p.status && <span className="ml-1 opacity-70">· {p.status}</span>}
+            </button>
+          );
+        })}
+        {!options?.properties?.length && (
+          <span className="text-xs text-slate-500 italic">No properties yet.</span>
+        )}
+      </div>
     </div>
   );
 }
 
+// ── Combined view (when multiple properties or All) ──────────────────────────
+
+function CombinedSection({ combined, blockCount }) {
+  if (!combined || blockCount < 2) return null;
+  return (
+    <section className="bg-gradient-to-br from-indigo-50 via-white to-purple-50 rounded-2xl border border-indigo-200 shadow-sm">
+      <div className="px-6 py-4 border-b border-indigo-100">
+        <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">
+          Aggregated across {blockCount} properties
+        </div>
+        <h2 className="text-lg font-bold text-slate-900">Combined Money Flow</h2>
+      </div>
+      <div className="p-6 space-y-6">
+        <AreaMetricsGroup buckets={combined.buckets} />
+        <FinancialMetricsGroup buckets={combined.buckets} />
+      </div>
+    </section>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
+
 export default function PropertyAnalytics() {
-  const [allMode, setAllMode] = useState(false);
-  const [selection, setSelection] = useState({
-    propertyIds: [],
-    sitePlotIds: [],
-    partnershipIds: [],
-  });
-  // appliedQuery: null = nothing loaded yet; string = last applied query
-  const [appliedQuery, setAppliedQuery] = useState(null);
+  const [allMode, setAllMode] = useState(true);
+  const [selection, setSelection] = useState({ propertyIds: [] });
 
-  // Lightweight options-only load (no analytics computation) — runs once on mount
-  const { data: optionsMeta } = useQuery({
-    queryKey: ["property-analytics-options"],
-    queryFn: async () => (await api.get("/api/analytics/property")).data,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Full analytics — only fires when user explicitly applies a selection
-  const { data: analyticsData, isLoading, isError, error } = useQuery({
-    queryKey: ["property-analytics", appliedQuery],
-    queryFn: async () => (await api.get(`/api/analytics/property?${appliedQuery}`)).data,
-    enabled: appliedQuery !== null,
-    keepPreviousData: true,
-  });
-
-  const options = analyticsData?.options || optionsMeta?.options || {};
-  const blocks = analyticsData?.blocks || [];
-  const combined = analyticsData?.combined;
-  const showCombined = blocks.length > 1 || allMode;
-
-  const pendingQuery = useMemo(
+  const queryString = useMemo(
     () => buildScopeQuery({ ...selection, allMode }),
     [selection, allMode]
   );
-  const hasPendingChanges = pendingQuery !== (appliedQuery ?? "§UNSET§");
 
-  const handleApply = (q) => setAppliedQuery(q ?? pendingQuery);
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["property-analytics", queryString],
+    queryFn: async () => (await api.get(`/api/analytics/property?${queryString}`)).data,
+    keepPreviousData: true,
+  });
+
+  const blocks = data?.blocks || [];
+  const combined = data?.combined;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -531,30 +654,16 @@ export default function PropertyAnalytics() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Property Analytics</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Track money in, money out — by date, by person, by property. See who is holding what right now.
+            Pick a property to see its area, money flow, buyers, and per-partner positions in one place.
           </p>
         </div>
 
-        {analyticsData?.summary_sentence && (
-          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl p-5 shadow-md">
-            <div className="text-xs font-semibold uppercase tracking-wider text-indigo-100 mb-1">
-              At a glance
-            </div>
-            <div className="text-base sm:text-lg font-medium leading-relaxed">
-              {analyticsData.summary_sentence}
-            </div>
-          </div>
-        )}
-
-        <ScopePicker
-          options={options}
+        <PropertyFilter
+          options={data?.options}
           selection={selection}
           setSelection={setSelection}
           allMode={allMode}
           setAllMode={setAllMode}
-          onApply={handleApply}
-          hasPendingChanges={hasPendingChanges}
-          isLoading={isLoading}
         />
 
         {isLoading && (
@@ -569,52 +678,16 @@ export default function PropertyAnalytics() {
           </div>
         )}
 
-        {!isLoading && !isError && appliedQuery === null && (
+        {!isLoading && !isError && blocks.length === 0 && (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500">
-            <p className="text-base font-medium text-slate-700 mb-1">Select properties to analyse</p>
-            <p className="text-sm">Choose from the list above, or click <strong>Everything Combined</strong> to load all.</p>
+            Select one or more properties above to see the money flow.
           </div>
         )}
 
-        {!isLoading && !isError && appliedQuery !== null && blocks.length === 0 && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500">
-            Nothing to show for the selected scope.
-          </div>
-        )}
-
-        {showCombined && combined && blocks.length > 0 && (
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-200">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Combined view
-              </div>
-              <h2 className="text-lg font-bold text-slate-900">All selected scopes together</h2>
-            </div>
-            <div className="p-6 space-y-6">
-              <BucketCards buckets={combined.buckets} />
-              {combined.members && combined.members.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-700 mb-2">
-                    Partner Holdings (across all selected)
-                  </h4>
-                  <MembersTable members={combined.members} showPartnership={false} />
-                </div>
-              )}
-              {combined.timeline && combined.timeline.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-700 mb-2">
-                    Unified Money Flow Timeline
-                    <span className="ml-2 text-xs font-normal text-slate-500">({combined.timeline.length} transactions)</span>
-                  </h4>
-                  <Timeline rows={combined.timeline} showSource={true} />
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        <CombinedSection combined={combined} blockCount={blocks.length} />
 
         {blocks.map((b) => (
-          <Block key={`${b.kind}-${b.id}`} block={b} />
+          <PropertyBlock key={`${b.kind}-${b.id}`} block={b} />
         ))}
       </div>
     </div>
