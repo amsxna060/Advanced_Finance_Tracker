@@ -2945,8 +2945,8 @@ def _events_for_member(member_id: int, partnership_id: int, deal_id: Optional[in
                        event_limit: int = 10) -> dict:
     """
     Build a member-centric event log with pagination.
-    Returns {items: [...], total: int, has_more: bool}
-    """
+    Returns {items: [...], total: int, has_more: bool}.
+    Covers:
       - Advances given (advance_to_seller / remaining_to_seller / etc by them)
       - Buyer payments they received
       - Partner transfers in/out
