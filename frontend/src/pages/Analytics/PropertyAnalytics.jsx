@@ -955,7 +955,7 @@ export default function PropertyAnalytics() {
     queryKey: ["property-analytics", queryString],
     queryFn: async () => (await api.get(`/api/analytics/property?${queryString}`)).data,
     enabled: !!queryString,
-    keepPreviousData: true,
+    placeholderData: (prev) => prev,   // v5 replacement for keepPreviousData: true
     staleTime: 30_000,
   });
 
