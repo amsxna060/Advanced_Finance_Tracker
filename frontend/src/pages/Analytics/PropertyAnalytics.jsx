@@ -115,10 +115,18 @@ function aggregateSellerData(blocks) {
     s.pending_balance    += b.to_pay_to_seller          || 0;
     s.total_value        += b.total_seller_value        || 0;
     s.property_titles.push(block.title || block.label || "");
-    for (const member of block.members || []) {
-      const evts = member.events?.items ?? member.events ?? [];
-      for (const event of evts) {
-        if (event.kind === "paid_to_seller") s.seller_events.push({ ...event, property: block.title });
+    // Prefer the dedicated seller_transactions field (not paginated — includes the advance).
+    // Fall back to digging through member events for legacy compatibility.
+    if (block.seller_transactions?.length) {
+      for (const txn of block.seller_transactions) {
+        s.seller_events.push({ ...txn, kind: "paid_to_seller", property: block.title });
+      }
+    } else {
+      for (const member of block.members || []) {
+        const evts = member.events?.items ?? member.events ?? [];
+        for (const event of evts) {
+          if (event.kind === "paid_to_seller") s.seller_events.push({ ...event, property: block.title });
+        }
       }
     }
   }
@@ -157,6 +165,18 @@ function aggregatePartnerData(blocks) {
     if (a.is_self !== b.is_self) return a.is_self ? -1 : 1;
     return (b.collected_from_buyers || 0) - (a.collected_from_buyers || 0);
   });
+}
+
+// Flatten all buyers across all blocks, tagging each with the property they came from.
+// Buyers are NOT merged across properties — same person, different property = separate rows.
+function aggregateBuyerData(blocks) {
+  const rows = [];
+  for (const block of blocks) {
+    for (const buyer of block.buyers || []) {
+      rows.push({ ...buyer, property_title: block.title || block.label || "" });
+    }
+  }
+  return rows.sort((a, b) => (b.total_value || 0) - (a.total_value || 0));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,7 +638,8 @@ function PartnerCard({ member, isMultiProperty, onLoadMore }) {
           {hasMore && (
             <div className="px-5 pb-4 pt-1 text-center border-t border-slate-100">
               <button
-                onClick={() => onLoadMore?.()}
+                type="button"
+                onClick={(e) => { e.preventDefault(); onLoadMore?.(); }}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75m4.5-4.5v12m0 0-3.75-3.75M17.25 21 21 17.25" /></svg>
@@ -687,6 +708,95 @@ function BuyersSection({ buyers }) {
           <thead><tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-400"><th className="px-4 py-2.5 w-8" /><th className="px-3 py-2.5 text-left font-semibold">Buyer</th><th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Total Value</th><th className="px-3 py-2.5 text-right font-semibold">Paid</th><th className="px-3 py-2.5 text-right font-semibold">Outstanding</th><th className="px-3 py-2.5 text-left font-semibold">Status</th><th className="px-4 py-2.5 text-right font-semibold w-20">Activity</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{buyers.map((b) => <BuyerRow key={`${b.kind}-${b.id}`} buyer={b} />)}</tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMBINED BUYERS TABLE (multi-property)
+// ─────────────────────────────────────────────────────────────────────────────
+function CombinedBuyerRow({ buyer }) {
+  const [open, setOpen] = useState(false);
+  const txns = buyer.transactions || [];
+  const hasTxns = txns.length > 0;
+  const paidPct = buyer.total_value > 0 ? (buyer.paid / buyer.total_value) : 0;
+  const barColor = paidPct >= 1 ? "emerald" : paidPct >= 0.5 ? "amber" : "rose";
+  return (
+    <>
+      <tr
+        className={`group transition-colors ${hasTxns ? "cursor-pointer hover:bg-slate-50/70" : ""} ${open ? "bg-slate-50/70" : ""}`}
+        onClick={() => hasTxns && setOpen((v) => !v)}
+      >
+        <td className="px-4 py-3 align-middle w-8">
+          <svg className={`w-3.5 h-3.5 transition-all ${open ? "rotate-90 text-slate-500" : "text-slate-300 group-hover:text-slate-500"} ${!hasTxns ? "opacity-20" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+        </td>
+        <td className="px-3 py-3 align-middle">
+          <div className="font-semibold text-slate-900 text-sm">{buyer.name}</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">{formatArea(buyer.area_sqft)}{buyer.rate_per_sqft > 0 && <span className="text-slate-300"> · ₹{buyer.rate_per_sqft.toLocaleString("en-IN")}/sqft</span>}</div>
+        </td>
+        <td className="px-3 py-3 align-middle">
+          <span className="text-[10px] font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full whitespace-nowrap">{buyer.property_title}</span>
+        </td>
+        <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap"><div className="text-sm font-semibold text-slate-800">{formatCurrency(buyer.total_value)}</div></td>
+        <td className="px-3 py-3 align-middle min-w-[90px]">
+          <div className="text-sm font-semibold text-emerald-700 text-right tabular-nums">{formatCurrency(buyer.paid)}</div>
+          <div className="mt-1"><ProgressBar value={buyer.paid} total={buyer.total_value} color={barColor} /></div>
+        </td>
+        <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap"><div className={`text-sm font-semibold ${buyer.outstanding > 0 ? "text-amber-700" : "text-slate-300"}`}>{formatCurrency(buyer.outstanding)}</div></td>
+        <td className="px-3 py-3 align-middle whitespace-nowrap"><StatusBadge status={buyer.status} /></td>
+        <td className="px-4 py-3 align-middle text-right whitespace-nowrap"><span className="text-[11px] text-slate-400">{hasTxns ? `${txns.length} txn${txns.length !== 1 ? "s" : ""}` : "—"}</span></td>
+      </tr>
+      {open && hasTxns && (
+        <tr className="bg-slate-50/40">
+          <td colSpan={8} className="p-0">
+            <div className="border-t border-slate-100"><BuyerTransactionsTable txns={txns} /></div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function CombinedBuyersSection({ buyers }) {
+  if (!buyers?.length) return null;
+  const totalValue       = buyers.reduce((s, b) => s + (b.total_value  || 0), 0);
+  const totalPaid        = buyers.reduce((s, b) => s + (b.paid         || 0), 0);
+  const totalOutstanding = buyers.reduce((s, b) => s + (b.outstanding  || 0), 0);
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{buyers.length} buyers</span>}>
+          All Buyers
+        </SectionLabel>
+        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+          <span>Total: <strong className="text-slate-800">{formatCurrency(totalValue)}</strong></span>
+          <span>Collected: <strong className="text-emerald-700">{formatCurrency(totalPaid)}</strong></span>
+          <span>Outstanding: <strong className="text-amber-700">{formatCurrency(totalOutstanding)}</strong></span>
+        </div>
+      </div>
+      <div className="rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-400">
+                <th className="px-4 py-2.5 w-8" />
+                <th className="px-3 py-2.5 text-left font-semibold">Buyer</th>
+                <th className="px-3 py-2.5 text-left font-semibold">Property</th>
+                <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Total Value</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Paid</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Outstanding</th>
+                <th className="px-3 py-2.5 text-left font-semibold">Status</th>
+                <th className="px-4 py-2.5 text-right font-semibold w-20">Activity</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {buyers.map((b) => (
+                <CombinedBuyerRow key={`${b.property_title}-${b.kind}-${b.id}`} buyer={b} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -841,7 +951,7 @@ export default function PropertyAnalytics() {
     return p.toString();
   }, [appliedIds, eventLimit]);
 
-  const { data, isFetching, isError, error } = useQuery({
+  const { data, isFetching, isLoading, isError, error } = useQuery({
     queryKey: ["property-analytics", queryString],
     queryFn: async () => (await api.get(`/api/analytics/property?${queryString}`)).data,
     enabled: !!queryString,
@@ -872,9 +982,14 @@ export default function PropertyAnalytics() {
   const isMulti  = blocks.length > 1;
 
   // Combined sellers: prefer server-side aggregation, fall back to client-side
+  // Always use client-side aggregation for sellers so seller_events (un-paginated) are included.
   const combinedSellers  = useMemo(
-    () => isMulti ? (combined?.sellers?.length ? combined.sellers : aggregateSellerData(blocks)) : [],
-    [isMulti, blocks, combined],
+    () => isMulti ? aggregateSellerData(blocks) : [],
+    [isMulti, blocks],
+  );
+  const combinedBuyers = useMemo(
+    () => isMulti ? aggregateBuyerData(blocks) : [],
+    [isMulti, blocks],
   );
   const combinedPartners = useMemo(
     () => isMulti ? aggregatePartnerData(blocks) : [],
@@ -916,11 +1031,18 @@ export default function PropertyAnalytics() {
         {/* Property selector */}
         <PropertySelector options={options} pending={pendingIds} setPending={setPendingIds} onApply={handleApply} isLoading={isFetching} />
 
-        {/* Loading */}
-        {isFetching && (
+        {/* Loading — spinner only on first load (no cached data yet) */}
+        {isLoading && (
           <div className="flex items-center justify-center gap-3 py-16 bg-white rounded-2xl border border-slate-200">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-indigo-600" />
             <span className="text-sm text-slate-500">Calculating money flow…</span>
+          </div>
+        )}
+        {/* Subtle re-fetch indicator (e.g. Load More triggered) — keep results visible */}
+        {isFetching && !isLoading && blocks.length > 0 && (
+          <div className="flex items-center justify-center gap-2 py-2">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-slate-200 border-t-indigo-500" />
+            <span className="text-xs text-slate-400">Updating…</span>
           </div>
         )}
 
@@ -943,15 +1065,16 @@ export default function PropertyAnalytics() {
           </div>
         )}
 
-        {appliedIds && !isFetching && !isError && blocks.length === 0 && (
+        {appliedIds && !isLoading && !isError && blocks.length === 0 && !isFetching && (
           <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">No data found for the selected properties.</div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════
-            RESULTS SECTION
-            Order: sticky header → charts → property accordions → sellers → partners
+            RESULTS SECTION — shown whenever we have data, even during re-fetch
+            (fixes the "Load More causes blank screen" bug)
+            Order: sticky header → charts → combined buyers → property accordions → sellers → partners
             ═══════════════════════════════════════════════════════════════════ */}
-        {!isFetching && !isError && blocks.length > 0 && (
+        {!isError && blocks.length > 0 && (
           <div className="space-y-6">
 
             {/* 1. Sticky combined summary header (multi only) */}
@@ -970,7 +1093,12 @@ export default function PropertyAnalytics() {
               </div>
             )}
 
-            {/* 3. Individual Property Breakdown — ABOVE sellers/partners (UX spec) */}
+            {/* 3. Combined Buyers table (multi only) — shows all buyers across all properties */}
+            {isMulti && combinedBuyers.length > 0 && (
+              <CombinedBuyersSection buyers={combinedBuyers} />
+            )}
+
+            {/* 4. Individual Property Breakdown — ABOVE sellers/partners (UX spec) */}
             <div className="space-y-4">
               {isMulti && (
                 <div className="flex items-center justify-between">
@@ -983,7 +1111,7 @@ export default function PropertyAnalytics() {
               ))}
             </div>
 
-            {/* 4. Combined Sellers (multi only) */}
+            {/* 5. Combined Sellers (multi only) */}
             {isMulti && combinedSellers.length > 0 && (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
                 <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{combinedSellers.length} unique</span>}>
@@ -995,7 +1123,7 @@ export default function PropertyAnalytics() {
               </div>
             )}
 
-            {/* 5. Combined Partners (multi only) */}
+            {/* 6. Combined Partners (multi only) */}
             {isMulti && combinedPartners.length > 0 && (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
                 <SectionLabel extra={<span className="ml-2 text-[10px] font-medium text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{combinedPartners.length} unique</span>}>

@@ -3189,6 +3189,45 @@ def property_analytics(
 
         seller_name = contact_map.get(deal.seller_contact_id).name if deal.seller_contact_id and contact_map.get(deal.seller_contact_id) else None
 
+        # Collect ALL seller-payment transactions for this property (not subject to event_limit
+        # pagination) so the seller history always includes the initial advance/token payment.
+        _seller_txn_types = ["advance_to_seller", "remaining_to_seller", "payment_to_seller"]
+        seller_txns: list = []
+        for lp in linked_partnerships:
+            for t in (
+                db.query(PartnershipTransaction)
+                .filter(
+                    PartnershipTransaction.partnership_id == lp.id,
+                    PartnershipTransaction.txn_type.in_(_seller_txn_types),
+                )
+                .all()
+            ):
+                seller_txns.append({
+                    "date": t.txn_date.isoformat() if t.txn_date else None,
+                    "amount": float(_D(t.amount)),
+                    "type": t.txn_type,
+                    "payment_mode": t.payment_mode,
+                    "description": t.description,
+                    "from_member": member_map.get(t.member_id) if t.member_id else None,
+                })
+        for t in (
+            db.query(PropertyTransaction)
+            .filter(
+                PropertyTransaction.property_deal_id == deal.id,
+                PropertyTransaction.txn_type.in_(_seller_txn_types),
+            )
+            .all()
+        ):
+            seller_txns.append({
+                "date": t.txn_date.isoformat() if t.txn_date else None,
+                "amount": float(_D(t.amount)),
+                "type": t.txn_type,
+                "payment_mode": t.payment_mode,
+                "description": t.description,
+                "from_member": None,
+            })
+        seller_txns.sort(key=lambda x: x.get("date") or "", reverse=True)
+
         blocks.append({
             "kind": "property",
             "id": deal.id,
@@ -3200,6 +3239,7 @@ def property_analytics(
             "buyers": buyer_rows,
             "members": members_breakdown,
             "linked_partnership_ids": [lp.id for lp in linked_partnerships],
+            "seller_transactions": seller_txns,
         })
 
     # ── SITE PLOT scopes ────────────────────────────────────────────────────
@@ -3378,6 +3418,7 @@ def property_analytics(
                 "pending_balance": 0.0,
                 "total_value": 0.0,
                 "property_titles": [],
+                "seller_events": [],
             }
         s = _seller_agg[key]
         b = blk.get("buckets") or {}
@@ -3387,6 +3428,10 @@ def property_analytics(
         s["total_value"]        = round(s["total_value"]        + (b.get("total_seller_value")        or 0.0), 2)
         if blk.get("title"):
             s["property_titles"].append(blk["title"])
+        for txn in blk.get("seller_transactions") or []:
+            s["seller_events"].append({**txn, "property": blk.get("title")})
+    for s in _seller_agg.values():
+        s["seller_events"].sort(key=lambda x: x.get("date") or "", reverse=True)
     combined_sellers_list = list(_seller_agg.values())
 
     # Available scope options (so the picker can populate without a second call)
