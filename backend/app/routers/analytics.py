@@ -2779,7 +2779,7 @@ def _compute_partnership_member_breakdown(
     return breakdown
 
 
-def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, member_map: dict) -> List[dict]:
+def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, member_map: dict, source_label: str = "") -> List[dict]:
     rows = []
     for t in db.query(PropertyTransaction).filter(PropertyTransaction.property_deal_id == deal_id).all():
         rows.append({
@@ -2788,13 +2788,14 @@ def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, m
             "amount": float(_D(t.amount)),
             "description": t.description,
             "scope": "property",
+            "source_label": source_label,
             "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
             "payment_mode": t.payment_mode,
         })
     return rows
 
 
-def _build_timeline_for_partnership(p_id: int, db: Session, member_map: dict) -> List[dict]:
+def _build_timeline_for_partnership(p_id: int, db: Session, member_map: dict, source_label: str = "") -> List[dict]:
     rows = []
     for t in db.query(PartnershipTransaction).filter(PartnershipTransaction.partnership_id == p_id).all():
         rows.append({
@@ -2803,6 +2804,7 @@ def _build_timeline_for_partnership(p_id: int, db: Session, member_map: dict) ->
             "amount": float(_D(t.amount)),
             "description": t.description,
             "scope": "partnership",
+            "source_label": source_label,
             "from_member": member_map.get(t.member_id) if t.member_id else None,
             "received_by": member_map.get(t.received_by_member_id) if t.received_by_member_id else None,
             "from_partnership_pot": bool(t.from_partnership_pot),
@@ -2884,9 +2886,9 @@ def property_analytics(
 
         # Include both property-level AND linked-partnership transactions in the timeline
         # so the full money history is visible in one place.
-        timeline = _build_timeline_for_property(deal.id, db, contact_map, member_map)
+        timeline = _build_timeline_for_property(deal.id, db, contact_map, member_map, source_label=deal.title or "")
         for lp in linked_partnerships:
-            timeline += _build_timeline_for_partnership(lp.id, db, member_map)
+            timeline += _build_timeline_for_partnership(lp.id, db, member_map, source_label=lp.title or deal.title or "")
         timeline.sort(key=lambda r: r["date"] or "", reverse=True)
 
         # Plot-buyer summaries
@@ -3022,10 +3024,11 @@ def property_analytics(
             p, db, contact_map, projected_net_profit=buckets["projected_net_profit"]
         )
 
-        timeline = _build_timeline_for_partnership(p.id, db, member_map)
+        timeline = _build_timeline_for_partnership(p.id, db, member_map, source_label=p.title or "")
         # Pull property transactions of the linked deal too — they're material to the partnership view
         if p.linked_property_deal_id:
-            timeline += _build_timeline_for_property(p.linked_property_deal_id, db, contact_map, member_map)
+            prop_label = deal.title if p.linked_property_deal_id and deal else p.title or ""
+            timeline += _build_timeline_for_property(p.linked_property_deal_id, db, contact_map, member_map, source_label=prop_label)
         timeline.sort(key=lambda r: r["date"] or "", reverse=True)
 
         blocks.append({
@@ -3080,6 +3083,19 @@ def property_analytics(
     ]
     combined_members_list.sort(key=lambda r: (not r["is_self"], -r.get("collected_from_buyers", 0)))
 
+    # Combined timeline — merge all block timelines sorted newest-first
+    combined_timeline = []
+    seen_txn_keys: set = set()
+    for blk in blocks:
+        for row in blk.get("timeline", []):
+            # Deduplicate: property block and partnership block may both include the same txn
+            # Use (scope, source_label, date, type, amount) as a dedup key
+            key = (row.get("scope"), row.get("source_label"), row.get("date"), row.get("type"), row.get("amount"))
+            if key not in seen_txn_keys:
+                seen_txn_keys.add(key)
+                combined_timeline.append(row)
+    combined_timeline.sort(key=lambda r: r["date"] or "", reverse=True)
+
     # Plain-English sentence for the page header
     summary_sentence = _build_summary_sentence(combined_buckets, combined_members_list)
 
@@ -3115,6 +3131,7 @@ def property_analytics(
         "combined": {
             "buckets": combined_buckets,
             "members": combined_members_list,
+            "timeline": combined_timeline,
         },
         "blocks": blocks,
         "options": options,

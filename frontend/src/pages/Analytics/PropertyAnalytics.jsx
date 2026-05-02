@@ -95,20 +95,6 @@ function BucketCards({ buckets }) {
       color: { border: "border-orange-200", bg: "bg-orange-50", label: "text-orange-700", amount: "text-orange-900" },
       hint: "Money out so far",
     },
-    {
-      title: "Projected Gross Profit",
-      amount: buckets.projected_gross_profit,
-      icon: "📊",
-      color: { border: "border-indigo-200", bg: "bg-indigo-50", label: "text-indigo-700", amount: "text-indigo-900" },
-      hint: "Buyer value − seller value",
-    },
-    {
-      title: "Projected Net Profit",
-      amount: buckets.projected_net_profit,
-      icon: "💎",
-      color: { border: "border-blue-200", bg: "bg-blue-50", label: "text-blue-700", amount: "text-blue-900" },
-      hint: "After broker + other expenses",
-    },
   ];
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -139,8 +125,6 @@ function MembersTable({ members, showPartnership }) {
             <th className="text-right px-3 py-2 font-semibold" title="Buyer payments received by them (pot money, not their own)">Collected from Buyers</th>
             <th className="text-right px-3 py-2 font-semibold" title="Payments made to seller or expenses">Paid Out</th>
             <th className="text-right px-3 py-2 font-semibold" title="Collected minus Paid Out — pot money still with them">Net Holding</th>
-            <th className="text-right px-3 py-2 font-semibold" title="Their % of projected net profit">Profit Share</th>
-            <th className="text-right px-3 py-2 font-semibold" title="What they will receive (or owe) at full settlement = Profit Share − Net Holding">At Settlement</th>
             <th className="text-left px-3 py-2 font-semibold" title="Partner Transfer flows (↓ received, ↑ sent)">Transfers</th>
           </tr>
         </thead>
@@ -152,8 +136,6 @@ function MembersTable({ members, showPartnership }) {
             const netH = m.net_holding ?? m.currently_holding ?? 0;
             const tIn = m.transferred_in ?? 0;
             const tOut = m.transferred_out ?? 0;
-            const projShare = m.projected_share ?? 0;
-            const settlement = m.settlement_balance ?? m.final_settlement ?? 0;
             return (
               <tr
                 key={`${m.member_id || m.name}-${idx}`}
@@ -177,16 +159,6 @@ function MembersTable({ members, showPartnership }) {
                 <td className={`px-3 py-2 text-right font-semibold ${netH > 0.5 ? "text-amber-700" : netH < -0.5 ? "text-blue-700" : "text-slate-400"}`}>
                   {netH > 0.5 ? `+${formatCurrency(netH)}` : netH < -0.5 ? formatCurrency(netH) : "—"}
                   {netH < -0.5 && <div className="text-[9px] font-normal text-blue-500 mt-0.5">pot owes them</div>}
-                </td>
-                <td className="px-3 py-2 text-right font-medium text-indigo-700">
-                  {projShare ? formatCurrency(projShare) : "—"}
-                </td>
-                <td className={`px-3 py-2 text-right font-bold ${settlement > 0.5 ? "text-emerald-700" : settlement < -0.5 ? "text-rose-700" : "text-slate-400"}`}>
-                  {settlement > 0.5
-                    ? `+${formatCurrency(settlement)}`
-                    : settlement < -0.5
-                    ? formatCurrency(settlement)
-                    : "—"}
                 </td>
                 <td className="px-3 py-2">
                   {(tIn > 0 || tOut > 0) ? (
@@ -241,7 +213,7 @@ function BuyersList({ buyers }) {
   );
 }
 
-function Timeline({ rows }) {
+function Timeline({ rows, showSource = false }) {
   if (!rows || rows.length === 0) {
     return (
       <div className="text-sm text-slate-500 italic p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -251,41 +223,61 @@ function Timeline({ rows }) {
   }
   return (
     <div className="space-y-2">
-      {rows.slice(0, 50).map((t, idx) => {
+      {rows.slice(0, 100).map((t, idx) => {
         const isInflow = ["received_from_buyer", "sale_proceeds", "buyer_payment",
           "buyer_advance", "buyer_payment_received", "profit_received", "received"].includes(t.type);
+        const isTransfer = t.type === "partner_transfer";
         return (
           <div
             key={idx}
             className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-200 bg-white"
           >
             <span
-              className={`shrink-0 w-2 h-2 rounded-full ${isInflow ? "bg-emerald-500" : "bg-rose-500"}`}
+              className={`shrink-0 w-2 h-2 rounded-full ${isTransfer ? "bg-violet-400" : isInflow ? "bg-emerald-500" : "bg-rose-500"}`}
             />
-            <span className="text-xs text-slate-500 w-24 shrink-0">{formatDate(t.date)}</span>
-            <span className="text-sm font-medium text-slate-800 flex-1 truncate">
-              {txnLabel(t.type)}
-              {t.received_by && (
-                <span className="text-xs text-slate-500 ml-2">→ {t.received_by}</span>
-              )}
-              {t.from_member && (
-                <span className="text-xs text-slate-500 ml-2">paid by {t.from_member}</span>
-              )}
-              {t.description && (
-                <span className="text-xs text-slate-400 ml-2 italic">{t.description}</span>
-              )}
-            </span>
+            <span className="text-xs text-slate-400 w-24 shrink-0">{formatDate(t.date)}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {showSource && t.source_label && (
+                  <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+                    {t.source_label}
+                  </span>
+                )}
+                <span className="text-sm font-medium text-slate-800 truncate">
+                  {txnLabel(t.type)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                {t.from_member && (
+                  <span className="text-xs text-slate-500">from {t.from_member}</span>
+                )}
+                {t.received_by && (
+                  <span className="text-xs text-slate-500">→ {t.received_by}</span>
+                )}
+                {t.description && (
+                  <span className="text-xs text-slate-400 italic truncate">{t.description}</span>
+                )}
+                {t.payment_mode && (
+                  <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">{t.payment_mode}</span>
+                )}
+              </div>
+            </div>
             <span
-              className={`text-sm font-semibold tabular-nums ${
-                isInflow ? "text-emerald-700" : "text-rose-700"
+              className={`text-sm font-semibold tabular-nums shrink-0 ${
+                isTransfer ? "text-violet-700" : isInflow ? "text-emerald-700" : "text-rose-700"
               }`}
             >
-              {isInflow ? "+" : "−"}
+              {isTransfer ? "↕" : isInflow ? "+" : "−"}
               {formatCurrency(t.amount)}
             </span>
           </div>
         );
       })}
+      {rows.length > 100 && (
+        <div className="text-xs text-slate-500 text-center py-2">
+          Showing latest 100 of {rows.length} transactions
+        </div>
+      )}
     </div>
   );
 }
@@ -539,7 +531,7 @@ export default function PropertyAnalytics() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Property Analytics</h1>
           <p className="text-sm text-slate-600 mt-1">
-            See exactly who has how much money, what's owed where, and how profits will split — for any property, plot, or partnership.
+            Track money in, money out — by date, by person, by property. See who is holding what right now.
           </p>
         </div>
 
@@ -603,9 +595,18 @@ export default function PropertyAnalytics() {
               {combined.members && combined.members.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold text-slate-700 mb-2">
-                    Per-Partner Money Position (across all selected)
+                    Partner Holdings (across all selected)
                   </h4>
                   <MembersTable members={combined.members} showPartnership={false} />
+                </div>
+              )}
+              {combined.timeline && combined.timeline.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700 mb-2">
+                    Unified Money Flow Timeline
+                    <span className="ml-2 text-xs font-normal text-slate-500">({combined.timeline.length} transactions)</span>
+                  </h4>
+                  <Timeline rows={combined.timeline} showSource={true} />
                 </div>
               )}
             </div>
