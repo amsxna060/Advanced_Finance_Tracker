@@ -4,7 +4,7 @@ Analytics / Financial overview router.
 Provides consolidated investment, liability, cash-flow and net-worth data
 across all modules (loans, properties, partnerships, beesi, accounts).
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional
 
@@ -23,6 +23,7 @@ from app.models.expense import Expense
 from app.models.contact import Contact
 from app.models.obligation import MoneyObligation
 from app.models.user import User
+from app.models.property_anomaly import PropertyAnomaly
 from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments, _build_monthly_periods, _calc_period_interest
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -2919,9 +2920,12 @@ def _txns_for_buyer(deal_id: int, plot_buyer_id: Optional[int], site_plot_id: Op
 
 
 def _events_for_member(member_id: int, partnership_id: int, deal_id: Optional[int],
-                       db: Session, member_map: dict) -> List[dict]:
+                       db: Session, member_map: dict,
+                       event_limit: int = 10) -> dict:
     """
-    Build a member-centric event log:
+    Build a member-centric event log with pagination.
+    Returns {items: [...], total: int, has_more: bool}
+    """
       - Advances given (advance_to_seller / remaining_to_seller / etc by them)
       - Buyer payments they received
       - Partner transfers in/out
@@ -3001,7 +3005,9 @@ def _events_for_member(member_id: int, partnership_id: int, deal_id: Optional[in
                 })
 
     events.sort(key=lambda r: r["date"] or "", reverse=True)
-    return events
+    total = len(events)
+    has_more = total > event_limit
+    return {"items": events[:event_limit], "total": total, "has_more": has_more}
 
 
 def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, member_map: dict, source_label: str = "") -> List[dict]:
@@ -3044,6 +3050,7 @@ def property_analytics(
     site_plot_ids: Optional[List[int]] = Query(None),
     partnership_ids: Optional[List[int]] = Query(None),
     scope: Optional[str] = Query(None),  # "all" → aggregate everything; otherwise honor filters
+    event_limit: int = Query(10, ge=1, le=200),  # events per member (pagination)
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -3117,7 +3124,8 @@ def property_analytics(
                 row["partnership_title"] = lp.title
                 # Attach this member's personal event log
                 row["events"] = _events_for_member(
-                    row["member_id"], lp.id, deal.id, db, member_map
+                    row["member_id"], lp.id, deal.id, db, member_map,
+                    event_limit=event_limit,
                 )
                 members_breakdown.append(row)
 
@@ -3267,7 +3275,8 @@ def property_analytics(
         )
         for row in members_breakdown:
             row["events"] = _events_for_member(
-                row["member_id"], p.id, p.linked_property_deal_id, db, member_map
+                row["member_id"], p.id, p.linked_property_deal_id, db, member_map,
+                event_limit=event_limit,
             )
 
         blocks.append({
@@ -3332,6 +3341,32 @@ def property_analytics(
     # Plain-English sentence for the page header
     summary_sentence = _build_summary_sentence(combined_buckets, combined_members_list)
 
+    # ── SERVER-SIDE seller aggregation (grouped by seller_name) ─────────────
+    # Aggregates financial metrics per seller across all selected blocks so the
+    # frontend never has to re-compute this.
+    _seller_agg: dict = {}
+    for blk in blocks:
+        raw_name = blk.get("seller_name") or "Unknown Seller"
+        key = raw_name.strip().lower()
+        if key not in _seller_agg:
+            _seller_agg[key] = {
+                "name": raw_name,
+                "advance_received": 0.0,
+                "remaining_received": 0.0,
+                "pending_balance": 0.0,
+                "total_value": 0.0,
+                "property_titles": [],
+            }
+        s = _seller_agg[key]
+        b = blk.get("buckets") or {}
+        s["advance_received"]   = round(s["advance_received"]   + (b.get("paid_to_seller_advance")    or 0.0), 2)
+        s["remaining_received"] = round(s["remaining_received"] + (b.get("paid_to_seller_additional") or 0.0), 2)
+        s["pending_balance"]    = round(s["pending_balance"]    + (b.get("to_pay_to_seller")          or 0.0), 2)
+        s["total_value"]        = round(s["total_value"]        + (b.get("total_seller_value")        or 0.0), 2)
+        if blk.get("title"):
+            s["property_titles"].append(blk["title"])
+    combined_sellers_list = list(_seller_agg.values())
+
     # Available scope options (so the picker can populate without a second call)
     options = {
         "properties": [
@@ -3364,10 +3399,12 @@ def property_analytics(
         "combined": {
             "buckets": combined_buckets,
             "members": combined_members_list,
+            "sellers": combined_sellers_list,
         },
         "blocks": blocks,
         "options": options,
     }
+
 
 
 def _fmt_inr(n: float) -> str:
@@ -3404,3 +3441,189 @@ def _build_summary_sentence(buckets: dict, members: list) -> str:
     if others_holding and others_holding > 1:
         parts.append(f"Partners are holding {_fmt_inr(others_holding)}")
     return " · ".join(parts) if parts else "Select properties above to see the money flow."
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ANOMALY DETECTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _upsert_anomaly(
+    db: Session,
+    scope_kind: str,
+    scope_id: int,
+    scope_title: str,
+    anomaly_type: str,
+    severity: str,
+    message: str,
+    metric_value: float,
+    threshold_value: float,
+) -> None:
+    """Insert or refresh an anomaly record; mark resolved if condition cleared."""
+    existing = (
+        db.query(PropertyAnomaly)
+        .filter(
+            PropertyAnomaly.scope_kind == scope_kind,
+            PropertyAnomaly.scope_id == scope_id,
+            PropertyAnomaly.anomaly_type == anomaly_type,
+            PropertyAnomaly.is_resolved == False,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if existing:
+        existing.metric_value = metric_value
+        existing.threshold_value = threshold_value
+        existing.message = message
+        existing.last_scanned = now
+    else:
+        db.add(PropertyAnomaly(
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            scope_title=scope_title,
+            anomaly_type=anomaly_type,
+            severity=severity,
+            message=message,
+            metric_value=metric_value,
+            threshold_value=threshold_value,
+            first_seen=now,
+            last_scanned=now,
+        ))
+
+
+def _resolve_anomaly(
+    db: Session,
+    scope_kind: str,
+    scope_id: int,
+    anomaly_type: str,
+) -> None:
+    existing = (
+        db.query(PropertyAnomaly)
+        .filter(
+            PropertyAnomaly.scope_kind == scope_kind,
+            PropertyAnomaly.scope_id == scope_id,
+            PropertyAnomaly.anomaly_type == anomaly_type,
+            PropertyAnomaly.is_resolved == False,
+        )
+        .first()
+    )
+    if existing:
+        existing.is_resolved = True
+        existing.resolved_at = datetime.now(timezone.utc)
+
+
+def _run_anomaly_scan(db: Session) -> int:
+    """
+    Scan all active property deals for financial imbalances.
+    Returns the count of active (unresolved) anomalies after the scan.
+    """
+    deals = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
+    for deal in deals:
+        buckets = _compute_property_buckets(deal, db)
+        title = deal.title or f"Property #{deal.id}"
+        seller_value = buckets.get("total_seller_value", 0.0)
+        buyer_value  = buckets.get("registered_buyer_value", 0.0)
+        paid_to_seller = buckets.get("paid_to_seller", 0.0)
+        to_pay = buckets.get("to_pay_to_seller", 0.0)
+        already_received = buckets.get("already_received", 0.0)
+
+        # 1. Low buyer coverage — buyer registrations cover < 50% of seller cost
+        threshold_50 = round(seller_value * 0.50, 2)
+        if seller_value > 0 and buyer_value < threshold_50:
+            _upsert_anomaly(
+                db, "property", deal.id, title,
+                "low_buyer_coverage", "warning",
+                f"Registered buyer value ({_fmt_inr(buyer_value)}) covers only "
+                f"{int(buyer_value / seller_value * 100)}% of seller cost ({_fmt_inr(seller_value)}).",
+                buyer_value, threshold_50,
+            )
+        else:
+            _resolve_anomaly(db, "property", deal.id, "low_buyer_coverage")
+
+        # 2. Cash flow risk — still owe seller more than we have collected from buyers
+        if to_pay > 0 and to_pay > already_received:
+            _upsert_anomaly(
+                db, "property", deal.id, title,
+                "cash_flow_risk", "critical",
+                f"Still owe seller {_fmt_inr(to_pay)} but only "
+                f"{_fmt_inr(already_received)} has been collected from buyers.",
+                to_pay, already_received,
+            )
+        else:
+            _resolve_anomaly(db, "property", deal.id, "cash_flow_risk")
+
+        # 3. Overpaid to seller — paid > total_seller_value (data integrity issue)
+        if seller_value > 0 and paid_to_seller > seller_value * 1.05:
+            _upsert_anomaly(
+                db, "property", deal.id, title,
+                "overpaid_to_seller", "critical",
+                f"Total paid to seller ({_fmt_inr(paid_to_seller)}) exceeds "
+                f"agreed seller value ({_fmt_inr(seller_value)}) by more than 5%.",
+                paid_to_seller, seller_value,
+            )
+        else:
+            _resolve_anomaly(db, "property", deal.id, "overpaid_to_seller")
+
+        # 4. Collection lag — > 80% buyer value outstanding
+        if buyer_value > 0:
+            to_receive = buckets.get("to_receive_from_buyers", 0.0)
+            lag_threshold = round(buyer_value * 0.80, 2)
+            if to_receive > lag_threshold:
+                _upsert_anomaly(
+                    db, "property", deal.id, title,
+                    "collection_lag", "warning",
+                    f"{_fmt_inr(to_receive)} ({int(to_receive / buyer_value * 100)}% of buyer total) "
+                    f"is still outstanding from buyers.",
+                    to_receive, lag_threshold,
+                )
+            else:
+                _resolve_anomaly(db, "property", deal.id, "collection_lag")
+
+    db.commit()
+    return db.query(PropertyAnomaly).filter(PropertyAnomaly.is_resolved == False).count()
+
+
+@router.post("/anomalies/scan")
+def trigger_anomaly_scan(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Trigger a full anomaly scan across all active property deals.
+    Idempotent: safe to call on every dashboard load.
+    """
+    active_count = _run_anomaly_scan(db)
+    return {"status": "ok", "active_anomalies": active_count}
+
+
+@router.get("/anomalies")
+def get_anomalies(
+    scope_kind: Optional[str] = Query(None),
+    scope_id: Optional[int] = Query(None),
+    resolved: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return flagged financial anomalies, newest first."""
+    q = db.query(PropertyAnomaly).filter(PropertyAnomaly.is_resolved == resolved)
+    if scope_kind:
+        q = q.filter(PropertyAnomaly.scope_kind == scope_kind)
+    if scope_id is not None:
+        q = q.filter(PropertyAnomaly.scope_id == scope_id)
+    rows = q.order_by(PropertyAnomaly.first_seen.desc()).all()
+    return [
+        {
+            "id": r.id,
+            "scope_kind": r.scope_kind,
+            "scope_id": r.scope_id,
+            "scope_title": r.scope_title,
+            "anomaly_type": r.anomaly_type,
+            "severity": r.severity,
+            "message": r.message,
+            "metric_value": float(r.metric_value or 0),
+            "threshold_value": float(r.threshold_value or 0),
+            "is_resolved": r.is_resolved,
+            "first_seen": r.first_seen.isoformat() if r.first_seen else None,
+            "last_scanned": r.last_scanned.isoformat() if r.last_scanned else None,
+        }
+        for r in rows
+    ]

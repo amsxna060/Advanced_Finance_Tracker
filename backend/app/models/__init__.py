@@ -11,6 +11,7 @@ from app.models.category import Category
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.obligation import MoneyObligation, ObligationSettlement
+from app.models.property_anomaly import PropertyAnomaly
 
 __all__ = [
     "User",
@@ -35,4 +36,5 @@ __all__ = [
     "AccountTransaction",
     "MoneyObligation",
     "ObligationSettlement",
+    "PropertyAnomaly",
 ]
