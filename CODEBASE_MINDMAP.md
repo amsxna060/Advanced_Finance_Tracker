@@ -2,7 +2,7 @@
 
 > Living index of the entire codebase. Update this file whenever you add, move, rename, or delete anything significant. Treat it as the first thing to read in a new session.
 >
-> **Last updated:** 2026-05-02 (Forecast & Liquidity v2 — entity-grouped, persisted overrides, fulfill/skip auto-rollover)
+> **Last updated:** 2026-05-02 (Forecast v2.1 — property excluded, strict-< window, EMI 1st/2nd-of-month rule, optimistic cache, outflow toggles; smart-forecast endpoint removed)
 
 ---
 
@@ -127,8 +127,8 @@ Advanced_Finance_Tracker/
 | `categories.py` | `/categories` | CRUD |
 | `category_limits.py` | `/category-limits` | CRUD |
 | `dashboard.py` | `/dashboard` | `GET /summary`, `GET /quick-links` |
-| `analytics.py` | `/analytics` | `/net-worth`, `/expense-trends`, `/money-flow`, `/property` (per-property/plot/partnership money flow + per-partner positions), legacy `/forecast` and `/smart-forecast` (used by Analytics dashboard mini-card) |
-| `forecast.py` | `/api/forecast` | `GET /` (entity-grouped, supports timeframe presets / custom days / date range / month-end), `POST /overrides`, `POST /overrides/fulfill`, `POST /overrides/clear`, `GET /overrides` |
+| `analytics.py` | `/analytics` | `/net-worth`, `/expense-trends`, `/money-flow`, `/property` (per-property/plot/partnership money flow + per-partner positions), legacy `/forecast` (used by Analytics dashboard mini-card) |
+| `forecast.py` | `/api/forecast` | `GET /` (entity-grouped: loans/EMIs/interest/obligations/beesi only — property excluded; strict-`<` window; EMI 1st/2nd-of-month → previous-month rule). `POST /overrides`, `POST /overrides/fulfill`, `POST /overrides/clear`, `GET /overrides` |
 | `reports.py` | `/reports` | `GET /{module}/export` (CSV/Excel) |
 | `admin.py` | `/admin` | `POST /mark-legacy`, migration helpers |
 | `chatbot.py` | `/chatbot` | `POST /query` (Gemini-backed) |
@@ -148,7 +148,7 @@ Advanced_Finance_Tracker/
 | `excel_generator.py` | `.xlsx` export for any list endpoint via `openpyxl`. |
 | `pdf_generator.py` | PDF statements (loan, property, partnership) via `reportlab`. |
 | `chatbot_tools.py` | Gemini tool-use definitions for financial queries. |
-| `forecast_engine.py` | Forecast & Liquidity engine — generates cash-flow items (loans / obligations / property / beesi), applies per-user `ForecastOverride` rows scoped to current calendar month, groups by entity, computes totals + daily timeline + liquidity coverage. Period-scoped overrides give "auto-rollover next month" without mutating any source record. |
+| `forecast_engine.py` | Forecast & Liquidity engine — generates cash-flow items (loans / obligations / beesi only; property excluded by design — see Property Analytics for that). Applies per-user `ForecastOverride` rows scoped to current calendar month, groups by entity, computes totals + daily timeline + liquidity coverage. Strict-`<` window boundary; EMIs/beesi installments due on the 1st or 2nd of a month are mapped to the prior month-end via `_emi_effective_date` so they belong to the previous calendar month for overdue/period accounting. Period-scoped overrides give "auto-rollover next month" without mutating any source record. |
 
 ---
 
@@ -253,6 +253,10 @@ Run in order. The latest is `025_forecast_overrides`.
 
 > Append to this section whenever files are removed so the rationale survives in code review.
 
+### 2026-05-02 — Forecast cleanup
+**Deleted (unused after Forecast v2 rewrite):**
+- `/api/analytics/smart-forecast` endpoint (~376 lines from `app/routers/analytics.py`, 1799–2174). The new [`Forecast.jsx`](frontend/src/pages/Analytics/Forecast.jsx) now calls `/api/forecast` exclusively; nothing else referenced `smart-forecast`. Permission given by user.
+
 ### 2026-04-30 — Initial cleanup
 **Deleted (superseded / completed scope):**
 - `PHASE2_COMPLETE.md`, `QUICKSTART_PHASE2.md` — phase-2 closure docs
@@ -282,7 +286,8 @@ Run in order. The latest is `025_forecast_overrides`.
 
 ## 13. Recent Notable Commits
 
-- **Forecast & Liquidity v2** (2026-05-02) — new `/api/forecast` router + `forecast_engine` service + `forecast_overrides` table (migration 025). Replaces the old [Forecast.jsx](frontend/src/pages/Analytics/Forecast.jsx) — items now grouped by entity (contact/property/beesi/institution), accordion-expanded; per-item include toggle, amount-override input, "Mark fulfilled" capture; sticky scorecard (Projected Inflows / Required Outflows / Net Liquidity); timeframe presets 15/30/60/90 + custom days + custom date range + "until month end". Overrides persist scoped to current `YYYY-MM` so they auto-clear at month boundaries — items not actually settled reappear next month as overdue, no manual rollover. Old `/api/analytics/forecast` and `/api/analytics/smart-forecast` remain in place for the Analytics dashboard mini-card.
+- **Forecast v2.1 fixes** (2026-05-02) — (1) Property module fully decoupled from forecast: no property deal inflows, no `linked_type='property'` obligations. (2) Strict-`<` window boundary (a 30d view starting May 2 → ends June 1 *exclusive*; June 1 obligations no longer bleed into May). (3) EMI 1st/2nd-of-month rule via `_emi_effective_date`: an EMI due on the 1st/2nd of a month is treated as the prior month's obligation for overdue & period accounting (also applied to beesi installments). (4) Optimistic-cache mutation pattern in [Forecast.jsx](frontend/src/pages/Analytics/Forecast.jsx) — checkboxes/amount-overrides patch the React Query cache locally via `qc.setQueryData`, no full refetch on every click; `EntityCard`/`ItemRow` are `memo()`-wrapped. (5) Outflow column is now interactive too: include checkbox + click-to-edit Expected Amount + Mark-paid action. (6) `/api/analytics/smart-forecast` endpoint removed (was unused after v2 page rewrite).
+- **Forecast & Liquidity v2** (2026-05-02) — new `/api/forecast` router + `forecast_engine` service + `forecast_overrides` table (migration 025). Replaces the old [Forecast.jsx](frontend/src/pages/Analytics/Forecast.jsx) — items now grouped by entity (contact/beesi/institution), accordion-expanded; per-item include toggle, amount-override input, "Mark fulfilled" capture; sticky scorecard (Projected Inflows / Required Outflows / Net Liquidity); timeframe presets 15/30/60/90 + custom days + custom date range + "until month end". Overrides persist scoped to current `YYYY-MM` so they auto-clear at month boundaries — items not actually settled reappear next month as overdue, no manual rollover. Old `/api/analytics/forecast` remains in place for the Analytics dashboard mini-card.
 - **Property Analytics page** — `GET /api/analytics/property` + `/analytics/property` route. Six money-flow buckets (to-receive/to-pay/already-in/already-out/projected gross+net), per-partner money positions (contributed, received, currently holding, projected share, final settlement) with self highlighted, plain-English summary sentence, multi-scope picker (properties / partnerships / site plots / "Everything Combined"), transaction timeline. Read-only, no migration.
 - `b927443` — Replace "Profit Received" with "Partner Transfer" for internal partnership tracking.
 - `8cbbf1c` — Delete buttons for site_plots and plot_buyers.

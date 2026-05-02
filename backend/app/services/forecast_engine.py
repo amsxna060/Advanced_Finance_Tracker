@@ -46,7 +46,6 @@ from sqlalchemy.orm import Session
 
 from app.models.loan import Loan
 from app.models.obligation import MoneyObligation
-from app.models.property_deal import PropertyDeal
 from app.models.beesi import Beesi
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.forecast_override import ForecastOverride
@@ -66,6 +65,24 @@ _ZERO = Decimal("0")
 
 def current_period_key(today: Optional[date] = None) -> str:
     return (today or date.today()).strftime("%Y-%m")
+
+
+def _emi_effective_date(due_date: date) -> date:
+    """
+    Business rule: an EMI whose due date falls on the 1st or 2nd of a calendar
+    month is, financially, the obligation for the *previous* month — many
+    lenders schedule payment for the start of the next month but it represents
+    the prior month's interest/principal cycle.
+
+    Returns the date used for window-membership ("does it fall in this 30d
+    view?") and overdue / period-key calculations. The original `due_date`
+    is still surfaced to the user.
+    """
+    if due_date.day in (1, 2):
+        # last day of the previous calendar month
+        first_of_month = date(due_date.year, due_date.month, 1)
+        return first_of_month - timedelta(days=1)
+    return due_date
 
 
 def _month_periods_within(start: date, end: date) -> List[Tuple[date, date, str]]:
@@ -171,9 +188,12 @@ def _loan_inflow_items(
             remaining = float(entry["outstanding"] or 0)
             if remaining <= 0:
                 continue
-            is_overdue = dd < today
-            # include if overdue OR falls in window
-            if not is_overdue and (dd < from_dt or dd > to_dt):
+            eff = _emi_effective_date(dd)
+            is_overdue = eff < today
+            # Strict < boundary: EMI belongs in window if its *effective* date is
+            # in [from_dt, to_dt). 1st/2nd-of-month EMIs map to prev month-end so
+            # they correctly appear in the prior month's view.
+            if not is_overdue and not (from_dt <= eff < to_dt):
                 continue
             items.append({**base,
                 "id": f"loan_emi_in:{loan.id}:{entry['emi_number']}",
@@ -183,7 +203,7 @@ def _loan_inflow_items(
                 "due_date": dd.isoformat(),
                 "is_overdue": is_overdue,
                 "confidence": conf,
-                "period_key": dd.strftime("%Y-%m"),
+                "period_key": eff.strftime("%Y-%m"),
             })
         return items
 
@@ -212,9 +232,11 @@ def _loan_inflow_items(
             })
 
         # 2) upcoming interest, split per month within the window
+        # Strict < boundary: window is [from_dt, to_dt). Inclusive end = to_dt - 1 day.
         if conf in ("high", "medium"):
             future_start = max(from_dt, today)
-            for chunk_start, chunk_end, pk in _month_periods_within(future_start, to_dt):
+            window_end_inclusive = to_dt - timedelta(days=1)
+            for chunk_start, chunk_end, pk in _month_periods_within(future_start, window_end_inclusive):
                 days = (chunk_end - chunk_start).days + 1
                 if days <= 0:
                     continue
@@ -236,7 +258,7 @@ def _loan_inflow_items(
         if loan.expected_end_date:
             end_dt = loan.expected_end_date
             is_past = end_dt < today
-            if is_past or end_dt <= to_dt:
+            if is_past or end_dt < to_dt:
                 rem = _remaining_principal(loan)
                 if rem > 0:
                     items.append({**base,
@@ -259,7 +281,7 @@ def _loan_inflow_items(
         end = loan.expected_end_date or loan.interest_free_till
         if end:
             is_past = end < today
-            if is_past or end <= to_dt:
+            if is_past or end < to_dt:
                 items.append({**base,
                     "id": f"loan_st_in:{loan.id}",
                     "kind": "loan_principal",
@@ -309,8 +331,9 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
             remaining = float(entry["outstanding"] or 0)
             if remaining <= 0:
                 continue
-            is_overdue = dd < today
-            if not is_overdue and (dd < from_dt or dd > to_dt):
+            eff = _emi_effective_date(dd)
+            is_overdue = eff < today
+            if not is_overdue and not (from_dt <= eff < to_dt):
                 continue
             items.append({**base,
                 "id": f"loan_emi_out:{loan.id}:{entry['emi_number']}",
@@ -319,7 +342,7 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
                 "amount": remaining,
                 "due_date": dd.isoformat(),
                 "is_overdue": is_overdue,
-                "period_key": dd.strftime("%Y-%m"),
+                "period_key": eff.strftime("%Y-%m"),
             })
         return items
 
@@ -343,7 +366,8 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
             })
 
         future_start = max(from_dt, today)
-        for chunk_start, chunk_end, pk in _month_periods_within(future_start, to_dt):
+        window_end_inclusive = to_dt - timedelta(days=1)
+        for chunk_start, chunk_end, pk in _month_periods_within(future_start, window_end_inclusive):
             days = (chunk_end - chunk_start).days + 1
             if days <= 0:
                 continue
@@ -365,7 +389,7 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
             rem = _remaining_principal(loan)
             if rem > 0:
                 is_past = end_dt < today
-                if is_past or end_dt <= to_dt:
+                if is_past or end_dt < to_dt:
                     items.append({**base,
                         "id": f"loan_princ_out:{loan.id}",
                         "kind": "loan_principal",
@@ -385,7 +409,7 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
         end = loan.expected_end_date or loan.interest_free_till
         if end:
             is_past = end < today
-            if is_past or end <= to_dt:
+            if is_past or end < to_dt:
                 items.append({**base,
                     "id": f"loan_st_out:{loan.id}",
                     "kind": "loan_principal",
@@ -400,11 +424,15 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
 
 
 def _obligation_items(obl: MoneyObligation, today: date, from_dt: date, to_dt: date) -> List[dict]:
+    # Property-linked obligations belong to the Property Analytics page, not here.
+    if (obl.linked_type or "").lower() == "property":
+        return []
     remaining = _D(obl.amount) - _D(obl.amount_settled)
     if remaining <= _ZERO:
         return []
     is_overdue = bool(obl.due_date and obl.due_date < today)
-    in_window = (obl.due_date and from_dt <= obl.due_date <= to_dt) or (obl.due_date is None)
+    # Strict < boundary: an obligation due exactly on `to_dt` belongs to the next window.
+    in_window = (obl.due_date and from_dt <= obl.due_date < to_dt) or (obl.due_date is None)
     if not is_overdue and not in_window:
         return []
 
@@ -445,35 +473,6 @@ def _obligation_items(obl: MoneyObligation, today: date, from_dt: date, to_dt: d
     }]
 
 
-def _property_items(prop: PropertyDeal) -> List[dict]:
-    buyer_val = _D(prop.total_buyer_value)
-    if buyer_val <= 0:
-        return []
-    advance = _D(prop.advance_paid)
-    other = _D(getattr(prop, "other_expenses", None) or 0)
-    net_profit = buyer_val - _D(prop.total_seller_value) - _D(prop.broker_commission) - other
-    my_return = advance + net_profit
-    if my_return <= 0:
-        return []
-    return [{
-        "id": f"property_in:{prop.id}",
-        "kind": "property",
-        "direction": "inflow",
-        "entity_key": f"property:{prop.id}",
-        "entity_name": prop.title,
-        "entity_type": "property",
-        "entity_url": f"/properties/{prop.id}",
-        "linked_id": prop.id,
-        "linked_url": f"/properties/{prop.id}",
-        "label": "Advance + projected profit",
-        "amount": float(my_return),
-        "due_date": None,
-        "is_overdue": False,
-        "confidence": "low",
-        "period_key": date.today().strftime("%Y-%m"),
-    }]
-
-
 def _add_months(d: date, months: int) -> date:
     """Same month-day in d + months (clamped to month length)."""
     month0 = d.month - 1 + months
@@ -510,8 +509,9 @@ def _beesi_outflow_items(beesi: Beesi, today: date, from_dt: date, to_dt: date) 
         if n in paid_months:
             continue
         approx_due = _add_months(beesi.start_date, n - 1)
-        is_overdue = approx_due < today
-        if not is_overdue and (approx_due < from_dt or approx_due > to_dt):
+        eff = _emi_effective_date(approx_due)  # apply 1st/2nd-of-month rule for beesi too
+        is_overdue = eff < today
+        if not is_overdue and not (from_dt <= eff < to_dt):
             continue
         items.append({
             "id": f"beesi_out:{beesi.id}:{n}",
@@ -528,7 +528,7 @@ def _beesi_outflow_items(beesi: Beesi, today: date, from_dt: date, to_dt: date) 
             "due_date": approx_due.isoformat(),
             "is_overdue": is_overdue,
             "confidence": "high",
-            "period_key": approx_due.strftime("%Y-%m"),
+            "period_key": eff.strftime("%Y-%m"),
         })
     return items
 
@@ -809,13 +809,6 @@ def build_forecast(db: Session, user_id: int, from_date: date, to_date: date) ->
     ).all()
     for obl in obls:
         items.extend(_obligation_items(obl, today, from_date, to_date))
-
-    properties = db.query(PropertyDeal).filter(
-        PropertyDeal.is_deleted == False,
-        PropertyDeal.status.notin_(["settled", "cancelled"]),
-    ).all()
-    for prop in properties:
-        items.extend(_property_items(prop))
 
     beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active").all()
     for b in beesis:

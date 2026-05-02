@@ -9,7 +9,7 @@
  * not actually settled reappear in next month's forecast as overdue (driven
  * by the underlying loan/obligation data).
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -50,6 +50,116 @@ function buildParams(mode, preset, days, fromDate, toDate, monthEnd) {
   return { timeframe: "30d" };
 }
 
+/* ── Cache patching helpers ─────────────────────────────────────
+ * The forecast response is a deeply-nested tree. Mutating it
+ * through React Query's setQueryData with these helpers lets us
+ * apply optimistic updates without refetching — the entire panel
+ * recomputes locally in O(items), and only changed group/item
+ * references trigger a child re-render thanks to memo() below.
+ * ─────────────────────────────────────────────────────────────── */
+const sumBy = (arr, k) => arr.reduce((s, g) => s + (g[k] || 0), 0);
+
+function recomputeGroup(g) {
+  let calc = 0, expected = 0, fulfilled = 0, skipped = 0;
+  let hasOverdue = false;
+  for (const it of g.items) {
+    calc += it.effective_amount;
+    if (it.is_overdue) hasOverdue = true;
+    const ov = it.override;
+    if (ov?.status === "fulfilled") fulfilled += it.effective_amount;
+    else if (ov?.status === "skipped" || ov?.included === false) skipped += it.effective_amount;
+    else expected += it.effective_amount;
+  }
+  return {
+    ...g,
+    calculated_total: calc,
+    expected_total: expected,
+    fulfilled_total: fulfilled,
+    skipped_total: skipped,
+    has_overdue: hasOverdue,
+  };
+}
+
+function recomputeForecast(data) {
+  const inflow_groups = data.inflow_groups.map(recomputeGroup);
+  const outflow_groups = data.outflow_groups.map(recomputeGroup);
+  const expected_inflow = sumBy(inflow_groups, "expected_total");
+  const required_outflow = sumBy(outflow_groups, "expected_total");
+  return {
+    ...data,
+    inflow_groups,
+    outflow_groups,
+    totals: {
+      ...data.totals,
+      expected_inflow,
+      fulfilled_inflow: sumBy(inflow_groups, "fulfilled_total"),
+      required_outflow,
+      fulfilled_outflow: sumBy(outflow_groups, "fulfilled_total"),
+      net_liquidity: expected_inflow - required_outflow,
+    },
+  };
+}
+
+function patchItem(data, itemId, mutator) {
+  let touched = false;
+  const patchItems = (items) =>
+    items.map((it) => {
+      if (it.id !== itemId) return it;
+      touched = true;
+      return mutator(it);
+    });
+  const patchGroup = (g) => {
+    const newItems = patchItems(g.items);
+    return newItems === g.items ? g : { ...g, items: newItems };
+  };
+  const next = {
+    ...data,
+    inflow_groups: data.inflow_groups.map(patchGroup),
+    outflow_groups: data.outflow_groups.map(patchGroup),
+  };
+  return touched ? recomputeForecast(next) : data;
+}
+
+/** Apply an upsert/fulfill/clear locally so totals update before the network round-trip. */
+function applyOverrideMutator(action, body) {
+  return (it) => {
+    if (action === "clear") {
+      const { effective_amount: _, ...rest } = it;
+      return { ...rest, override: null, effective_amount: it.amount };
+    }
+    const prev = it.override || { included: true, status: "pending" };
+    if (action === "fulfill") {
+      return {
+        ...it,
+        override: {
+          ...prev,
+          included: true,
+          status: "fulfilled",
+          fulfilled_amount: parseFloat(body.fulfilled_amount),
+          fulfilled_at: body.fulfilled_at || new Date().toISOString().slice(0, 10),
+          notes: body.notes ?? prev.notes ?? null,
+        },
+      };
+    }
+    // upsert
+    let nextOv = { ...prev };
+    if (body.included !== undefined) {
+      nextOv.included = body.included;
+      if (body.included === false && nextOv.status !== "fulfilled") nextOv.status = "skipped";
+      else if (body.included === true && nextOv.status === "skipped") nextOv.status = "pending";
+    }
+    if (body.amount_override !== undefined) {
+      nextOv.amount_override = parseFloat(body.amount_override);
+    }
+    if (body.notes !== undefined) nextOv.notes = body.notes;
+    const eff =
+      nextOv.amount_override != null && !Number.isNaN(nextOv.amount_override)
+        ? nextOv.amount_override
+        : it.amount;
+    return { ...it, override: nextOv, effective_amount: eff };
+  };
+}
+
 /* ── Page ──────────────────────────────────────────────────── */
 export default function Forecast() {
   const qc = useQueryClient();
@@ -60,25 +170,42 @@ export default function Forecast() {
   const [toDate, setToDate] = useState("");
 
   const params = buildParams(mode, preset, customDays, fromDate, toDate);
+  const queryKey = useMemo(() => ["forecast", params], [JSON.stringify(params)]);
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["forecast", params],
+    queryKey,
     queryFn: async () => (await api.get("/api/forecast", { params })).data,
     placeholderData: (prev) => prev,
   });
 
-  const upsertMutation = useMutation({
-    mutationFn: (body) => api.post("/api/forecast/overrides", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["forecast"] }),
-  });
-  const fulfillMutation = useMutation({
-    mutationFn: (body) => api.post("/api/forecast/overrides/fulfill", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["forecast"] }),
-  });
-  const clearMutation = useMutation({
-    mutationFn: (body) => api.post("/api/forecast/overrides/clear", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["forecast"] }),
-  });
+  // Optimistic mutation factory: patch the cache before the network call,
+  // roll back on error. Avoids a full refetch (and the laggy re-render of
+  // the entire grouped tree) on every checkbox click.
+  const makeMutation = (path, action) =>
+    useMutation({
+      mutationFn: (body) => api.post(path, body),
+      onMutate: async (body) => {
+        await qc.cancelQueries({ queryKey });
+        const prev = qc.getQueryData(queryKey);
+        if (prev) {
+          qc.setQueryData(queryKey, patchItem(prev, body.item_id, applyOverrideMutator(action, body)));
+        }
+        return { prev };
+      },
+      onError: (_err, _body, ctx) => {
+        if (ctx?.prev) qc.setQueryData(queryKey, ctx.prev);
+      },
+      // No onSuccess invalidation — the optimistic patch is authoritative
+      // until the next user-triggered refetch (timeframe change, page revisit).
+    });
+
+  const upsertMutation = makeMutation("/api/forecast/overrides", "upsert");
+  const fulfillMutation = makeMutation("/api/forecast/overrides/fulfill", "fulfill");
+  const clearMutation = makeMutation("/api/forecast/overrides/clear", "clear");
+
+  const onUpsert = useCallback((body) => upsertMutation.mutate(body), [upsertMutation]);
+  const onFulfill = useCallback((body) => fulfillMutation.mutate(body), [fulfillMutation]);
+  const onClear = useCallback((body) => clearMutation.mutate(body), [clearMutation]);
 
   if (isLoading || !data) {
     return (
@@ -146,19 +273,17 @@ export default function Forecast() {
             title="Money Coming In"
             tone="emerald"
             groups={data.inflow_groups}
-            interactive
-            onUpsert={(body) => upsertMutation.mutate(body)}
-            onFulfill={(body) => fulfillMutation.mutate(body)}
-            onClear={(body) => clearMutation.mutate(body)}
+            onUpsert={onUpsert}
+            onFulfill={onFulfill}
+            onClear={onClear}
           />
           <ColumnSection
             title="Money Going Out"
             tone="rose"
             groups={data.outflow_groups}
-            interactive={false}
-            onUpsert={(body) => upsertMutation.mutate(body)}
-            onFulfill={(body) => fulfillMutation.mutate(body)}
-            onClear={(body) => clearMutation.mutate(body)}
+            onUpsert={onUpsert}
+            onFulfill={onFulfill}
+            onClear={onClear}
           />
         </div>
 
@@ -363,7 +488,7 @@ function Mini({ label, value, sub, bold, tone }) {
 }
 
 /* ── Column Section ────────────────────────────────────────── */
-function ColumnSection({ title, tone, groups, interactive, onUpsert, onFulfill, onClear }) {
+const ColumnSection = memo(function ColumnSection({ title, tone, groups, onUpsert, onFulfill, onClear }) {
   const total = useMemo(
     () => (groups || []).reduce((s, g) => s + g.expected_total, 0),
     [groups],
@@ -402,7 +527,6 @@ function ColumnSection({ title, tone, groups, interactive, onUpsert, onFulfill, 
               key={g.key}
               group={g}
               tone={tone}
-              interactive={interactive}
               onUpsert={onUpsert}
               onFulfill={onFulfill}
               onClear={onClear}
@@ -412,10 +536,10 @@ function ColumnSection({ title, tone, groups, interactive, onUpsert, onFulfill, 
       )}
     </div>
   );
-}
+});
 
 /* ── Entity Accordion Card ─────────────────────────────────── */
-function EntityCard({ group, tone, interactive, onUpsert, onFulfill, onClear }) {
+const EntityCard = memo(function EntityCard({ group, tone, onUpsert, onFulfill, onClear }) {
   const [open, setOpen] = useState(group.has_overdue);
   const c = tone === "rose" ? "text-rose-700" : "text-emerald-700";
 
@@ -458,7 +582,6 @@ function EntityCard({ group, tone, interactive, onUpsert, onFulfill, onClear }) 
               key={it.id}
               item={it}
               tone={tone}
-              interactive={interactive}
               onUpsert={onUpsert}
               onFulfill={onFulfill}
               onClear={onClear}
@@ -468,10 +591,10 @@ function EntityCard({ group, tone, interactive, onUpsert, onFulfill, onClear }) 
       )}
     </li>
   );
-}
+});
 
 /* ── Item Row (with override controls) ─────────────────────── */
-function ItemRow({ item, tone, interactive, onUpsert, onFulfill, onClear }) {
+const ItemRow = memo(function ItemRow({ item, tone, onUpsert, onFulfill, onClear }) {
   const ov = item.override;
   const isFulfilled = ov?.status === "fulfilled";
   const isSkipped = ov?.status === "skipped" || ov?.included === false;
@@ -488,19 +611,15 @@ function ItemRow({ item, tone, interactive, onUpsert, onFulfill, onClear }) {
     <li className={`px-4 py-2.5 flex flex-wrap items-center gap-2 hover:bg-white ${
       item.is_overdue ? "border-l-2 border-rose-400" : ""
     } ${isFulfilled ? "opacity-60" : ""}`}>
-      {/* include toggle */}
-      {interactive ? (
-        <input
-          type="checkbox"
-          checked={!isSkipped && !isFulfilled}
-          disabled={isFulfilled}
-          onChange={(e) => onUpsert({ item_id: item.id, included: e.target.checked })}
-          title={isFulfilled ? "Already fulfilled" : "Include in projected total"}
-          className="accent-indigo-600 shrink-0"
-        />
-      ) : (
-        <span className="w-4 shrink-0" />
-      )}
+      {/* include toggle (works for both inflows and outflows) */}
+      <input
+        type="checkbox"
+        checked={!isSkipped && !isFulfilled}
+        disabled={isFulfilled}
+        onChange={(e) => onUpsert({ item_id: item.id, included: e.target.checked })}
+        title={isFulfilled ? "Already fulfilled" : "Include in totals"}
+        className="accent-indigo-600 shrink-0"
+      />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
@@ -560,10 +679,10 @@ function ItemRow({ item, tone, interactive, onUpsert, onFulfill, onClear }) {
           </div>
         ) : (
           <button
-            onClick={() => interactive && setEditingAmount(true)}
-            disabled={!interactive || isFulfilled}
-            className={`text-right ${interactive && !isFulfilled ? "hover:bg-indigo-50 px-2 py-0.5 rounded cursor-text" : ""}`}
-            title={interactive ? "Click to override amount" : ""}
+            onClick={() => !isFulfilled && setEditingAmount(true)}
+            disabled={isFulfilled}
+            className={`text-right ${!isFulfilled ? "hover:bg-indigo-50 px-2 py-0.5 rounded cursor-text" : ""}`}
+            title="Click to override expected amount"
           >
             <span className={`text-sm font-bold ${c}`}>
               {formatCurrency(item.effective_amount)}
@@ -578,26 +697,28 @@ function ItemRow({ item, tone, interactive, onUpsert, onFulfill, onClear }) {
       </div>
 
       {/* row actions */}
-      {interactive && (
-        <div className="w-full flex items-center justify-end gap-1.5 mt-1">
-          {!isFulfilled && (
-            <button
-              onClick={() => { setFulfillAmt(item.effective_amount); setShowFulfill(true); }}
-              className="text-[10px] px-2 py-0.5 rounded border bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-            >
-              Mark fulfilled
-            </button>
-          )}
-          {ov && (
-            <button
-              onClick={() => onClear({ item_id: item.id })}
-              className="text-[10px] px-2 py-0.5 rounded border bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-            >
-              Reset
-            </button>
-          )}
-        </div>
-      )}
+      <div className="w-full flex items-center justify-end gap-1.5 mt-1">
+        {!isFulfilled && (
+          <button
+            onClick={() => { setFulfillAmt(item.effective_amount); setShowFulfill(true); }}
+            className={`text-[10px] px-2 py-0.5 rounded border bg-white ${
+              tone === "rose"
+                ? "border-rose-200 text-rose-700 hover:bg-rose-50"
+                : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            }`}
+          >
+            {tone === "rose" ? "Mark paid" : "Mark received"}
+          </button>
+        )}
+        {ov && (
+          <button
+            onClick={() => onClear({ item_id: item.id })}
+            className="text-[10px] px-2 py-0.5 rounded border bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          >
+            Reset
+          </button>
+        )}
+      </div>
 
       {showFulfill && (
         <div className="w-full mt-2 p-2 bg-white rounded border border-emerald-200 flex flex-wrap items-center gap-2">
@@ -630,7 +751,7 @@ function ItemRow({ item, tone, interactive, onUpsert, onFulfill, onClear }) {
       )}
     </li>
   );
-}
+});
 
 /* ── Tooltip ───────────────────────────────────────────────── */
 function TimelineTooltip({ active, payload }) {
