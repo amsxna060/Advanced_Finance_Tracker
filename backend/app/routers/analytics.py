@@ -2565,6 +2565,10 @@ def _empty_buckets():
         "remaining_area": 0.0,
         # Capital metrics
         "partner_advances": 0.0,
+        # Seller-payment breakdown
+        "paid_to_seller": 0.0,
+        "paid_to_seller_advance": 0.0,
+        "paid_to_seller_additional": 0.0,
         # Set in _compute_property_buckets when applicable
         "registered_buyer_value": 0.0,
         "is_partial_projection": False,
@@ -2580,36 +2584,81 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
     broker = float(_D(deal.broker_commission))
     other_exp = float(_D(deal.other_expenses))
 
+    # ── Aggregate paid-to-seller across BOTH PropertyTransactions and PartnershipTransactions
+    # of any linked partnership. Earlier code only looked at PropertyTransactions, missing
+    # additional payments partners made directly via the partnership ledger.
+    deal_advance = float(_D(deal.advance_paid))
+    advance_to_seller_txns = 0.0   # sum of "advance_to_seller" txns (across both tables)
+    additional_to_seller = 0.0     # payment_to_seller + remaining_to_seller (across both tables)
+    paid_broker = 0.0
+    paid_expenses = 0.0
+    received_from_buyer = 0.0      # buyer payments across both tables (deduplicated source)
+
     txns = (
         db.query(PropertyTransaction)
         .filter(PropertyTransaction.property_deal_id == deal.id)
         .all()
     )
-    paid_to_seller = 0.0
-    received_from_buyer = 0.0
-    paid_out = 0.0
-    received_in = 0.0
+    has_property_buyer_txns = False
     for t in txns:
         amt = float(_D(t.amount))
         ty = t.txn_type or ""
-        if ty in ("advance_to_seller", "payment_to_seller", "remaining_to_seller"):
-            paid_to_seller += amt
-            paid_out += amt
-        elif ty in ("commission_paid", "broker_commission", "expense", "other_expense", "refund"):
-            paid_out += amt
+        if ty == "advance_to_seller":
+            advance_to_seller_txns += amt
+        elif ty in ("payment_to_seller", "remaining_to_seller"):
+            additional_to_seller += amt
+        elif ty in ("commission_paid", "broker_commission"):
+            paid_broker += amt
+        elif ty in ("expense", "other_expense", "refund"):
+            paid_expenses += amt
         elif ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
             received_from_buyer += amt
-            received_in += amt
+            has_property_buyer_txns = True
 
-    # Fallback for partnership-managed deals that store no PropertyTransactions directly.
-    # Use synced fields written by _sync_property_from_partnership.
-    if not txns:
-        paid_to_seller = float(_D(deal.advance_paid))
-        paid_out = paid_to_seller
-        linked_p = db.query(Partnership).filter(
-            Partnership.linked_property_deal_id == deal.id,
-            Partnership.is_deleted == False,
-        ).first()
+    # Pull from linked partnerships' transaction ledger
+    linked_partnerships_for_buckets = db.query(Partnership).filter(
+        Partnership.linked_property_deal_id == deal.id,
+        Partnership.is_deleted == False,
+    ).all()
+    p_buyer_received = 0.0
+    for lp in linked_partnerships_for_buckets:
+        for t in db.query(PartnershipTransaction).filter(
+            PartnershipTransaction.partnership_id == lp.id
+        ).all():
+            amt = float(_D(t.amount))
+            ty = t.txn_type or ""
+            if ty == "advance_to_seller":
+                advance_to_seller_txns += amt
+            elif ty in ("payment_to_seller", "remaining_to_seller"):
+                additional_to_seller += amt
+            elif ty in ("broker_commission", "broker_paid"):
+                paid_broker += amt
+            elif ty in ("expense", "other_expense"):
+                paid_expenses += amt
+            elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
+                p_buyer_received += amt
+
+    # Buyer receipts: prefer property-level numbers when present (they're the canonical record).
+    # Otherwise fall back to partnership-level buyer payments to avoid undercounting.
+    if not has_property_buyer_txns and p_buyer_received > 0:
+        received_from_buyer = p_buyer_received
+
+    # Resolve advance vs additional split.
+    # If deal.advance_paid is set, it represents the initial token; treat any extra
+    # advance_to_seller transactions as additional payments.
+    if deal_advance > 0:
+        advance_to_seller = deal_advance
+        additional_to_seller += max(0.0, advance_to_seller_txns - deal_advance)
+    else:
+        advance_to_seller = advance_to_seller_txns
+
+    paid_to_seller = advance_to_seller + additional_to_seller
+    paid_out = paid_to_seller + paid_broker + paid_expenses
+    received_in = received_from_buyer
+
+    # Final fallback for legacy data with no transactions at all
+    if not txns and p_buyer_received == 0:
+        linked_p = linked_partnerships_for_buckets[0] if linked_partnerships_for_buckets else None
         if linked_p:
             received_in = float(_D(linked_p.total_received))
             received_from_buyer = received_in
@@ -2658,6 +2707,9 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
     b["sold_area"] = round(min(sold_area, total_land_area) if total_land_area else sold_area, 2)
     b["remaining_area"] = round(max(0.0, total_land_area - sold_area), 2)
 
+    b["paid_to_seller"] = round(paid_to_seller, 2)
+    b["paid_to_seller_advance"] = round(advance_to_seller, 2)
+    b["paid_to_seller_additional"] = round(additional_to_seller, 2)
     b["to_pay_to_seller"] = round(max(0.0, seller_value - paid_to_seller), 2)
     b["already_paid_out"] = round(paid_out, 2)
     b["already_received"] = round(received_in, 2)
@@ -2713,14 +2765,17 @@ def _compute_partnership_member_breakdown(
     for m in members:
         share_pct = float(_D(m.share_percentage))
 
-        # Their declared investment share — only this field counts as "own money in"
+        # Capital they put in as their advance share (the only "investment" amount we trust;
+        # legacy "invested" / "advance_given" txns are NOT added here to avoid double-counting).
         own_invested = float(_D(m.advance_contributed))
 
-        # Buyer money received by this member (they're holding it on behalf of the pot)
+        # Buyer money received by this member (pot money sitting with them)
         collected_from_buyers = 0.0
-        # All outflows they made (seller payments, expenses) — from own pocket or collected funds
-        all_paid_out = 0.0
-        # Partner transfers
+        # Money they paid TO the property seller (only)
+        paid_to_seller_by_member = 0.0
+        # Other pot expenses (broker, misc) — kept for legacy/back-compat
+        other_paid_out = 0.0
+        # Partner-to-partner transfers
         transferred_out = 0.0
         transferred_in = 0.0
 
@@ -2729,11 +2784,13 @@ def _compute_partnership_member_breakdown(
             ty = t.txn_type or ""
 
             if t.member_id == m.id:
-                # "invested" is intentionally excluded — it's the same money as
-                # advance_contributed and counting it here would double-count.
-                if ty in ("advance_to_seller", "remaining_to_seller", "broker_commission",
-                          "expense", "other_expense", "advance_given", "broker_paid"):
-                    all_paid_out += amt
+                if ty in ("advance_to_seller", "remaining_to_seller", "payment_to_seller"):
+                    paid_to_seller_by_member += amt
+                elif ty in ("broker_commission", "broker_paid", "expense", "other_expense"):
+                    other_paid_out += amt
+                # NOTE: "invested" and "advance_given" intentionally excluded — they represent
+                # the same capital that's already captured in advance_contributed; counting them
+                # here causes the "Net Outflow doubling" bug.
                 elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
                     collected_from_buyers += amt
                 elif ty == "partner_transfer":
@@ -2753,17 +2810,26 @@ def _compute_partnership_member_breakdown(
             if ty in ("received_from_buyer", "sale_proceeds", "buyer_payment", "buyer_advance"):
                 collected_from_buyers += amt
 
+        # Total outflows they personally moved through their hands (seller + broker + expenses).
+        all_paid_out = paid_to_seller_by_member + other_paid_out
+
+        # Current Holding (per spec):
+        #   = (received from buyers) + (received from other partners)
+        #     − (paid to other partners) − (paid to property seller)
+        current_holding = round(
+            collected_from_buyers + transferred_in - transferred_out - paid_to_seller_by_member,
+            2,
+        )
+
+        # Legacy "net_holding" = collected − all_paid_out (kept for back-compat fields)
         net_holding = round(collected_from_buyers - all_paid_out, 2)
 
-        # projected_share: what they're entitled to from the deal's net profit
         projected_share = round(projected_net_profit * share_pct / 100.0, 2)
-        # settlement_balance: positive = pot will pay them this more; negative = they owe pot
-        # Logic: at settlement they hand in their net_holding and receive their projected_share.
-        settlement_balance = round(projected_share - net_holding, 2)
+        settlement_balance = round(projected_share - current_holding, 2)
 
-        if net_holding > 1e-2:
+        if current_holding > 1e-2:
             holding_status = "holding_pot_money"
-        elif (own_invested + all_paid_out) > (collected_from_buyers + transferred_in) + 1e-2:
+        elif own_invested > (collected_from_buyers + transferred_in) + 1e-2:
             holding_status = "pot_owes_them"
         else:
             holding_status = "balanced"
@@ -2775,19 +2841,22 @@ def _compute_partnership_member_breakdown(
             "share_percentage": share_pct,
             "own_invested": round(own_invested, 2),
             "collected_from_buyers": round(collected_from_buyers, 2),
+            "paid_to_seller": round(paid_to_seller_by_member, 2),
+            "other_paid_out": round(other_paid_out, 2),
             "all_paid_out": round(all_paid_out, 2),
+            "current_holding": current_holding,
             "net_holding": net_holding,
             "transferred_out": round(transferred_out, 2),
             "transferred_in": round(transferred_in, 2),
             "projected_share": projected_share,
             "settlement_balance": settlement_balance,
-            # Legacy aliases kept for backward compat with frontend fallback chains
+            # Legacy aliases for back-compat
             "contributed": round(own_invested, 2),
             "advance_contributed": round(own_invested, 2),
             "paid_for_pot": round(all_paid_out, 2),
             "received_out": round(transferred_in, 2),
             "collected_for_pot": round(collected_from_buyers, 2),
-            "currently_holding": net_holding,
+            "currently_holding": current_holding,
             "final_settlement": settlement_balance,
             "status": holding_status,
         })
@@ -3233,8 +3302,11 @@ def property_analytics(
                 "is_self": row["is_self"],
                 "own_invested": 0.0,
                 "collected_from_buyers": 0.0,
+                "paid_to_seller": 0.0,
+                "other_paid_out": 0.0,
                 "all_paid_out": 0.0,
                 "net_holding": 0.0,
+                "current_holding": 0.0,
                 "transferred_out": 0.0,
                 "transferred_in": 0.0,
                 # Legacy aliases
@@ -3245,7 +3317,8 @@ def property_analytics(
                 "projected_share": 0.0,
                 "final_settlement": 0.0,
             })
-            for fld in ("own_invested", "collected_from_buyers", "all_paid_out", "net_holding",
+            for fld in ("own_invested", "collected_from_buyers", "paid_to_seller", "other_paid_out",
+                        "all_paid_out", "net_holding", "current_holding",
                         "transferred_out", "transferred_in", "contributed", "received_out",
                         "collected_for_pot", "currently_holding", "projected_share", "final_settlement"):
                 agg[fld] = agg[fld] + row.get(fld, 0.0)

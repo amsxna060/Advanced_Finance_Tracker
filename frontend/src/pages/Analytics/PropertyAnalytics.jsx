@@ -132,6 +132,32 @@ function AreaMetricsGroup({ buckets }) {
   );
 }
 
+function PaidToSellerCard({ buckets }) {
+  const total = buckets.paid_to_seller ?? buckets.already_paid_out ?? 0;
+  const advance = buckets.paid_to_seller_advance ?? 0;
+  const additional = buckets.paid_to_seller_additional ?? 0;
+  return (
+    <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-700">
+          Paid to Seller
+        </span>
+        <span className="text-xl">💸</span>
+      </div>
+      <div className="text-xl font-bold text-rose-900">{formatCurrency(total)}</div>
+      <div className="text-[11px] text-rose-700/80 mt-1.5 flex items-center gap-1.5 flex-wrap">
+        <span>
+          Advance: <span className="font-semibold">{formatCurrency(advance)}</span>
+        </span>
+        <span className="text-rose-300">|</span>
+        <span>
+          Additional: <span className="font-semibold">{formatCurrency(additional)}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function FinancialMetricsGroup({ buckets }) {
   return (
     <div>
@@ -158,13 +184,7 @@ function FinancialMetricsGroup({ buckets }) {
           icon="🤝"
           color={{ border: "border-purple-200", bg: "bg-purple-50", label: "text-purple-700", amount: "text-purple-900" }}
         />
-        <SummaryCard
-          title="Paid to Seller"
-          value={formatCurrency(buckets.already_paid_out)}
-          sub="Sent to seller so far"
-          icon="💸"
-          color={{ border: "border-rose-200", bg: "bg-rose-50", label: "text-rose-700", amount: "text-rose-900" }}
-        />
+        <PaidToSellerCard buckets={buckets} />
         <SummaryCard
           title="Remaining to Pay Seller"
           value={formatCurrency(buckets.to_pay_to_seller)}
@@ -172,19 +192,108 @@ function FinancialMetricsGroup({ buckets }) {
           icon="📤"
           color={{ border: "border-red-200", bg: "bg-red-50", label: "text-red-700", amount: "text-red-900" }}
         />
-        <SummaryCard
-          title="Projected Net Profit"
-          value={formatCurrency(buckets.projected_net_profit)}
-          sub="After broker + expenses"
-          icon="💎"
-          color={{ border: "border-blue-200", bg: "bg-blue-50", label: "text-blue-700", amount: "text-blue-900" }}
-        />
       </div>
     </div>
   );
 }
 
-// ── Buyers (expandable rows) ─────────────────────────────────────────────────
+// ── Buyers (SaaS-style data table with expandable rows) ──────────────────────
+
+const STATUS_BADGE = {
+  payment_done: { label: "Payment Done", cls: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  fully_paid: { label: "Fully Paid", cls: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  registered: { label: "Registered", cls: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  registry_done: { label: "Registry Done", cls: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  sold: { label: "Sold", cls: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  advance_received: { label: "Advance Received", cls: "bg-amber-50 text-amber-700 ring-amber-600/20" },
+  negotiating: { label: "Negotiating", cls: "bg-slate-50 text-slate-700 ring-slate-500/20" },
+  available: { label: "Available", cls: "bg-blue-50 text-blue-700 ring-blue-600/20" },
+};
+
+function StatusBadge({ status }) {
+  if (!status) return null;
+  const meta = STATUS_BADGE[status] || {
+    label: status.replace(/_/g, " "),
+    cls: "bg-slate-50 text-slate-700 ring-slate-500/20",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset capitalize ${meta.cls}`}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function ProgressBar({ value, total }) {
+  const pct = total > 0 ? Math.min(100, (value / total) * 100) : 0;
+  return (
+    <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+      <div
+        className={`h-full transition-all ${
+          pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-500" : "bg-rose-400"
+        }`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+function BuyerTransactionsTable({ txns }) {
+  if (!txns || txns.length === 0) {
+    return (
+      <div className="text-xs text-slate-500 italic px-4 py-3">
+        No transactions recorded for this buyer.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-slate-100/60 text-[10px] uppercase tracking-wider text-slate-500">
+            <th className="text-left font-semibold px-4 py-2 w-28">Date</th>
+            <th className="text-right font-semibold px-3 py-2 w-32">Amount</th>
+            <th className="text-left font-semibold px-3 py-2">Notes</th>
+            <th className="text-left font-semibold px-3 py-2 w-40">Partner</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200/70">
+          {txns.map((t, i) => (
+            <tr key={i} className="hover:bg-white/60">
+              <td className="px-4 py-2.5 text-slate-700 tabular-nums whitespace-nowrap">
+                {formatDate(t.date)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold text-emerald-700 tabular-nums whitespace-nowrap">
+                +{formatCurrency(t.amount)}
+              </td>
+              <td className="px-3 py-2.5 text-slate-700">
+                <div className="font-medium text-slate-800">{txnLabel(t.type)}</div>
+                {(t.description || t.payment_mode) && (
+                  <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    {t.description && <span className="italic">{t.description}</span>}
+                    {t.payment_mode && (
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 bg-slate-100 text-slate-600 uppercase text-[9px] tracking-wider font-medium">
+                        {t.payment_mode}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </td>
+              <td className="px-3 py-2.5 text-slate-700">
+                {t.received_by ? (
+                  <span className="font-medium text-slate-800">{t.received_by}</span>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function BuyerRow({ buyer }) {
   const [open, setOpen] = useState(false);
@@ -192,95 +301,105 @@ function BuyerRow({ buyer }) {
   const hasTxns = txns.length > 0;
 
   return (
-    <div className="border-t border-slate-100 first:border-t-0">
-      <button
-        type="button"
+    <>
+      <tr
+        className={`group transition-colors ${
+          hasTxns ? "cursor-pointer hover:bg-slate-50/70" : ""
+        } ${open ? "bg-slate-50/70" : ""}`}
         onClick={() => hasTxns && setOpen((v) => !v)}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${
-          hasTxns ? "hover:bg-slate-50 cursor-pointer" : "cursor-default"
-        }`}
       >
-        <span
-          className={`shrink-0 w-4 text-slate-400 transition-transform ${open ? "rotate-90" : ""} ${
-            hasTxns ? "" : "opacity-30"
-          }`}
-        >
-          ▶
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-slate-800 truncate">{buyer.name}</div>
-          <div className="text-xs text-slate-500">
+        <td className="px-4 py-3 align-middle w-8">
+          <span
+            className={`inline-block text-slate-400 transition-transform duration-150 ${
+              open ? "rotate-90" : ""
+            } ${hasTxns ? "group-hover:text-slate-600" : "opacity-20"}`}
+          >
+            ▸
+          </span>
+        </td>
+        <td className="px-3 py-3 align-middle">
+          <div className="font-medium text-slate-900 text-sm">{buyer.name}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
             {formatArea(buyer.area_sqft)}
-            {buyer.rate_per_sqft > 0 && ` @ ₹${buyer.rate_per_sqft}/sqft`}
-            {buyer.status && ` · ${buyer.status}`}
+            {buyer.rate_per_sqft > 0 && (
+              <span className="text-slate-400"> · ₹{buyer.rate_per_sqft.toLocaleString("en-IN")}/sqft</span>
+            )}
           </div>
-        </div>
-        <div className="hidden sm:block text-right">
-          <div className="text-xs text-slate-500">Total</div>
-          <div className="font-semibold text-slate-800">{formatCurrency(buyer.total_value)}</div>
-        </div>
-        <div className="hidden md:block text-right">
-          <div className="text-xs text-slate-500">Paid</div>
-          <div className="font-semibold text-emerald-700">{formatCurrency(buyer.paid)}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-slate-500">Outstanding</div>
-          <div className={`font-semibold ${buyer.outstanding > 0 ? "text-amber-700" : "text-slate-500"}`}>
+        </td>
+        <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap">
+          <div className="text-sm font-semibold text-slate-900">
+            {formatCurrency(buyer.total_value)}
+          </div>
+        </td>
+        <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap">
+          <div className="text-sm font-semibold text-emerald-700">
+            {formatCurrency(buyer.paid)}
+          </div>
+          <div className="mt-1 max-w-[100px] ml-auto">
+            <ProgressBar value={buyer.paid} total={buyer.total_value} />
+          </div>
+        </td>
+        <td className="px-3 py-3 text-right align-middle tabular-nums whitespace-nowrap">
+          <div
+            className={`text-sm font-semibold ${
+              buyer.outstanding > 0 ? "text-amber-700" : "text-slate-400"
+            }`}
+          >
             {formatCurrency(buyer.outstanding)}
           </div>
-        </div>
-      </button>
+        </td>
+        <td className="px-3 py-3 align-middle whitespace-nowrap">
+          <StatusBadge status={buyer.status} />
+        </td>
+        <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+          <span className="text-[11px] text-slate-400">
+            {hasTxns ? `${txns.length} txn${txns.length === 1 ? "" : "s"}` : "—"}
+          </span>
+        </td>
+      </tr>
       {open && hasTxns && (
-        <div className="bg-slate-50 px-12 py-3 border-t border-slate-100">
-          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            Transactions ({txns.length})
-          </div>
-          <div className="space-y-1.5">
-            {txns.map((t, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm"
-              >
-                <span className="text-xs text-slate-500 w-24 shrink-0">{formatDate(t.date)}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="font-medium text-slate-800">{txnLabel(t.type)}</span>
-                  {t.received_by && (
-                    <span className="text-xs text-slate-500 ml-2">
-                      → received by <span className="font-medium text-slate-700">{t.received_by}</span>
-                    </span>
-                  )}
-                  {t.payment_mode && (
-                    <span className="text-[10px] text-slate-400 ml-2 uppercase">{t.payment_mode}</span>
-                  )}
-                  {t.description && (
-                    <div className="text-xs text-slate-500 italic mt-0.5 truncate">{t.description}</div>
-                  )}
-                </span>
-                <span className="font-semibold text-emerald-700 tabular-nums shrink-0">
-                  +{formatCurrency(t.amount)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <tr className="bg-slate-50/40">
+          <td colSpan={7} className="p-0">
+            <div className="border-t border-slate-200">
+              <BuyerTransactionsTable txns={txns} />
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   );
 }
 
 function BuyersAccordion({ buyers }) {
   if (!buyers || buyers.length === 0) {
     return (
-      <div className="text-sm text-slate-500 italic p-4 bg-slate-50 rounded-lg border border-slate-200">
+      <div className="text-sm text-slate-500 italic p-6 bg-white rounded-xl border border-dashed border-slate-300 text-center">
         No buyers registered yet.
       </div>
     );
   }
   return (
-    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-      {buyers.map((b) => (
-        <BuyerRow key={`${b.kind}-${b.id}`} buyer={b} />
-      ))}
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-slate-50/70 border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-500">
+              <th className="px-4 py-2.5 w-8" />
+              <th className="px-3 py-2.5 text-left font-semibold">Buyer</th>
+              <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Total Value</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Paid</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Outstanding</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Status</th>
+              <th className="px-4 py-2.5 text-right font-semibold w-20">Activity</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {buyers.map((b) => (
+              <BuyerRow key={`${b.kind}-${b.id}`} buyer={b} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -336,19 +455,16 @@ function PartnerEvents({ events }) {
 
 function PartnerCard({ member }) {
   const [open, setOpen] = useState(false);
-  const ownInvested = member.own_invested ?? member.advance_contributed ?? 0;
-  const paidOut = member.all_paid_out ?? member.paid_for_pot ?? 0;
-  const collected = member.collected_from_buyers ?? member.collected_for_pot ?? 0;
-  const transferIn = member.transferred_in ?? 0;
-  const transferOut = member.transferred_out ?? 0;
-  const netHolding = member.net_holding ?? member.currently_holding ?? 0;
-  const projShare = member.projected_share ?? 0;
-  const settlement = member.settlement_balance ?? member.final_settlement ?? 0;
-
-  // Net Outflow = own money out of pocket (advance + amounts paid from own funds)
-  const netOutflow = ownInvested + Math.max(0, paidOut - collected);
-  // Current Holding = net_holding (already accounts for collected - paid_out) + transfers
-  const currentHolding = netHolding + transferIn - transferOut;
+  // Advance Given = capital they put in (just advance_contributed; never doubled with txns)
+  const advanceGiven = member.own_invested ?? member.advance_contributed ?? 0;
+  // Current Holding (per spec):
+  //   collected from buyers + received from partners − sent to partners − paid to seller
+  const currentHolding =
+    member.current_holding ??
+    ((member.collected_from_buyers ?? member.collected_for_pot ?? 0) +
+      (member.transferred_in ?? 0) -
+      (member.transferred_out ?? 0) -
+      (member.paid_to_seller ?? 0));
 
   const events = member.events || [];
 
@@ -383,13 +499,13 @@ function PartnerCard({ member }) {
 
       <div className="grid grid-cols-2 gap-px bg-slate-100">
         <div className="bg-white p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-rose-700">
-            Net Outflow
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-purple-700">
+            Advance Given
           </div>
-          <div className="text-base font-bold text-rose-900 mt-0.5">
-            {formatCurrency(netOutflow)}
+          <div className="text-base font-bold text-purple-900 mt-0.5">
+            {formatCurrency(advanceGiven)}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">From their own pocket</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Capital from their pocket</div>
         </div>
         <div className="bg-white p-3">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
@@ -397,40 +513,21 @@ function PartnerCard({ member }) {
           </div>
           <div
             className={`text-base font-bold mt-0.5 ${
-              currentHolding > 0.5 ? "text-amber-700" : currentHolding < -0.5 ? "text-blue-700" : "text-slate-500"
+              currentHolding > 0.5
+                ? "text-amber-700"
+                : currentHolding < -0.5
+                ? "text-blue-700"
+                : "text-slate-500"
             }`}
           >
             {formatCurrency(currentHolding)}
           </div>
           <div className="text-[10px] text-slate-500 mt-0.5">
-            {currentHolding > 0.5 ? "Pot money sitting with them" : currentHolding < -0.5 ? "Pot owes them this" : "Settled"}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-px bg-slate-100 border-t border-slate-100">
-        <div className="bg-white p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
-            Profit Share
-          </div>
-          <div className="text-sm font-semibold text-indigo-900 mt-0.5">
-            {formatCurrency(projShare)}
-          </div>
-        </div>
-        <div className="bg-white p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-            At Settlement
-          </div>
-          <div
-            className={`text-sm font-bold mt-0.5 ${
-              settlement > 0.5 ? "text-emerald-700" : settlement < -0.5 ? "text-rose-700" : "text-slate-500"
-            }`}
-          >
-            {settlement > 0.5
-              ? `+${formatCurrency(settlement)}`
-              : settlement < -0.5
-              ? formatCurrency(settlement)
-              : "—"}
+            {currentHolding > 0.5
+              ? "Pot money sitting with them"
+              : currentHolding < -0.5
+              ? "They owe the pot"
+              : "Settled"}
           </div>
         </div>
       </div>
