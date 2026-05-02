@@ -18,6 +18,10 @@ import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Propert
 # Import routers
 from app.routers import auth, contacts, loans, collateral, property_deals, partnerships, expenses, dashboard, reports
 from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot, forecast
+from app.routers import recurring_transactions as recurring_router
+
+# Scheduler
+from app.services.scheduler import start_scheduler, stop_scheduler
 
 # Rate limiter — keyed by remote IP
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
@@ -60,13 +64,19 @@ app.include_router(categories.router)
 app.include_router(admin.router)
 app.include_router(chatbot.router)
 app.include_router(forecast.router)
+app.include_router(recurring_router.router)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+@app.on_event("shutdown")
+def shutdown():
+    stop_scheduler()
+
+
 @app.on_event("startup")
 def startup():
-    """Wait for DB, create all tables, then seed admin user."""
+    """Wait for DB, create all tables, seed admin user, and start background scheduler."""
     # Retry loop — Postgres may not be fully ready even after healthcheck
     for attempt in range(10):
         try:
@@ -103,6 +113,13 @@ def startup():
         db.rollback()
     finally:
         db.close()
+
+    # Start background scheduler for recurring transactions
+    try:
+        start_scheduler()
+        print("✅ Background scheduler started")
+    except Exception as e:
+        print(f"⚠️  Scheduler failed to start: {e}")
 
 
 @app.get("/")

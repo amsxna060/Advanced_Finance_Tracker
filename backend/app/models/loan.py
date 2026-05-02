@@ -1,7 +1,14 @@
-from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, ForeignKey, Numeric
+import enum
+from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, ForeignKey, Numeric, Enum as SAEnum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+
+
+class LoanPriority(str, enum.Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
 
 
 class Loan(Base):
@@ -43,6 +50,9 @@ class Loan(Base):
     status = Column(String(20), default="active")  # active | closed | defaulted | on_hold
     expected_end_date = Column(Date)
     actual_end_date = Column(Date)
+
+    # Priority / reliability flag for liquidity forecasting
+    priority = Column(SAEnum(LoanPriority, name="loan_priority_enum"), nullable=True, default=LoanPriority.medium)
 
     # Default account for money flow
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))

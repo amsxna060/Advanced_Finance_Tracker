@@ -2,8 +2,8 @@
 Forecast & Liquidity engine.
 
 Single source of truth for the /api/forecast page. Generates cash-flow
-items from loans / obligations / property deals / beesi, applies
-user-stored ForecastOverride rows for the *current viewing period*,
+items from loans / obligations / property deals / beesi / recurring_transactions,
+applies user-stored ForecastOverride rows for the *current viewing period*,
 groups by entity, and emits totals + a daily timeline + tier breakdown.
 
 Item ID format
@@ -25,8 +25,9 @@ Examples:
     loan_st_out:51                    # short-term repayment
     obl_in:12                         # receivable obligation
     obl_out:12                        # payable obligation
-    property_in:5                     # property deal proceeds
     beesi_out:3:7                     # beesi installment month #7
+    recurring_in:9                    # recurring inflow item id 9
+    recurring_out:9                   # recurring outflow item id 9
 
 Period scoping
 --------------
@@ -49,6 +50,7 @@ from app.models.obligation import MoneyObligation
 from app.models.beesi import Beesi
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.forecast_override import ForecastOverride
+from app.models.recurring_transaction import RecurringTransaction, RecurringFrequency
 from app.services.interest import (
     calculate_outstanding,
     get_emi_schedule_with_payments,
@@ -169,6 +171,8 @@ def _loan_inflow_items(
     items: List[dict] = []
     entity_key, entity_name, entity_url = _entity_for_loan(loan)
     conf = _given_loan_confidence(loan, today, last_pay)
+    rem_principal = _remaining_principal(loan)
+    priority_val = loan.priority.value if loan.priority else "medium"
     base = {
         "direction": "inflow",
         "entity_key": entity_key,
@@ -177,6 +181,10 @@ def _loan_inflow_items(
         "entity_url": entity_url,
         "linked_id": loan.id,
         "linked_url": f"/loans/{loan.id}",
+        "principal_amount": float(_D(loan.principal_amount)),
+        "remaining_principal": float(rem_principal),
+        "loan_priority": priority_val,
+        "is_recurring": False,
     }
 
     if loan.loan_type == "emi":
@@ -190,9 +198,6 @@ def _loan_inflow_items(
                 continue
             eff = _emi_effective_date(dd)
             is_overdue = eff < today
-            # Strict < boundary: EMI belongs in window if its *effective* date is
-            # in [from_dt, to_dt). 1st/2nd-of-month EMIs map to prev month-end so
-            # they correctly appear in the prior month's view.
             if not is_overdue and not (from_dt <= eff < to_dt):
                 continue
             items.append({**base,
@@ -311,6 +316,7 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
     """Loans we have *taken* — strict obligations, always 'high' confidence."""
     items: List[dict] = []
     entity_key, entity_name, entity_url = _entity_for_loan(loan)
+    rem_principal = _remaining_principal(loan)
     base = {
         "direction": "outflow",
         "entity_key": entity_key,
@@ -319,7 +325,11 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
         "entity_url": entity_url,
         "linked_id": loan.id,
         "linked_url": f"/loans/{loan.id}",
+        "principal_amount": float(_D(loan.principal_amount)),
+        "remaining_principal": float(rem_principal),
+        "loan_priority": loan.priority.value if loan.priority else "medium",
         "confidence": "high",
+        "is_recurring": False,
     }
 
     if loan.loan_type == "emi":
@@ -470,6 +480,10 @@ def _obligation_items(obl: MoneyObligation, today: date, from_dt: date, to_dt: d
         "is_overdue": is_overdue,
         "confidence": confidence,
         "period_key": (today if is_overdue else (obl.due_date or today)).strftime("%Y-%m"),
+        "principal_amount": None,
+        "remaining_principal": None,
+        "loan_priority": None,
+        "is_recurring": False,
     }]
 
 
@@ -478,7 +492,6 @@ def _add_months(d: date, months: int) -> date:
     month0 = d.month - 1 + months
     year = d.year + month0 // 12
     month = month0 % 12 + 1
-    # clamp day
     from calendar import monthrange
     day = min(d.day, monthrange(year, month)[1])
     return date(year, month, day)
@@ -509,7 +522,7 @@ def _beesi_outflow_items(beesi: Beesi, today: date, from_dt: date, to_dt: date) 
         if n in paid_months:
             continue
         approx_due = _add_months(beesi.start_date, n - 1)
-        eff = _emi_effective_date(approx_due)  # apply 1st/2nd-of-month rule for beesi too
+        eff = _emi_effective_date(approx_due)
         is_overdue = eff < today
         if not is_overdue and not (from_dt <= eff < to_dt):
             continue
@@ -529,6 +542,63 @@ def _beesi_outflow_items(beesi: Beesi, today: date, from_dt: date, to_dt: date) 
             "is_overdue": is_overdue,
             "confidence": "high",
             "period_key": eff.strftime("%Y-%m"),
+            "principal_amount": None,
+            "remaining_principal": None,
+            "loan_priority": None,
+            "is_recurring": False,
+        })
+    return items
+
+
+def _recurring_items(
+    db: Session,
+    user_id: int,
+    from_dt: date,
+    to_dt: date,
+    account_ids: Optional[List[int]],
+) -> List[dict]:
+    """Inject active RecurringTransaction items whose next_due_date falls in the window."""
+    items: List[dict] = []
+    today = date.today()
+
+    query = db.query(RecurringTransaction).filter(
+        RecurringTransaction.created_by == user_id,
+        RecurringTransaction.is_active == True,
+        RecurringTransaction.next_due_date >= from_dt,
+        RecurringTransaction.next_due_date < to_dt,
+    )
+    if account_ids:
+        # Include items tied to selected accounts OR with no account
+        query = query.filter(
+            (RecurringTransaction.account_id == None) |
+            (RecurringTransaction.account_id.in_(account_ids))
+        )
+
+    for rt in query.all():
+        direction = "inflow" if rt.type.value == "inflow" else "outflow"
+        is_overdue = rt.next_due_date < today
+        prefix = "recurring_in" if direction == "inflow" else "recurring_out"
+        items.append({
+            "id": f"{prefix}:{rt.id}",
+            "kind": "recurring",
+            "direction": direction,
+            "entity_key": f"recurring:{rt.id}",
+            "entity_name": rt.title,
+            "entity_type": "recurring",
+            "entity_url": None,
+            "linked_id": rt.id,
+            "linked_url": None,
+            "label": f"{rt.title} ({rt.frequency.value})",
+            "amount": float(_D(rt.amount)),
+            "due_date": rt.next_due_date.isoformat(),
+            "is_overdue": is_overdue,
+            "confidence": "high",
+            "period_key": rt.next_due_date.strftime("%Y-%m"),
+            "principal_amount": None,
+            "remaining_principal": None,
+            "loan_priority": None,
+            "is_recurring": True,
+            "frequency": rt.frequency.value,
         })
     return items
 
@@ -604,6 +674,7 @@ def _group(items: List[dict], direction: str) -> List[dict]:
             "entity_name": it["entity_name"],
             "entity_type": it["entity_type"],
             "entity_url": it.get("entity_url"),
+            "principal_amount": it.get("principal_amount"),
             "items": [],
             "calculated_total": 0.0,
             "expected_total": 0.0,
@@ -686,8 +757,12 @@ def _compute_totals(items: List[dict]) -> dict:
 # Balances + liquidity + timeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _compute_balances(db: Session) -> dict:
-    accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+def _compute_balances(db: Session, account_ids: Optional[List[int]] = None) -> dict:
+    query = db.query(CashAccount).filter(CashAccount.is_deleted == False)
+    if account_ids:
+        query = query.filter(CashAccount.id.in_(account_ids))
+    accounts = query.all()
+
     cash = _ZERO
     bank = _ZERO
     items = []
@@ -701,7 +776,6 @@ def _compute_balances(db: Session) -> dict:
         is_cash = acct.account_type == "cash"
         is_credit = acct.account_type == "credit_card"
         if is_credit:
-            # credit cards reduce liquidity (negative balance owed); skip from totals
             pass
         elif is_cash:
             cash += running
@@ -729,7 +803,6 @@ def _compute_timeline(items: List[dict], today: date, to_dt: date, opening_balan
     for it in items:
         if not _is_included(it):
             continue
-        # bucket overdue items into "today" so the line moves
         if it.get("is_overdue") or not it.get("due_date"):
             day = today.isoformat()
         else:
@@ -763,22 +836,36 @@ def _compute_timeline(items: List[dict], today: date, to_dt: date, opening_balan
 
 
 def _compute_liquidity(balances: dict, items: List[dict], today: date, to_dt: date) -> dict:
+    """
+    True liquidity formula:
+        Projected Ending Liquidity = Starting Balance + Projected Inflows - Required Outflows
+    """
     horizon_days = max((to_dt - today).days, 1)
-    liquid = balances["total_liquid"]
-    required = sum(it["effective_amount"] for it in items
-                   if it["direction"] == "outflow" and _is_included(it))
-    if required <= 0:
-        return {"ok": True, "coverage_ratio": 999.0, "runway_days": 9999,
-                "liquid_balance": liquid, "required_outflow": 0.0}
-    coverage = liquid / required if required else 999.0
-    daily_burn = required / horizon_days
-    runway = liquid / daily_burn if daily_burn > 0 else 9999
+    starting_balance = balances["total_liquid"]
+    projected_inflows = sum(
+        it["effective_amount"] for it in items
+        if it["direction"] == "inflow" and _is_included(it)
+    )
+    required_outflows = sum(
+        it["effective_amount"] for it in items
+        if it["direction"] == "outflow" and _is_included(it)
+    )
+    projected_ending = starting_balance + projected_inflows - required_outflows
+    coverage = starting_balance / required_outflows if required_outflows > 0 else 999.0
+    daily_burn = required_outflows / horizon_days if horizon_days > 0 else 0
+    runway = starting_balance / daily_burn if daily_burn > 0 else 9999
+
     return {
-        "ok": coverage >= 1.0,
+        "ok": projected_ending >= 0,
         "coverage_ratio": round(coverage, 2),
         "runway_days": int(runway),
-        "liquid_balance": liquid,
-        "required_outflow": round(required, 2),
+        "starting_balance": round(starting_balance, 2),
+        "projected_inflows": round(projected_inflows, 2),
+        "required_outflows": round(required_outflows, 2),
+        "projected_ending_liquidity": round(projected_ending, 2),
+        # legacy keys kept for compatibility
+        "liquid_balance": round(starting_balance, 2),
+        "required_outflow": round(required_outflows, 2),
     }
 
 
@@ -786,13 +873,28 @@ def _compute_liquidity(balances: dict, items: List[dict], today: date, to_dt: da
 # Public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_forecast(db: Session, user_id: int, from_date: date, to_date: date) -> dict:
+def build_forecast(
+    db: Session,
+    user_id: int,
+    from_date: date,
+    to_date: date,
+    account_ids: Optional[List[int]] = None,
+) -> dict:
     today = date.today()
     period_key = current_period_key(today)
+    selected_accounts = account_ids if account_ids else None
 
     active_loans = db.query(Loan).filter(
         Loan.is_deleted == False, Loan.status == "active",
     ).all()
+
+    # Filter loans by selected accounts (if any): include loans with no account OR matching account
+    if selected_accounts:
+        active_loans = [
+            l for l in active_loans
+            if l.account_id is None or l.account_id in selected_accounts
+        ]
+
     loans_given = [l for l in active_loans if l.loan_direction == "given"]
     loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
     last_pay = _build_last_payment_map(loans_given)
@@ -814,10 +916,13 @@ def build_forecast(db: Session, user_id: int, from_date: date, to_date: date) ->
     for b in beesis:
         items.extend(_beesi_outflow_items(b, today, from_date, to_date))
 
+    # Inject recurring transactions
+    items.extend(_recurring_items(db, user_id, from_date, to_date, selected_accounts))
+
     overrides = _load_overrides(db, user_id, period_key, [it["id"] for it in items])
     items = _apply_overrides(items, overrides)
 
-    balances = _compute_balances(db)
+    balances = _compute_balances(db, selected_accounts)
 
     return {
         "as_of_date": today.isoformat(),

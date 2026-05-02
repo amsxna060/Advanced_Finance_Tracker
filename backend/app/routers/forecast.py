@@ -83,11 +83,12 @@ def get_forecast(
     from_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     to_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     to_month_end: bool = Query(False),
+    account_ids: Optional[List[int]] = Query(None, description="Filter to specific account IDs"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     f, t = _resolve_window(timeframe, days, from_date, to_date, to_month_end)
-    return build_forecast(db, current_user.id, f, t)
+    return build_forecast(db, current_user.id, f, t, account_ids=account_ids or None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

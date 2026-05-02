@@ -2,7 +2,7 @@
 
 > Living index of the entire codebase. Update this file whenever you add, move, rename, or delete anything significant. Treat it as the first thing to read in a new session.
 >
-> **Last updated:** 2026-05-02 (Forecast v2.1 — property excluded, strict-< window, EMI 1st/2nd-of-month rule, optimistic cache, outflow toggles; smart-forecast endpoint removed)
+> **Last updated:** 2026-05-02 (Forecast v3 Enterprise — recurring_transactions table, loan.priority column, APScheduler daily job, account_ids filter, recurring injection, principal_amount, smart defaults, Settle Principal, Manage Recurring modal)
 
 ---
 
@@ -107,6 +107,7 @@ Advanced_Finance_Tracker/
 | `obligation.py` | `MoneyObligation`, `ObligationSettlement` |
 | `property_anomaly.py` | `PropertyAnomaly` |
 | `forecast_override.py` | `ForecastOverride` (per-user, per-item, per-month forecast adjustments) |
+| `recurring_transaction.py` | `RecurringTransaction` — user-defined recurring cash flows (title, type inflow/outflow, amount, frequency monthly/weekly/yearly, next_due_date, account_id FK, is_active) |
 
 ---
 
@@ -128,7 +129,8 @@ Advanced_Finance_Tracker/
 | `category_limits.py` | `/category-limits` | CRUD |
 | `dashboard.py` | `/dashboard` | `GET /summary`, `GET /quick-links` |
 | `analytics.py` | `/analytics` | `/net-worth`, `/expense-trends`, `/money-flow`, `/property` (per-property/plot/partnership money flow + per-partner positions), legacy `/forecast` (used by Analytics dashboard mini-card) |
-| `forecast.py` | `/api/forecast` | `GET /` (entity-grouped: loans/EMIs/interest/obligations/beesi only — property excluded; strict-`<` window; EMI 1st/2nd-of-month → previous-month rule). `POST /overrides`, `POST /overrides/fulfill`, `POST /overrides/clear`, `GET /overrides` |
+| `forecast.py` | `/api/forecast` | `GET /` (entity-grouped: loans/EMIs/interest/obligations/beesi/recurring — property excluded; strict-`<` window; EMI 1st/2nd-of-month → previous-month rule; `account_ids[]` filter). `POST /overrides`, `POST /overrides/fulfill`, `POST /overrides/clear`, `GET /overrides` |
+| `recurring_transactions.py` | `/api/recurring-transactions` | `GET /` list (include_inactive param), `POST /` create, `PATCH /{id}` update/pause, `DELETE /{id}` delete |
 | `reports.py` | `/reports` | `GET /{module}/export` (CSV/Excel) |
 | `admin.py` | `/admin` | `POST /mark-legacy`, migration helpers |
 | `chatbot.py` | `/chatbot` | `POST /query` (Gemini-backed) |
@@ -148,13 +150,14 @@ Advanced_Finance_Tracker/
 | `excel_generator.py` | `.xlsx` export for any list endpoint via `openpyxl`. |
 | `pdf_generator.py` | PDF statements (loan, property, partnership) via `reportlab`. |
 | `chatbot_tools.py` | Gemini tool-use definitions for financial queries. |
-| `forecast_engine.py` | Forecast & Liquidity engine — generates cash-flow items (loans / obligations / beesi only; property excluded by design — see Property Analytics for that). Applies per-user `ForecastOverride` rows scoped to current calendar month, groups by entity, computes totals + daily timeline + liquidity coverage. Strict-`<` window boundary; EMIs/beesi installments due on the 1st or 2nd of a month are mapped to the prior month-end via `_emi_effective_date` so they belong to the previous calendar month for overdue/period accounting. Period-scoped overrides give "auto-rollover next month" without mutating any source record. |
+| `forecast_engine.py` | Forecast & Liquidity engine — generates cash-flow items (loans / obligations / beesi / recurring_transactions; property excluded by design). Applies per-user `ForecastOverride` rows scoped to current calendar month, groups by entity, computes totals + daily timeline + liquidity. `account_ids` param filters Starting Balance + loan items. `RecurringTransaction` items injected with `is_recurring=True`. Loan items carry `principal_amount`, `remaining_principal`, `loan_priority`. True liquidity formula: `Starting Balance + Projected Inflows − Required Outflows`. |
+| `scheduler.py` | APScheduler `BackgroundScheduler` — daily 00:05 UTC job `process_recurring_transactions`: settles due `RecurringTransaction` rows into `AccountTransaction`, advances `next_due_date` by frequency. Started on FastAPI startup, stopped on shutdown. |
 
 ---
 
 ## 7. Database Migrations (`backend/alembic/versions/`)
 
-Run in order. The latest is `025_forecast_overrides`.
+Run in order. The latest is `026_recurring_transactions_loan_priority`.
 
 | # | Slug | Purpose |
 |---|------|---------|
@@ -183,6 +186,7 @@ Run in order. The latest is `025_forecast_overrides`.
 | 23 | `023_all_tables_raw_sql` | Comprehensive idempotent column fix |
 | 24 | `024_property_anomalies` | Property-anomaly tracker table |
 | 25 | `025_forecast_overrides` | `forecast_overrides` — per-user/item/month toggle + amount + fulfilled status |
+| 26 | `026_recurring_transactions_loan_priority` | `recurring_transactions` table (RecurringType + RecurringFrequency enums); adds `priority` column (loan_priority_enum: high/medium/low) to `loans` table |
 
 ---
 
@@ -286,6 +290,7 @@ Run in order. The latest is `025_forecast_overrides`.
 
 ## 13. Recent Notable Commits
 
+- **Forecast v3 Enterprise** (2026-05-02) — (1) New `recurring_transactions` table (migration 026) + `loan.priority` column; (2) APScheduler daily job (`scheduler.py`) auto-settles due recurring items into `AccountTransaction` and advances `next_due_date`; (3) `/api/forecast` now accepts `account_ids[]` — filters Starting Balance to selected accounts, excludes loan items tied to deselected accounts, injects active `RecurringTransaction` items flagged `is_recurring=True`; loan items carry `principal_amount`/`remaining_principal`/`loan_priority`; liquidity formula updated to `Starting Balance + Projected Inflows − Required Outflows`; (4) Frontend smart defaults: low-priority loan items display unchecked (locally via `isItemIncluded()`); "Settle Principal" button sets amount override to `remaining_principal`; blue `RECURRING` pill on injected items; priority badge on loan rows; (5) Account multi-select dropdown at page top: toggling accounts updates Starting Balance + item list in real-time; (6) "Manage Recurring Transactions" modal with full CRUD (create / edit / pause / delete), account assignment, add `/api/recurring-transactions` router.
 - **Forecast v2.1 fixes** (2026-05-02) — (1) Property module fully decoupled from forecast: no property deal inflows, no `linked_type='property'` obligations. (2) Strict-`<` window boundary (a 30d view starting May 2 → ends June 1 *exclusive*; June 1 obligations no longer bleed into May). (3) EMI 1st/2nd-of-month rule via `_emi_effective_date`: an EMI due on the 1st/2nd of a month is treated as the prior month's obligation for overdue & period accounting (also applied to beesi installments). (4) Optimistic-cache mutation pattern in [Forecast.jsx](frontend/src/pages/Analytics/Forecast.jsx) — checkboxes/amount-overrides patch the React Query cache locally via `qc.setQueryData`, no full refetch on every click; `EntityCard`/`ItemRow` are `memo()`-wrapped. (5) Outflow column is now interactive too: include checkbox + click-to-edit Expected Amount + Mark-paid action. (6) `/api/analytics/smart-forecast` endpoint removed (was unused after v2 page rewrite).
 - **Forecast & Liquidity v2** (2026-05-02) — new `/api/forecast` router + `forecast_engine` service + `forecast_overrides` table (migration 025). Replaces the old [Forecast.jsx](frontend/src/pages/Analytics/Forecast.jsx) — items now grouped by entity (contact/beesi/institution), accordion-expanded; per-item include toggle, amount-override input, "Mark fulfilled" capture; sticky scorecard (Projected Inflows / Required Outflows / Net Liquidity); timeframe presets 15/30/60/90 + custom days + custom date range + "until month end". Overrides persist scoped to current `YYYY-MM` so they auto-clear at month boundaries — items not actually settled reappear next month as overdue, no manual rollover. Old `/api/analytics/forecast` remains in place for the Analytics dashboard mini-card.
 - **Property Analytics page** — `GET /api/analytics/property` + `/analytics/property` route. Six money-flow buckets (to-receive/to-pay/already-in/already-out/projected gross+net), per-partner money positions (contributed, received, currently holding, projected share, final settlement) with self highlighted, plain-English summary sentence, multi-scope picker (properties / partnerships / site plots / "Everything Combined"), transaction timeline. Read-only, no migration.
