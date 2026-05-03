@@ -87,7 +87,9 @@ function StageBar({ status }) {
 /* ── Property card ─────────────────────────────────────────────────────────── */
 function PropertyCard({ property, onClick }) {
   const days = daysTo(property.expected_registry_date);
-  const urgentRegistry = days !== null && days >= 0 && days <= 14;
+  const registryColor = days === null ? "" : days <= 14 ? "text-rose-400" : days <= 30 ? "text-amber-400" : "text-slate-400";
+  const registryDotColor = days !== null && days <= 14 ? "bg-rose-400" : days !== null && days <= 30 ? "bg-amber-400" : "";
+  const registryPulse = days !== null && days <= 14;
   const chipCls = STATUS_CHIP[property.status] || STATUS_CHIP.negotiating;
   const isActive = !["settled", "cancelled"].includes(property.status);
   const myShare = parseFloat(property.my_share_percentage || 0);
@@ -163,8 +165,8 @@ function PropertyCard({ property, onClick }) {
           )}
         </div>
         {days !== null && isActive && (
-          <div className={`flex items-center gap-1 ${urgentRegistry ? "text-rose-400" : "text-slate-400"}`}>
-            {urgentRegistry && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />}
+          <div className={`flex items-center gap-1 ${registryColor}`}>
+            {registryDotColor && <span className={`w-1.5 h-1.5 rounded-full ${registryDotColor} ${registryPulse ? "animate-pulse" : ""}`} />}
             <span className="text-[10px] font-medium">
               {days < 0 ? `Registry ${Math.abs(days)}d overdue` : days === 0 ? "Registry Today" : `Registry in ${days}d`}
             </span>
@@ -193,8 +195,12 @@ export default function PropertyList() {
 
   const stats = useMemo(() => {
     const active = properties.filter(p => ["negotiating","advance_given","buyer_found","registry_done"].includes(p.status));
-    // Active Capital Deployed = sum of advance_paid for active deals
-    const capitalDeployed = active.reduce((s, p) => s + parseFloat(p.advance_paid || 0), 0);
+    // My Active Capital = user's actual paid share across active deals
+    const capitalDeployed = active.reduce((s, p) => {
+      const paid = parseFloat(p.advance_paid || 0);
+      const share = parseFloat(p.my_share_percentage || 100) / 100;
+      return s + paid * share;
+    }, 0);
 
     // Upcoming Liability = remaining × my_share_pct for active deals
     const upcomingLiability = active.reduce((s, p) => {
@@ -246,9 +252,9 @@ export default function PropertyList() {
         {/* ── Executive stat cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard
-            label="Active Capital Deployed"
+            label="My Active Capital"
             value={formatCurrency(stats.capitalDeployed)}
-            sub={`across ${stats.activeCount} active deal${stats.activeCount !== 1 ? "s" : ""}`}
+            sub={`my share across ${stats.activeCount} active deal${stats.activeCount !== 1 ? "s" : ""}`}
             accent="cyan"
           />
           <StatCard

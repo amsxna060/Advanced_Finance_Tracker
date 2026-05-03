@@ -513,6 +513,60 @@ export default function PropertyDetail() {
           {/* ── LEFT: main column ── */}
           <div className="lg:col-span-2 space-y-5">
 
+            {/* ── SELLER MASTER CARD ── */}
+            {totalSeller > 0 && (
+              <div className="bg-slate-800/50 border border-violet-500/30 rounded-2xl p-5">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-base">💳</div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Seller Payment Tracker</h3>
+                    <p className="text-[10px] text-slate-400">Total deal value vs. payments made</p>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="mb-4">
+                  <div className="flex justify-between text-xs text-slate-400 mb-2">
+                    <span>Paid to Seller</span>
+                    <span>Total Deal Value</span>
+                  </div>
+                  <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full transition-all duration-700"
+                      style={{ width: `${Math.min((totalSentToSeller / totalSeller) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1.5 text-xs">
+                    <span className="text-violet-400 font-bold font-mono tabular-nums">{formatCurrency(totalSentToSeller)}</span>
+                    <span className="text-slate-400 font-mono tabular-nums">{formatCurrency(totalSeller)}</span>
+                  </div>
+                  <div className="flex justify-between mt-1 text-[10px]">
+                    <span className="text-slate-500">{Math.round((totalSentToSeller / totalSeller) * 100)}% paid</span>
+                    <span className={remainingOwedToSeller > 0 ? "text-amber-400 font-medium" : "text-emerald-400 font-medium"}>
+                      {remainingOwedToSeller > 0 ? `${formatCurrency(remainingOwedToSeller)} remaining` : "Fully paid ✓"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* User's liability highlight */}
+                {myRemainingCommitment > 0 ? (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
+                    <span className="text-amber-400 text-base mt-0.5">⚠</span>
+                    <div>
+                      <p className="text-[9px] text-amber-300/70 font-semibold uppercase tracking-wider mb-0.5">Your Share of Remaining Liability</p>
+                      <p className="text-xl font-bold text-amber-400 font-mono tabular-nums">{formatCurrency(myRemainingCommitment)}</p>
+                      {myShare > 0 && <p className="text-[10px] text-slate-500 mt-0.5">{myShare}% of {formatCurrency(remainingOwedToSeller)} outstanding</p>}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-2.5 flex items-center gap-2">
+                    <span className="text-emerald-400">✓</span>
+                    <p className="text-sm font-semibold text-emerald-400">Your share fully paid</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* My Personal Stake card */}
             <Section title="My Personal Stake" icon="👤">
               <div className="grid grid-cols-2 gap-3 mb-4">
@@ -535,27 +589,8 @@ export default function PropertyDetail() {
                   )}
                 </div>
               </div>
-              {/* Investment bar */}
-              {totalSeller > 0 && (
-                <div>
-                  <div className="flex justify-between text-[10px] text-slate-400 mb-1.5">
-                    <span>Paid to seller: {formatCurrency(totalSentToSeller)}</span>
-                    <span>{Math.round((totalSentToSeller / totalSeller) * 100)}% of {formatCurrency(totalSeller)}</span>
-                  </div>
-                  <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-full transition-all"
-                      style={{ width: `${Math.min((totalSentToSeller / totalSeller) * 100, 100)}%` }} />
-                  </div>
-                  {remainingOwedToSeller > 0 && (
-                    <p className="text-[10px] text-amber-400 mt-1.5">
-                      ⚠ {formatCurrency(remainingOwedToSeller)} still owed to seller
-                      {myShare > 0 ? ` · My share: ${formatCurrency(myRemainingCommitment)}` : ""}
-                    </p>
-                  )}
-                </div>
-              )}
               {myProfitWithdrawn > 0 && (
-                <div className="mt-3 pt-3 border-t border-slate-700/60 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <span className="text-emerald-400 text-xs">✓</span>
                   <span className="text-xs text-slate-300">Profit withdrawn: <strong className="text-emerald-400">{formatCurrency(myProfitWithdrawn)}</strong></span>
                 </div>
