@@ -36,6 +36,31 @@ def mark_all_existing_as_legacy(
     return {"message": "All existing data marked as legacy", "counts": counts}
 
 
+@router.post("/unmark-legacy")
+def unmark_all_legacy(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Reverse of mark-legacy: set is_legacy=false on ALL records that were marked legacy.
+    Use this to restore visibility of data that was incorrectly marked."""
+    tables = [
+        "partnership_transactions",
+        "partnership_members",
+        "property_transactions",
+        "plot_buyers",
+        "site_plots",
+        "partnerships",
+        "property_deals",
+        "contacts",
+    ]
+    counts = {}
+    for table in tables:
+        result = db.execute(text(f"UPDATE {table} SET is_legacy = false WHERE is_legacy = true"))
+        counts[table] = result.rowcount
+    db.commit()
+    return {"message": "All legacy flags cleared — data is now visible", "counts": counts}
+
+
 @router.delete("/delete-legacy")
 def delete_all_legacy_data(
     db: Session = Depends(get_db),
