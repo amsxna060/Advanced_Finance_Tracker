@@ -145,7 +145,18 @@ def analytics_overview(
         if not self_member:
             continue  # no personal contribution record — skip to avoid using deal-level totals
         invested = _D(self_member.advance_contributed)
-        received = _D(self_member.total_received)
+        # For settled deals use formal distribution; for active deals use transaction records
+        if p.status == "settled":
+            received = _D(self_member.total_received)
+        else:
+            received = _D(
+                db.query(sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0))
+                .filter(
+                    PartnershipTransaction.partnership_id == p.id,
+                    PartnershipTransaction.received_by_member_id == self_member.id,
+                )
+                .scalar()
+            )
         total_partnership_invested += invested
         total_partnership_received += received
         net = invested - received
@@ -162,25 +173,9 @@ def analytics_overview(
         if p.net_profit and p.status == "settled" and p.id not in linked_property_ids
     )
 
-    # Partner liabilities: only count when buyer money has been received
+    # Partner liabilities removed per user specification:
+    # only personal over-withdrawals (_part_self_payable) are counted as liabilities.
     partner_liabilities = Decimal("0")
-    for p in partnerships:
-        if p.status == "cancelled":
-            continue
-        if _D(p.total_received) <= 0:
-            continue  # no buyer money received yet — no liability
-        members = db.query(PartnershipMember).filter(
-            PartnershipMember.partnership_id == p.id,
-            PartnershipMember.is_self == False,
-        ).all()
-        for m in members:
-            owed = _D(m.advance_contributed) + (
-                _D(p.total_received) * _D(m.share_percentage) / Decimal("100")
-                if m.share_percentage else Decimal("0")
-            )
-            paid_out = _D(m.total_received)
-            if owed > paid_out:
-                partner_liabilities += owed - paid_out
 
     # ── BEESI ────────────────────────────────────────────────────────────────
     beesis = db.query(Beesi).filter(Beesi.is_deleted == False).all()
@@ -645,6 +640,11 @@ def analytics_assets(
         if p.linked_property_deal_id and p.status != "cancelled"
     }
 
+    # self_payable_items accumulates both property-linked over-withdrawals
+    # and standalone-partnership over-withdrawals, so it is initialised here.
+    self_payable_items = []
+    total_self_payable = Decimal("0")
+
     property_items = []
     total_property = Decimal("0")
     for prop in properties:
@@ -652,8 +652,49 @@ def analytics_assets(
             continue
         my_invested = Decimal("0")
         current_value = Decimal("0")
+        total_deal_value = Decimal("0")
 
-        if prop.property_type == "site":
+        if prop.id in linked_property_ids:
+            # Partnership-linked deal: personal investment = self-member's advance_contributed.
+            # Withdrawals from the pot (received_by_member_id = self) form the other side.
+            part = _prop_to_partnership.get(prop.id)
+            if part:
+                total_deal_value = _D(part.total_deal_value or part.our_investment or 0)
+                sm = db.query(PartnershipMember).filter(
+                    PartnershipMember.partnership_id == part.id,
+                    PartnershipMember.is_self == True,
+                ).first()
+                if sm:
+                    my_invested = _D(sm.advance_contributed)
+                    # Sum all cash I physically took from this deal/pot
+                    my_withdrawn = _D(
+                        db.query(sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0))
+                        .filter(
+                            PartnershipTransaction.partnership_id == part.id,
+                            PartnershipTransaction.received_by_member_id == sm.id,
+                        )
+                        .scalar()
+                    ) + _D(
+                        db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
+                        .filter(
+                            PropertyTransaction.property_deal_id == prop.id,
+                            PropertyTransaction.received_by_member_id == sm.id,
+                        )
+                        .scalar()
+                    )
+                    net = my_invested - my_withdrawn
+                    if net < Decimal("0"):
+                        # Over-withdrawal: I took more from the pot than I put in → liability
+                        total_self_payable += abs(net)
+                        self_payable_items.append({
+                            "id": prop.id, "title": prop.title,
+                            "status": prop.status,
+                            "invested": float(my_invested), "received": float(my_withdrawn),
+                            "pending": float(abs(net)),
+                        })
+                    current_value = max(net, Decimal("0"))
+        elif prop.property_type == "site":
+            # Standalone site: personal outflow transactions are the investment
             my_invested = _D(
                 db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
                 .filter(
@@ -666,17 +707,8 @@ def analytics_assets(
             if prop.status == "settled" and prop.net_profit:
                 pct = _D(prop.my_share_percentage or 100)
                 current_value += _D(prop.net_profit) * pct / Decimal("100")
-        elif prop.id in linked_property_ids:
-            part = _prop_to_partnership.get(prop.id)
-            if part:
-                sm = db.query(PartnershipMember).filter(
-                    PartnershipMember.partnership_id == part.id,
-                    PartnershipMember.is_self == True,
-                ).first()
-                if sm:
-                    my_invested = _D(sm.advance_contributed)
-                    current_value = my_invested
         else:
+            # Standalone non-site: use personal outflow transactions
             my_invested = _D(
                 db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
                 .filter(
@@ -687,9 +719,7 @@ def analytics_assets(
             )
             current_value = my_invested
 
-        if my_invested <= 0 and current_value <= 0:
-            continue
-
+        # Always include the property row so the UI shows it even at ₹0 investment
         total_property += current_value
         property_items.append({
             "id": prop.id, "title": prop.title,
@@ -699,14 +729,13 @@ def analytics_assets(
             "status": prop.status,
             "invested": float(my_invested),
             "current_value": float(current_value),
+            "total_deal_value": float(total_deal_value),
         })
     property_items.sort(key=lambda x: x["current_value"], reverse=True)
 
-    # ── PARTNERSHIPS (non-property) ─────────────────────────────────────────
+    # ── PARTNERSHIPS (non-property-linked only) ─────────────────────────────
     partnership_items = []
     total_partnership = Decimal("0")
-    self_payable_items = []
-    total_self_payable = Decimal("0")
     for p in partnerships:
         if p.status == "cancelled" or p.linked_property_deal_id:
             continue
@@ -715,10 +744,21 @@ def analytics_assets(
             PartnershipMember.is_self == True,
         ).first()
         if not self_member:
-            continue  # no personal contribution record — skip to avoid polluting totals with deal-level values
+            continue  # no personal contribution record — skip to avoid polluting totals
         invested = _D(self_member.advance_contributed)
-        received = _D(self_member.total_received)
-        net_value = invested - received  # positive = unreturned capital (asset), negative = over-withdrawal (liability)
+        # For settled deals use the formal distribution; for active deals query transactions
+        if p.status == "settled":
+            received = _D(self_member.total_received)
+        else:
+            received = _D(
+                db.query(sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0))
+                .filter(
+                    PartnershipTransaction.partnership_id == p.id,
+                    PartnershipTransaction.received_by_member_id == self_member.id,
+                )
+                .scalar()
+            )
+        net_value = invested - received
 
         if net_value > 0:
             total_partnership += net_value
@@ -729,7 +769,6 @@ def analytics_assets(
                 "net_value": float(net_value),
             })
         elif net_value < 0:
-            # I withdrew more than I contributed — this is a liability until settled
             total_self_payable += abs(net_value)
             self_payable_items.append({
                 "id": p.id, "title": p.title,
@@ -782,47 +821,25 @@ def analytics_assets(
         })
     payable_items.sort(key=lambda x: x["pending"], reverse=True)
 
-    # ── PARTNER LIABILITIES ─────────────────────────────────────────────────
+    # ── PARTNER PAYABLES ─────────────────────────────────────────────────────
+    # By design: partner payables = ONLY my personal over-withdrawals from each deal
+    # (already accumulated in self_payable_items / total_self_payable above).
+    # Other partners' un-returned investments are the deal's obligations, not mine personally.
     partner_liability_items = []
     total_partner_liability = Decimal("0")
-    for p in partnerships:
-        if p.status == "cancelled":
-            continue
-        if _D(p.total_received) <= 0:
-            continue
-        members = db.query(PartnershipMember).filter(
-            PartnershipMember.partnership_id == p.id,
-            PartnershipMember.is_self == False,
-        ).all()
-        for m in members:
-            owed = _D(m.advance_contributed) + (
-                _D(p.total_received) * _D(m.share_percentage) / Decimal("100")
-                if m.share_percentage else Decimal("0")
-            )
-            paid_out = _D(m.total_received)
-            if owed > paid_out:
-                diff = owed - paid_out
-                total_partner_liability += diff
-                mc = db.query(Contact).filter(Contact.id == m.contact_id).first() if m.contact_id else None
-                partner_liability_items.append({
-                    "partnership_id": p.id, "partnership": p.title,
-                    "partner": mc.name if mc else "Partner",
-                    "owed": float(owed), "paid": float(paid_out),
-                    "pending": float(diff),
-                })
-    partner_liability_items.sort(key=lambda x: x["pending"], reverse=True)
 
-    # ── COLLATERAL HELD (informational only — NOT counted in total assets) ───
+    # ── COLLATERAL HELD (other people's assets I hold as security — NOT mine) ──
     from app.models.collateral import Collateral
     collaterals = db.query(Collateral).join(Loan).filter(
         Loan.loan_direction == "given",
-        Loan.status == "active",
         Loan.is_deleted == False,
     ).all()
     collateral_items = []
     total_collateral = Decimal("0")
     for c in collaterals:
         val = _D(c.estimated_value)
+        if not val:
+            continue
         total_collateral += val
         loan = c.loan
         contact = db.query(Contact).filter(Contact.id == loan.contact_id).first() if loan else None
@@ -836,6 +853,30 @@ def analytics_assets(
             "gold_carat": c.gold_carat,
         })
     collateral_items.sort(key=lambda x: x["estimated_value"], reverse=True)
+
+    # ── COLLATERAL PLEDGED (my own assets I pledged to lenders — IS my asset) ──
+    pledged_collaterals = db.query(Collateral).join(Loan).filter(
+        Loan.loan_direction == "taken",
+        Loan.is_deleted == False,
+    ).all()
+    pledged_items = []
+    total_pledged = Decimal("0")
+    for c in pledged_collaterals:
+        val = _D(c.estimated_value)
+        if not val:
+            continue
+        total_pledged += val
+        loan = c.loan
+        pledged_items.append({
+            "id": c.id, "loan_id": c.loan_id,
+            "institution": loan.institution_name if loan and loan.institution_name else "—",
+            "type": c.collateral_type,
+            "description": c.description,
+            "estimated_value": float(val),
+            "gold_weight_grams": float(c.gold_weight_grams) if c.gold_weight_grams else None,
+            "gold_carat": c.gold_carat,
+        })
+    pledged_items.sort(key=lambda x: x["estimated_value"], reverse=True)
 
     # ── UNENCUMBERED ASSETS (standalone owned assets, no loan linkage) ───────
     unencumbered_rows = db.query(UnencumberedAsset).filter(
@@ -855,11 +896,12 @@ def analytics_assets(
         })
 
     # ── TOTALS ──────────────────────────────────────────────────────────────
-    # Assets: collateral is intentionally excluded (it belongs to the borrower,
-    # not to us — we hold it only as security for the loan).
+    # Collateral HELD (other people's) is excluded — not my asset.
+    # Collateral PLEDGED (my own, given to lenders) IS my asset.
     total_assets = (
         total_cash + total_given + total_property
         + total_partnership + total_receivable + total_unencumbered
+        + total_pledged
     )
     total_liabilities = total_taken + total_payable + total_partner_liability + total_self_payable
     net_worth = total_assets - total_liabilities
@@ -901,6 +943,11 @@ def analytics_assets(
                 "count": len(unencumbered_items),
                 "items": unencumbered_items,
             },
+            "collateral_pledged": {
+                "total": float(total_pledged),
+                "count": len(pledged_items),
+                "items": pledged_items,
+            },
         },
         "liabilities": {
             "loans_taken": {
@@ -915,18 +962,13 @@ def analytics_assets(
                 "count": len(payable_items),
                 "items": payable_items,
             },
-            "partner_payables": {
-                "total": float(total_partner_liability),
-                "count": len(partner_liability_items),
-                "items": partner_liability_items,
-            },
             "self_payables": {
                 "total": float(total_self_payable),
                 "count": len(self_payable_items),
                 "items": self_payable_items,
             },
         },
-        # Collateral is excluded from assets — informational only
+        # Collateral held (other people's assets) — informational only, not my asset
         "collateral_info": {
             "total": float(total_collateral),
             "count": len(collateral_items),

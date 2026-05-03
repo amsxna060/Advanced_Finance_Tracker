@@ -823,7 +823,18 @@ def get_dashboard_v2(
         if not sm:
             continue  # no personal contribution record — skip to avoid using deal-level totals
         inv = _decimal(sm.advance_contributed)
-        rec = _decimal(sm.total_received)
+        # For active deals use transaction records; settled deals use formal distribution total
+        if p.status == "settled":
+            rec = _decimal(sm.total_received)
+        else:
+            rec = _decimal(
+                db.query(func.coalesce(func.sum(PartnershipTransaction.amount), 0))
+                .filter(
+                    PartnershipTransaction.partnership_id == p.id,
+                    PartnershipTransaction.received_by_member_id == sm.id,
+                )
+                .scalar()
+            )
         part_invested += inv
         part_received += rec
         net = inv - rec

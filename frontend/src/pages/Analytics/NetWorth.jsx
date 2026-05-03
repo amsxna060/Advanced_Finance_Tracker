@@ -31,10 +31,10 @@ const SECTION_META = {
   partnerships:        { label: "Partnership Investments",  icon: "🤝", link: (id) => `/partnerships/${id}` },
   receivables:         { label: "Receivables",              icon: "📋" },
   unencumbered_assets: { label: "Standalone Assets",        icon: "🔑" },
+  collateral_pledged:  { label: "Collateral Pledged",       icon: "🏦", link: (id) => `/loans/${id}` },
   loans_taken:         { label: "Loans Taken",              icon: "📥", link: (id) => `/loans/${id}` },
   payables:            { label: "Payables",                 icon: "📋" },
-  partner_payables:    { label: "Partner Payables",         icon: "🤝" },
-  self_payables:       { label: "Over-Withdrawals",         icon: "⚠️" },
+  self_payables:       { label: "Over-Withdrawals (Owed to Pot)", icon: "⚠️" },
 };
 
 const CATEGORY_OPTIONS = [
@@ -379,14 +379,16 @@ function SectionCard({ sectionKey, section, navigate, isLiability }) {
         <div className="border-t border-slate-100 divide-y divide-slate-50">
           {shown.map((item) => {
             const link = meta.link ? meta.link(item.id) : null;
-            const val  = item.total_outstanding ?? item.pending ?? item.net_value ?? item.balance ?? item.current_value ?? 0;
+            const val  = item.total_outstanding ?? item.pending ?? item.net_value ?? item.balance ?? item.current_value ?? item.estimated_value ?? 0;
+            const subtitle = item.institution || item.reason || item.location || null;
+            const hasZeroInvestment = sectionKey === "properties" && item.invested === 0 && item.total_deal_value > 0;
             return (
               <div key={item.id}
                 className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50/60 transition cursor-default">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-medium text-slate-700 truncate">
-                      {item.contact || item.title || item.name || "—"}
+                      {item.contact || item.title || item.description || item.name || "—"}
                     </span>
                     {item.loan_type && (
                       <span className="text-[9px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded capitalize">
@@ -398,9 +400,21 @@ function SectionCard({ sectionKey, section, navigate, isLiability }) {
                         {item.property_type}
                       </span>
                     )}
+                    {item.type && sectionKey === "collateral_pledged" && (
+                      <span className="text-[9px] bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded capitalize">
+                        {item.type}
+                      </span>
+                    )}
+                    {hasZeroInvestment && (
+                      <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">
+                        ₹0 invested
+                      </span>
+                    )}
                   </div>
-                  {item.reason && <p className="text-[10px] text-slate-400 truncate mt-0.5">{item.reason}</p>}
-                  {item.location && <p className="text-[10px] text-slate-400 truncate mt-0.5">{item.location}</p>}
+                  {subtitle && <p className="text-[10px] text-slate-400 truncate mt-0.5">{subtitle}</p>}
+                  {hasZeroInvestment && item.total_deal_value > 0 && (
+                    <p className="text-[10px] text-slate-400 mt-0.5">Deal value: {formatCurrency(item.total_deal_value)}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs font-semibold ${isLiability ? "text-rose-600" : "text-emerald-600"}`}>
