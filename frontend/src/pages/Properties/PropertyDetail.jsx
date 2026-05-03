@@ -25,9 +25,9 @@ function StageBar({ status }) {
       <div className="flex items-center">
         {STAGES.map((s, i) => (
           <div key={s.key} className="flex items-center flex-1 min-w-0">
-            <div className={`h-1.5 flex-1 rounded-full ${i <= idx ? "bg-cyan-500" : "bg-slate-700"}`} />
+            <div className={`h-1.5 flex-1 rounded-full ${i <= idx ? "bg-indigo-500" : "bg-slate-200"}`} />
             {i < STAGES.length - 1 && (
-              <div className={`w-2 h-2 rounded-full shrink-0 mx-1 border-2 ${i < idx ? "bg-cyan-500 border-cyan-500" : i === idx ? "bg-cyan-500 border-cyan-400" : "bg-slate-700 border-slate-600"}`} />
+              <div className={`w-2 h-2 rounded-full shrink-0 mx-1 border-2 ${i < idx ? "bg-indigo-500 border-indigo-500" : i === idx ? "bg-indigo-500 border-indigo-400" : "bg-slate-200 border-slate-300"}`} />
             )}
           </div>
         ))}
@@ -35,7 +35,7 @@ function StageBar({ status }) {
       <div className="flex mt-1.5">
         {STAGES.map((s, i) => (
           <div key={s.key} className="flex-1 text-center">
-            <span className={`text-[9px] font-medium ${i === idx ? "text-cyan-400" : i < idx ? "text-slate-500" : "text-slate-600"}`}>
+            <span className={`text-[9px] font-medium ${i === idx ? "text-indigo-600" : i < idx ? "text-slate-400" : "text-slate-300"}`}>
               {s.label}
             </span>
           </div>
@@ -126,25 +126,25 @@ function ShareModal({ property, members, transactions, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <h3 className="text-sm font-semibold text-white">Shareable Summary</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+      <div className="bg-white border border-slate-200/60 rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-slate-900">Shareable Summary</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none">✕</button>
         </div>
         <div className="p-5">
-          <pre className="bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-72 overflow-y-auto leading-relaxed">
+          <pre className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-700 font-mono whitespace-pre-wrap max-h-72 overflow-y-auto leading-relaxed">
             {lines}
           </pre>
           <div className="flex gap-3 mt-4">
             <button
               onClick={() => { navigator.clipboard.writeText(lines); }}
-              className="flex-1 py-2 bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 rounded-xl text-xs font-semibold hover:bg-cyan-500/30 transition"
+              className="flex-1 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-semibold hover:bg-indigo-100 transition"
             >
               📋 Copy Text
             </button>
             <button
               onClick={handleDownload}
-              className="flex-1 py-2 bg-slate-700 border border-slate-600 text-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-600 transition"
+              className="flex-1 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
             >
               ⬇ Download .txt
             </button>
@@ -158,11 +158,11 @@ function ShareModal({ property, members, transactions, onClose }) {
 /* ─── Dark section wrapper ──────────────────────────────────────────────────── */
 function Section({ title, icon, children, accent, right }) {
   return (
-    <div className="bg-slate-800/50 border border-slate-700/60 rounded-2xl overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-700/60">
+    <div className="bg-white border border-slate-200/60 rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
         <div className="flex items-center gap-2">
           {icon && <span className="text-sm">{icon}</span>}
-          <h2 className="text-xs font-bold uppercase tracking-widest text-slate-300">{title}</h2>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">{title}</h2>
         </div>
         {right}
       </div>
@@ -174,31 +174,31 @@ function Section({ title, icon, children, accent, right }) {
 /* ─── Metric card ───────────────────────────────────────────────────────────── */
 function MetricCard({ label, value, sub, accent = "cyan", size = "md" }) {
   const ACCENT = {
-    cyan:   { text: "text-cyan-400",   bg: "bg-cyan-500/10 border-cyan-500/30" },
-    amber:  { text: "text-amber-400",  bg: "bg-amber-500/10 border-amber-500/30" },
-    emerald:{ text: "text-emerald-400",bg: "bg-emerald-500/10 border-emerald-500/30" },
-    rose:   { text: "text-rose-400",   bg: "bg-rose-500/10 border-rose-500/30" },
-    violet: { text: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/30" },
-    slate:  { text: "text-slate-300",  bg: "bg-slate-700/40 border-slate-600/40" },
+    cyan:   { text: "text-sky-700",     bg: "bg-sky-50 border-sky-200" },
+    amber:  { text: "text-amber-700",   bg: "bg-amber-50 border-amber-200" },
+    emerald:{ text: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    rose:   { text: "text-rose-700",    bg: "bg-rose-50 border-rose-200" },
+    violet: { text: "text-violet-700",  bg: "bg-violet-50 border-violet-200" },
+    slate:  { text: "text-slate-700",   bg: "bg-slate-50 border-slate-200" },
   };
   const a = ACCENT[accent] || ACCENT.slate;
   return (
     <div className={`rounded-xl border p-4 ${a.bg}`}>
       <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-400 mb-1">{label}</p>
       <p className={`font-bold ${a.text} ${size === "lg" ? "text-2xl" : "text-base"}`}>{value}</p>
-      {sub && <p className="text-[10px] text-slate-500 mt-0.5">{sub}</p>}
+      {sub && <p className="text-[10px] text-slate-500 mt-0.5 font-normal">{sub}</p>}
     </div>
   );
 }
 
 /* ─── Status badge ──────────────────────────────────────────────────────────── */
 const STATUS_CHIP = {
-  negotiating:  "bg-slate-700 text-slate-300",
-  advance_given:"bg-amber-500/20 text-amber-300 border border-amber-500/30",
-  registry_done:"bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
-  buyer_found:  "bg-blue-500/20 text-blue-300 border border-blue-500/30",
-  settled:      "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-  cancelled:    "bg-rose-500/20 text-rose-300 border border-rose-500/30",
+  negotiating:  "bg-slate-100 text-slate-600 border border-slate-200",
+  advance_given:"bg-amber-50 text-amber-700 border border-amber-200",
+  registry_done:"bg-sky-50 text-sky-700 border border-sky-200",
+  buyer_found:  "bg-blue-50 text-blue-700 border border-blue-200",
+  settled:      "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  cancelled:    "bg-rose-50 text-rose-700 border border-rose-200",
 };
 function StatusBadge({ status }) {
   return (
@@ -220,25 +220,25 @@ function SitePlotsSection({ plots }) {
           const paid = parseFloat(p.total_paid || 0);
           const pct = val > 0 ? Math.min((paid / val) * 100, 100) : 0;
           return (
-            <div key={p.id} className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-3">
+            <div key={p.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold text-xs">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 font-bold text-xs">
                     {p.plot_number ? p.plot_number.slice(0,2).toUpperCase() : "PN"}
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-white">{p.plot_number || p.buyer_name || `Plot #${p.id}`}</p>
+                    <p className="text-xs font-semibold text-slate-800">{p.plot_number || p.buyer_name || `Plot #${p.id}`}</p>
                     <p className="text-[10px] text-slate-400">{p.area_sqft ? `${Number(p.area_sqft).toLocaleString()} sqft` : "—"}{p.sold_price_per_sqft ? ` · ₹${Number(p.sold_price_per_sqft).toLocaleString()}/sqft` : ""}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={p.status || "available"} />
-                  <span className="text-xs font-bold text-emerald-400">{val > 0 ? formatCurrency(val) : "—"}</span>
+                  <span className="text-xs font-bold text-emerald-700">{val > 0 ? formatCurrency(val) : "—"}</span>
                 </div>
               </div>
               {val > 0 && (
                 <div>
-                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} /></div>
                   <div className="flex justify-between mt-1 text-[9px] text-slate-500"><span>Paid {formatCurrency(paid)}</span><span>{formatCurrency(val - paid)} remaining</span></div>
                 </div>
               )}
@@ -264,14 +264,14 @@ function PlotBuyersSection({ buyers, totalArea }) {
           const paid = parseFloat(b.total_paid || 0);
           const pct = val > 0 ? Math.min((paid / val) * 100, 100) : 0;
           return (
-            <div key={b.id} className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-3">
+            <div key={b.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 font-bold text-[10px]">
+                  <div className="w-8 h-8 rounded-lg bg-violet-50 border border-violet-200 flex items-center justify-center text-violet-600 font-bold text-[10px]">
                     {b.buyer_name ? b.buyer_name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "??"}
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-white">{b.buyer_name || `Buyer #${b.id}`}</p>
+                    <p className="text-xs font-semibold text-slate-800">{b.buyer_name || `Buyer #${b.id}`}</p>
                     <p className="text-[10px] text-slate-400">{b.area_sqft ? `${Number(b.area_sqft).toLocaleString()} sqft` : ""}
                     {b.rate_per_sqft ? ` · ₹${Number(b.rate_per_sqft).toLocaleString()}/sqft` : ""}</p>
                   </div>
@@ -280,20 +280,20 @@ function PlotBuyersSection({ buyers, totalArea }) {
               </div>
               {val > 0 && (
                 <div>
-                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full" style={{ width: `${pct}%` }} /></div>
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full" style={{ width: `${pct}%` }} /></div>
                   <div className="flex justify-between mt-1 text-[9px] text-slate-500">
                     <span>Paid {formatCurrency(paid)}</span>
-                    {val - paid > 0 && <span className="text-amber-400">{formatCurrency(val - paid)} due</span>}
+                    {val - paid > 0 && <span className="text-amber-700">{formatCurrency(val - paid)} due</span>}
                   </div>
                 </div>
               )}
             </div>
           );
         })}
-        <div className="grid grid-cols-3 gap-2 mt-1 pt-3 border-t border-slate-700/60 text-center">
-          <div><p className="text-[9px] text-slate-500">Total Value</p><p className="text-xs font-bold text-slate-300">{formatCurrency(totalBuyerValue)}</p></div>
-          <div><p className="text-[9px] text-slate-500">Received</p><p className="text-xs font-bold text-emerald-400">{formatCurrency(totalPaid)}</p></div>
-          <div><p className="text-[9px] text-slate-500">Remaining</p><p className="text-xs font-bold text-rose-400">{formatCurrency(totalBuyerValue - totalPaid)}</p></div>
+        <div className="grid grid-cols-3 gap-2 mt-1 pt-3 border-t border-slate-200 text-center">
+          <div><p className="text-[9px] text-slate-500">Total Value</p><p className="text-xs font-bold text-slate-700">{formatCurrency(totalBuyerValue)}</p></div>
+          <div><p className="text-[9px] text-slate-500">Received</p><p className="text-xs font-bold text-emerald-700">{formatCurrency(totalPaid)}</p></div>
+          <div><p className="text-[9px] text-slate-500">Remaining</p><p className="text-xs font-bold text-rose-700">{formatCurrency(totalBuyerValue - totalPaid)}</p></div>
         </div>
       </div>
     </Section>
@@ -322,15 +322,15 @@ export default function PropertyDetail() {
   });
 
   if (isLoading) return (
-    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
-      <div className="w-12 h-12 border-2 border-slate-700 border-t-cyan-500 rounded-full animate-spin" />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="w-12 h-12 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin" />
     </div>
   );
   if (isError || !data?.property) return (
-    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <div className="text-center">
-        <p className="text-slate-400 mb-4">Property deal not found.</p>
-        <button onClick={() => navigate("/properties")} className="text-cyan-400 hover:underline text-sm">← Back</button>
+        <p className="text-slate-500 mb-4">Property deal not found.</p>
+        <button onClick={() => navigate("/properties")} className="text-indigo-600 hover:underline text-sm">← Back</button>
       </div>
     </div>
   );
@@ -405,7 +405,7 @@ export default function PropertyDetail() {
     .map(m => m.contact.name);
 
   return (
-    <div className="min-h-screen bg-[#0d1117]">
+    <div className="min-h-screen bg-slate-50">
       {showShare && (
         <ShareModal
           property={property}
@@ -422,33 +422,33 @@ export default function PropertyDetail() {
           <div>
             <button
               onClick={() => navigate("/properties")}
-              className="text-slate-500 hover:text-slate-300 text-xs mb-2 flex items-center gap-1 transition"
+              className="text-slate-500 hover:text-slate-700 text-xs mb-2 flex items-center gap-1 transition"
             >
               ← Properties
             </button>
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold text-white tracking-tight">{property.title}</h1>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">{property.title}</h1>
               <StatusBadge status={property.status} />
               <span className="text-xs text-slate-500 capitalize">{property.property_type}</span>
-              {property.location && <span className="text-xs text-slate-400">📍 {property.location}</span>}
+              {property.location && <span className="text-xs text-slate-500">📍 {property.location}</span>}
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setShowShare(true)}
-              className="px-3 py-1.5 bg-slate-700 border border-slate-600 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-600 transition"
+              className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
             >
               🔗 Share
             </button>
             <button
               onClick={() => navigate(`/properties/${id}/edit`)}
-              className="px-3 py-1.5 bg-slate-700 border border-slate-600 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-600 transition"
+              className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
             >
               ✏ Edit
             </button>
             <button
               onClick={() => { if (window.confirm("Delete this deal?")) deleteMutation.mutate(); }}
-              className="px-3 py-1.5 bg-rose-500/20 border border-rose-500/30 text-rose-400 rounded-xl text-xs font-semibold hover:bg-rose-500/30 transition"
+              className="px-3 py-1.5 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold hover:bg-rose-100 transition"
             >
               🗑
             </button>
@@ -456,7 +456,7 @@ export default function PropertyDetail() {
         </div>
 
         {/* ── Stage progress ── */}
-        <div className="bg-slate-800/50 border border-slate-700/60 rounded-2xl px-5 py-4">
+        <div className="bg-white border border-slate-200/60 rounded-2xl shadow-sm px-5 py-4">
           <StageBar status={property.status} />
         </div>
 
@@ -472,20 +472,20 @@ export default function PropertyDetail() {
         <div className="flex flex-wrap gap-3">
           {lp ? (
             <Link to={`/partnerships/${lp.partnership.id}`}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 rounded-xl text-xs font-semibold hover:bg-cyan-500/20 transition">
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-semibold hover:bg-indigo-100 transition">
               🤝 Open Partnership: {lp.partnership.title} →
             </Link>
           ) : (
             <Link to="/partnerships/new"
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 rounded-xl text-xs font-semibold hover:bg-indigo-500/20 transition">
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition">
               + Create Partnership
             </Link>
           )}
           {partnerNames.length > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-800/60 border border-slate-700/60 rounded-xl">
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm">
               <span className="text-[10px] text-slate-400">Partners:</span>
               {partnerNames.map((n, i) => (
-                <span key={i} className="text-[10px] font-semibold text-slate-200 bg-slate-700 px-1.5 py-0.5 rounded">{n}</span>
+                <span key={i} className="text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">{n}</span>
               ))}
             </div>
           )}
@@ -493,10 +493,10 @@ export default function PropertyDetail() {
 
         {/* ── Settlement banner ── */}
         {isSettled && (
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-5">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs">✓</div>
-              <h3 className="text-sm font-bold text-emerald-300 uppercase tracking-widest">Deal Settled</h3>
+              <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-xs">✓</div>
+              <h3 className="text-sm font-bold text-emerald-700 uppercase tracking-widest">Deal Settled</h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <MetricCard label="Seller Cost" value={formatCurrency(property.total_seller_value)} accent="slate" />
@@ -515,11 +515,11 @@ export default function PropertyDetail() {
 
             {/* ── SELLER MASTER CARD ── */}
             {totalSeller > 0 && (
-              <div className="bg-slate-800/50 border border-violet-500/30 rounded-2xl p-5">
+              <div className="bg-white border border-violet-200 rounded-2xl shadow-sm p-5">
                 <div className="flex items-center gap-2.5 mb-4">
-                  <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-base">💳</div>
+                  <div className="w-9 h-9 rounded-xl bg-violet-100 border border-violet-200 flex items-center justify-center text-base">💳</div>
                   <div>
-                    <h3 className="text-sm font-bold text-white">Seller Payment Tracker</h3>
+                    <h3 className="text-sm font-bold text-slate-900">Seller Payment Tracker</h3>
                     <p className="text-[10px] text-slate-400">Total deal value vs. payments made</p>
                   </div>
                 </div>
@@ -530,19 +530,19 @@ export default function PropertyDetail() {
                     <span>Paid to Seller</span>
                     <span>Total Deal Value</span>
                   </div>
-                  <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                  <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full transition-all duration-700"
                       style={{ width: `${Math.min((totalSentToSeller / totalSeller) * 100, 100)}%` }}
                     />
                   </div>
                   <div className="flex justify-between mt-1.5 text-xs">
-                    <span className="text-violet-400 font-bold font-mono tabular-nums">{formatCurrency(totalSentToSeller)}</span>
-                    <span className="text-slate-400 font-mono tabular-nums">{formatCurrency(totalSeller)}</span>
+                    <span className="text-violet-700 font-bold font-mono tabular-nums">{formatCurrency(totalSentToSeller)}</span>
+                    <span className="text-slate-500 font-mono tabular-nums">{formatCurrency(totalSeller)}</span>
                   </div>
                   <div className="flex justify-between mt-1 text-[10px]">
                     <span className="text-slate-500">{Math.round((totalSentToSeller / totalSeller) * 100)}% paid</span>
-                    <span className={remainingOwedToSeller > 0 ? "text-amber-400 font-medium" : "text-emerald-400 font-medium"}>
+                    <span className={remainingOwedToSeller > 0 ? "text-amber-600 font-medium" : "text-emerald-600 font-medium"}>
                       {remainingOwedToSeller > 0 ? `${formatCurrency(remainingOwedToSeller)} remaining` : "Fully paid ✓"}
                     </span>
                   </div>
@@ -550,18 +550,18 @@ export default function PropertyDetail() {
 
                 {/* User's liability highlight */}
                 {myRemainingCommitment > 0 ? (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
-                    <span className="text-amber-400 text-base mt-0.5">⚠</span>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                    <span className="text-amber-600 text-base mt-0.5">⚠</span>
                     <div>
-                      <p className="text-[9px] text-amber-300/70 font-semibold uppercase tracking-wider mb-0.5">Your Share of Remaining Liability</p>
-                      <p className="text-xl font-bold text-amber-400 font-mono tabular-nums">{formatCurrency(myRemainingCommitment)}</p>
+                      <p className="text-[9px] text-amber-700 font-semibold uppercase tracking-wider mb-0.5">Your Share of Remaining Liability</p>
+                      <p className="text-xl font-bold text-amber-700 font-mono tabular-nums">{formatCurrency(myRemainingCommitment)}</p>
                       {myShare > 0 && <p className="text-[10px] text-slate-500 mt-0.5">{myShare}% of {formatCurrency(remainingOwedToSeller)} outstanding</p>}
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-2.5 flex items-center gap-2">
-                    <span className="text-emerald-400">✓</span>
-                    <p className="text-sm font-semibold text-emerald-400">Your share fully paid</p>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
+                    <span className="text-emerald-600">✓</span>
+                    <p className="text-sm font-semibold text-emerald-700">Your share fully paid</p>
                   </div>
                 )}
               </div>
@@ -570,16 +570,16 @@ export default function PropertyDetail() {
             {/* My Personal Stake card */}
             <Section title="My Personal Stake" icon="👤">
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-slate-900/60 border border-slate-700/60 rounded-xl p-3.5">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
                   <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-1">Invested So Far</p>
-                  <p className="text-lg font-bold text-cyan-400">{formatCurrency(myInvested)}</p>
+                  <p className="text-lg font-bold text-sky-700">{formatCurrency(myInvested)}</p>
                   {advancePaid > 0 && myInvested !== advancePaid && (
-                    <p className="text-[10px] text-slate-500 mt-0.5">Pool advance: {formatCurrency(advancePaid)}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Pool advance: {formatCurrency(advancePaid)}</p>
                   )}
                 </div>
-                <div className={`border rounded-xl p-3.5 ${myRemainingCommitment > 0 ? "bg-amber-500/5 border-amber-500/30" : "bg-emerald-500/5 border-emerald-500/30"}`}>
+                <div className={`border rounded-xl p-3.5 ${myRemainingCommitment > 0 ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
                   <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-1">Still to Pay</p>
-                  <p className={`text-lg font-bold ${myRemainingCommitment > 0 ? "text-amber-400" : "text-emerald-400"}`}>
+                  <p className={`text-lg font-bold ${myRemainingCommitment > 0 ? "text-amber-700" : "text-emerald-700"}`}>
                     {myRemainingCommitment > 0 ? formatCurrency(myRemainingCommitment) : "Complete ✓"}
                   </p>
                   {myRemainingCommitment > 0 && (
@@ -591,8 +591,8 @@ export default function PropertyDetail() {
               </div>
               {myProfitWithdrawn > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-xs">✓</span>
-                  <span className="text-xs text-slate-300">Profit withdrawn: <strong className="text-emerald-400">{formatCurrency(myProfitWithdrawn)}</strong></span>
+                  <span className="text-emerald-700 text-xs">✓</span>
+                  <span className="text-xs text-slate-600">Profit withdrawn: <strong className="text-emerald-700">{formatCurrency(myProfitWithdrawn)}</strong></span>
                 </div>
               )}
             </Section>
@@ -603,67 +603,67 @@ export default function PropertyDetail() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-slate-700">
-                        <th className="text-left py-2 text-slate-400 font-semibold uppercase tracking-wide">Metric</th>
-                        <th className="text-right py-2 text-slate-400 font-semibold uppercase tracking-wide">Value</th>
-                        <th className="text-right py-2 text-slate-400 font-semibold uppercase tracking-wide">Notes</th>
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 text-slate-500 font-semibold uppercase tracking-wide">Metric</th>
+                        <th className="text-right py-2 text-slate-500 font-semibold uppercase tracking-wide">Value</th>
+                        <th className="text-right py-2 text-slate-500 font-semibold uppercase tracking-wide">Notes</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-700/60">
+                    <tbody className="divide-y divide-slate-100">
                       <tr>
-                        <td className="py-2.5 text-slate-300">Seller Rate</td>
-                        <td className="text-right py-2.5 font-semibold text-amber-400">
+                        <td className="py-2.5 text-slate-600">Seller Rate</td>
+                        <td className="text-right py-2.5 font-semibold text-amber-700">
                           {sellerRatePerSqft > 0 ? `₹${Number(sellerRatePerSqft).toLocaleString()}/sqft` : "—"}
                         </td>
                         <td className="text-right py-2.5 text-slate-500">Base cost</td>
                       </tr>
                       <tr>
-                        <td className="py-2.5 text-slate-300">Total Area</td>
-                        <td className="text-right py-2.5 font-semibold text-slate-200">
+                        <td className="py-2.5 text-slate-600">Total Area</td>
+                        <td className="text-right py-2.5 font-semibold text-slate-700">
                           {totalArea > 0 ? `${Number(totalArea).toLocaleString()} sqft` : "—"}
                         </td>
                         <td className="text-right py-2.5 text-slate-500">Plot size</td>
                       </tr>
                       <tr>
-                        <td className="py-2.5 text-slate-300">Total Seller Cost</td>
-                        <td className="text-right py-2.5 font-semibold text-slate-200">{formatCurrency(totalSeller)}</td>
+                        <td className="py-2.5 text-slate-600">Total Seller Cost</td>
+                        <td className="text-right py-2.5 font-semibold text-slate-700">{formatCurrency(totalSeller)}</td>
                         <td className="text-right py-2.5 text-slate-500">Purchase price</td>
                       </tr>
                       {brokerComm > 0 && (
                         <tr>
-                          <td className="py-2.5 text-slate-300">Broker Commission</td>
-                          <td className="text-right py-2.5 font-semibold text-violet-400">{formatCurrency(brokerComm)}</td>
+                          <td className="py-2.5 text-slate-600">Broker Commission</td>
+                          <td className="text-right py-2.5 font-semibold text-violet-700">{formatCurrency(brokerComm)}</td>
                           <td className="text-right py-2.5 text-slate-500">{property.broker_name || "Broker"}</td>
                         </tr>
                       )}
                       {otherExp > 0 && (
                         <tr>
-                          <td className="py-2.5 text-slate-300">Extra Expenses (Kharcha)</td>
-                          <td className="text-right py-2.5 font-semibold text-orange-400">{formatCurrency(otherExp)}</td>
+                          <td className="py-2.5 text-slate-600">Extra Expenses (Kharcha)</td>
+                          <td className="text-right py-2.5 font-semibold text-orange-700">{formatCurrency(otherExp)}</td>
                           <td className="text-right py-2.5 text-slate-500">Misc costs</td>
                         </tr>
                       )}
                       {extraExpenses > 0 && (
                         <tr>
-                          <td className="py-2.5 text-slate-300 font-semibold">Total All-in Cost</td>
-                          <td className="text-right py-2.5 font-bold text-white">{formatCurrency(totalCost)}</td>
+                          <td className="py-2.5 text-slate-700 font-semibold">Total All-in Cost</td>
+                          <td className="text-right py-2.5 font-bold text-slate-900">{formatCurrency(totalCost)}</td>
                           <td className="text-right py-2.5 text-slate-500">Seller + expenses</td>
                         </tr>
                       )}
                       {totalArea > 0 && totalCost > 0 && (
-                        <tr className="bg-slate-700/20">
-                          <td className="py-2.5 text-cyan-300 font-bold">Break-even Rate</td>
-                          <td className="text-right py-2.5 font-bold text-cyan-400">
+                        <tr className="bg-sky-50/50">
+                          <td className="py-2.5 text-sky-700 font-bold">Break-even Rate</td>
+                          <td className="text-right py-2.5 font-bold text-sky-700">
                             ₹{Number(Math.round(breakevenRatePerSqft)).toLocaleString()}/sqft
                           </td>
                           <td className="text-right py-2.5 text-slate-500">Must sell above this</td>
                         </tr>
                       )}
                       {buyerRate > 0 && breakevenRatePerSqft > 0 && (
-                        <tr className="bg-emerald-500/5">
-                          <td className="py-2.5 text-emerald-300 font-bold">Buyer Rate</td>
-                          <td className="text-right py-2.5 font-bold text-emerald-400">₹{Number(Math.round(buyerRate)).toLocaleString()}/sqft</td>
-                          <td className="text-right py-2.5 text-emerald-500/70">
+                        <tr className="bg-emerald-50/60">
+                          <td className="py-2.5 text-emerald-700 font-bold">Buyer Rate</td>
+                          <td className="text-right py-2.5 font-bold text-emerald-700">₹{Number(Math.round(buyerRate)).toLocaleString()}/sqft</td>
+                          <td className="text-right py-2.5 text-emerald-600/80">
                             {profitPerSqft > 0 ? `+₹${Math.round(profitPerSqft).toLocaleString()}/sqft profit` : "Below breakeven"}
                           </td>
                         </tr>
@@ -708,11 +708,11 @@ export default function PropertyDetail() {
               return (
                 <Section title="Timeline" icon="📅">
                   {nextAction && (
-                    <div className={`mb-4 flex items-start gap-3 px-4 py-3 rounded-xl border ${nextAction.urgent ? "bg-rose-500/10 border-rose-500/30" : "bg-cyan-500/10 border-cyan-500/30"}`}>
+                    <div className={`mb-4 flex items-start gap-3 px-4 py-3 rounded-xl border ${nextAction.urgent ? "bg-rose-50 border-rose-200" : "bg-indigo-50 border-indigo-200"}`}>
                       <span className="text-base mt-0.5">{nextAction.icon}</span>
                       <div>
                         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Next Action</p>
-                        <p className={`text-xs font-semibold ${nextAction.urgent ? "text-rose-300" : "text-cyan-300"}`}>{nextAction.label}</p>
+                        <p className={`text-xs font-semibold ${nextAction.urgent ? "text-rose-700" : "text-indigo-700"}`}>{nextAction.label}</p>
                       </div>
                     </div>
                   )}
@@ -720,17 +720,17 @@ export default function PropertyDetail() {
                     <div className="relative">
                       {dateKeys.map((dateStr, di) => (
                         <div key={dateStr} className="relative pl-6 pb-4 last:pb-0">
-                          {di < dateKeys.length - 1 && <div className="absolute left-[9px] top-5 bottom-0 w-px bg-slate-700" />}
-                          <div className={`absolute left-0 top-1 w-[18px] h-[18px] rounded-full flex items-center justify-center border-2 ${grouped[dateStr][0].future ? "bg-slate-800 border-cyan-500/60" : "bg-slate-700 border-slate-500"}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${grouped[dateStr][0].future ? "bg-cyan-400" : "bg-slate-400"}`} />
+                          {di < dateKeys.length - 1 && <div className="absolute left-[9px] top-5 bottom-0 w-px bg-slate-200" />}
+                          <div className={`absolute left-0 top-1 w-[18px] h-[18px] rounded-full flex items-center justify-center border-2 ${grouped[dateStr][0].future ? "bg-white border-indigo-400" : "bg-white border-slate-300"}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${grouped[dateStr][0].future ? "bg-indigo-500" : "bg-slate-400"}`} />
                           </div>
                           <p className="text-[10px] font-bold text-slate-400 mb-1">{formatDate(dateStr)}</p>
                           {grouped[dateStr].map((ev, ei) => (
                             <div key={ei} className={`ml-1 ${ei > 0 ? "mt-1.5" : ""} flex items-start gap-2`}>
                               <span className="text-sm shrink-0">{ev.icon}</span>
                               <div>
-                                <p className={`text-xs ${ev.milestone ? "font-semibold text-slate-200" : "text-slate-300"}`}>{ev.label}</p>
-                                {ev.detail && <p className="text-[10px] text-slate-500">{ev.detail}</p>}
+                                <p className={`text-xs ${ev.milestone ? "font-semibold text-slate-800" : "text-slate-600"}`}>{ev.label}</p>
+                                {ev.detail && <p className="text-[10px] text-slate-400">{ev.detail}</p>}
                               </div>
                             </div>
                           ))}
@@ -753,39 +753,39 @@ export default function PropertyDetail() {
             {/* Partnership members */}
             {lp && members.length > 0 && (
               <Section title="Partnership Members" icon="🤝"
-                right={<Link to={`/partnerships/${lp.partnership.id}`} className="text-[10px] text-cyan-400 hover:underline">Open →</Link>}>
+                right={<Link to={`/partnerships/${lp.partnership.id}`} className="text-[10px] text-indigo-600 hover:underline">Open →</Link>}>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-slate-700">
-                        <th className="text-left py-2 text-slate-400 font-semibold">Partner</th>
-                        <th className="text-right py-2 text-slate-400 font-semibold">Share %</th>
-                        <th className="text-right py-2 text-slate-400 font-semibold">Advance</th>
-                        {isSettled && <th className="text-right py-2 text-slate-400 font-semibold">Received</th>}
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 text-slate-500 font-semibold">Partner</th>
+                        <th className="text-right py-2 text-slate-500 font-semibold">Share %</th>
+                        <th className="text-right py-2 text-slate-500 font-semibold">Advance</th>
+                        {isSettled && <th className="text-right py-2 text-slate-500 font-semibold">Received</th>}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-700/40">
+                    <tbody className="divide-y divide-slate-100">
                       {members.map((m, i) => (
                         <tr key={i}>
                           <td className="py-2.5">
                             <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[9px] font-bold text-slate-300">
+                              <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-600">
                                 {m.member?.is_self ? "ME" : (m.contact?.name?.[0] || "P")}
                               </div>
-                              <span className={`font-medium ${m.member?.is_self ? "text-cyan-300" : "text-slate-200"}`}>
+                              <span className={`font-medium ${m.member?.is_self ? "text-indigo-700" : "text-slate-700"}`}>
                                 {m.member?.is_self ? "You" : m.contact?.name || "Partner"}
                               </span>
                             </div>
                           </td>
-                          <td className="text-right py-2.5 text-slate-300">{m.member?.share_percentage}%</td>
-                          <td className="text-right py-2.5 text-amber-400 font-semibold">{formatCurrency(m.member?.advance_contributed)}</td>
-                          {isSettled && <td className="text-right py-2.5 text-emerald-400 font-semibold">{formatCurrency(m.member?.total_received)}</td>}
+                          <td className="text-right py-2.5 text-slate-600">{m.member?.share_percentage}%</td>
+                          <td className="text-right py-2.5 text-amber-700 font-semibold">{formatCurrency(m.member?.advance_contributed)}</td>
+                          {isSettled && <td className="text-right py-2.5 text-emerald-700 font-semibold">{formatCurrency(m.member?.total_received)}</td>}
                         </tr>
                       ))}
-                      <tr className="border-t border-slate-600">
-                        <td className="py-2 text-slate-400 font-semibold">Total</td>
-                        <td className="text-right py-2 text-slate-400">{members.reduce((s,m) => s + parseFloat(m.member?.share_percentage||0),0)}%</td>
-                        <td className="text-right py-2 text-amber-400 font-bold">{formatCurrency(totalAdvancePool)}</td>
+                      <tr className="border-t border-slate-200">
+                        <td className="py-2 text-slate-500 font-semibold">Total</td>
+                        <td className="text-right py-2 text-slate-500">{members.reduce((s,m) => s + parseFloat(m.member?.share_percentage||0),0)}%</td>
+                        <td className="text-right py-2 text-amber-700 font-bold">{formatCurrency(totalAdvancePool)}</td>
                         {isSettled && <td />}
                       </tr>
                     </tbody>
@@ -796,47 +796,47 @@ export default function PropertyDetail() {
 
             {/* Transactions */}
             <Section title="Transactions" icon="💳"
-              right={lp && <Link to={`/partnerships/${lp.partnership.id}`} className="text-[10px] text-cyan-400 hover:underline">Manage from Partnership →</Link>}>
+              right={lp && <Link to={`/partnerships/${lp.partnership.id}`} className="text-[10px] text-indigo-600 hover:underline">Manage from Partnership →</Link>}>
               {transactions.length === 0 ? (
                 <p className="text-xs text-slate-500 italic text-center py-4">No transactions recorded yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-slate-700">
-                        <th className="text-left py-2 text-slate-400 font-semibold">Date</th>
-                        <th className="text-left py-2 text-slate-400 font-semibold">Type</th>
-                        <th className="text-right py-2 text-slate-400 font-semibold">Amount</th>
-                        <th className="text-left py-2 text-slate-400 font-semibold">Details</th>
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-2 text-slate-500 font-semibold">Date</th>
+                        <th className="text-left py-2 text-slate-500 font-semibold">Type</th>
+                        <th className="text-right py-2 text-slate-500 font-semibold">Amount</th>
+                        <th className="text-left py-2 text-slate-500 font-semibold">Details</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-700/40">
+                    <tbody className="divide-y divide-slate-100">
                       {transactions.map(t => {
                         const typeStyle = {
-                          advance_to_seller: "text-amber-400 bg-amber-500/10",
-                          advance_given:     "text-amber-400 bg-amber-500/10",
-                          remaining_to_seller:"text-amber-400 bg-amber-500/10",
-                          payment_to_seller: "text-amber-400 bg-amber-500/10",
-                          received_from_buyer:"text-emerald-400 bg-emerald-500/10",
-                          buyer_advance:     "text-emerald-400 bg-emerald-500/10",
-                          buyer_payment:     "text-emerald-400 bg-emerald-500/10",
-                          profit_received:   "text-teal-400 bg-teal-500/10",
-                          broker_commission: "text-violet-400 bg-violet-500/10",
-                          broker_paid:       "text-violet-400 bg-violet-500/10",
-                          expense:           "text-orange-400 bg-orange-500/10",
-                          other_expense:     "text-orange-400 bg-orange-500/10",
-                        }[t.txn_type] || "text-slate-300 bg-slate-700/50";
+                          advance_to_seller: "text-amber-700 bg-amber-50",
+                          advance_given:     "text-amber-700 bg-amber-50",
+                          remaining_to_seller:"text-amber-700 bg-amber-50",
+                          payment_to_seller: "text-amber-700 bg-amber-50",
+                          received_from_buyer:"text-emerald-700 bg-emerald-50",
+                          buyer_advance:     "text-emerald-700 bg-emerald-50",
+                          buyer_payment:     "text-emerald-700 bg-emerald-50",
+                          profit_received:   "text-teal-700 bg-teal-50",
+                          broker_commission: "text-violet-700 bg-violet-50",
+                          broker_paid:       "text-violet-700 bg-violet-50",
+                          expense:           "text-orange-700 bg-orange-50",
+                          other_expense:     "text-orange-700 bg-orange-50",
+                        }[t.txn_type] || "text-slate-600 bg-slate-100";
                         const detail = [t.description, t.payer_name && `By: ${t.payer_name}`, t.receiver_name && `→ ${t.receiver_name}`].filter(Boolean).join(" · ");
                         return (
-                          <tr key={t.id} className="hover:bg-slate-700/20 transition">
-                            <td className="py-2.5 text-slate-400">{formatDate(t.txn_date)}</td>
+                          <tr key={t.id} className="hover:bg-slate-50 transition">
+                            <td className="py-2.5 text-slate-500">{formatDate(t.txn_date)}</td>
                             <td className="py-2.5">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${typeStyle}`}>
                                 {(t.txn_type || "").replace(/_/g, " ")}
                               </span>
                             </td>
-                            <td className="text-right py-2.5 font-bold text-white">{formatCurrency(t.amount)}</td>
-                            <td className="py-2.5 text-slate-500">{detail || "—"}</td>
+                            <td className="text-right py-2.5 font-bold text-slate-900">{formatCurrency(t.amount)}</td>
+                            <td className="py-2.5 text-slate-400">{detail || "—"}</td>
                           </tr>
                         );
                       })}
@@ -845,16 +845,16 @@ export default function PropertyDetail() {
                 </div>
               )}
               {partnershipExpenses.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-slate-700/60">
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-2">Partnership Expenses</p>
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-2">Partnership Expenses</p>
                   {partnershipExpenses.map(pe => (
                     <div key={pe.id} className="flex items-center justify-between py-1.5 text-xs">
                       <div className="flex items-center gap-2">
                         <span className="text-slate-400">{formatDate(pe.txn_date)}</span>
-                        <span className="text-slate-300">{pe.description || "—"}</span>
-                        <span className="text-[10px] bg-violet-500/10 text-violet-400 px-1.5 py-0.5 rounded">{pe.payer_name || "Partner"}</span>
+                        <span className="text-slate-600">{pe.description || "—"}</span>
+                        <span className="text-[10px] bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded">{pe.payer_name || "Partner"}</span>
                       </div>
-                      <span className="font-semibold text-orange-400">{formatCurrency(pe.amount)}</span>
+                      <span className="font-semibold text-orange-700">{formatCurrency(pe.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -870,23 +870,23 @@ export default function PropertyDetail() {
             <Section title="Money Flow" icon="💸">
               <div className="space-y-2">
                 {[
-                  { label: "Seller Asking Price", val: formatCurrency(totalSeller), cls: "text-slate-300" },
-                  { label: "Advance Paid", val: formatCurrency(advancePaid), cls: "text-amber-400" },
-                  furtherPaid > 0 && { label: "Further Paid", val: formatCurrency(furtherPaid), cls: "text-amber-400" },
-                  brokerComm > 0 && { label: "Broker Commission", val: formatCurrency(brokerComm), cls: "text-violet-400" },
-                  otherExp > 0 && { label: "Other Expenses", val: formatCurrency(otherExp), cls: "text-orange-400" },
-                  parseFloat(property.total_buyer_value||0) > 0 && { label: "Buyer Value", val: formatCurrency(property.total_buyer_value), cls: "text-emerald-400" },
+                  { label: "Seller Asking Price", val: formatCurrency(totalSeller), cls: "text-slate-700" },
+                  { label: "Advance Paid", val: formatCurrency(advancePaid), cls: "text-amber-700" },
+                  furtherPaid > 0 && { label: "Further Paid", val: formatCurrency(furtherPaid), cls: "text-amber-700" },
+                  brokerComm > 0 && { label: "Broker Commission", val: formatCurrency(brokerComm), cls: "text-violet-700" },
+                  otherExp > 0 && { label: "Other Expenses", val: formatCurrency(otherExp), cls: "text-orange-700" },
+                  parseFloat(property.total_buyer_value||0) > 0 && { label: "Buyer Value", val: formatCurrency(property.total_buyer_value), cls: "text-emerald-700" },
                 ].filter(Boolean).map((row, i) => (
-                  <div key={i} className="flex justify-between text-xs py-1.5 border-b border-slate-700/60 last:border-0">
-                    <span className="text-slate-400">{row.label}</span>
+                  <div key={i} className="flex justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
+                    <span className="text-slate-500">{row.label}</span>
                     <span className={`font-semibold ${row.cls}`}>{row.val}</span>
                   </div>
                 ))}
                 <div className="flex justify-between text-xs pt-2">
-                  <span className={`font-bold ${remainingOwedToSeller > 0 ? "text-rose-300" : "text-emerald-300"}`}>
+                  <span className={`font-bold ${remainingOwedToSeller > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                     Seller Remaining
                   </span>
-                  <span className={`font-bold ${remainingOwedToSeller > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                  <span className={`font-bold ${remainingOwedToSeller > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                     {remainingOwedToSeller > 0 ? formatCurrency(remainingOwedToSeller) : "Paid ✓"}
                   </span>
                 </div>
@@ -917,25 +917,25 @@ export default function PropertyDetail() {
                 ["Expected Registry", property.expected_registry_date ? formatDate(property.expected_registry_date) : null],
                 ["Actual Registry", property.actual_registry_date ? formatDate(property.actual_registry_date) : null],
               ].filter(row => row && row[1]).map(([label, value], i) => (
-                <div key={i} className="flex justify-between py-1.5 border-b border-slate-700/50 last:border-0 text-xs">
-                  <span className="text-slate-400">{label}</span>
-                  <span className="text-slate-200 font-medium text-right max-w-[60%]">{value}</span>
+                <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-xs">
+                  <span className="text-slate-500">{label}</span>
+                  <span className="text-slate-700 font-medium text-right max-w-[60%]">{value}</span>
                 </div>
               ))}
             </Section>
 
             {/* Registry alert */}
             {daysToRegistry !== null && !isSettled && property.status !== "cancelled" && (
-              <div className={`rounded-2xl border p-4 ${registryUrgent ? "bg-rose-500/10 border-rose-500/30" : "bg-slate-800/50 border-slate-700/60"}`}>
+              <div className={`rounded-2xl border p-4 ${registryUrgent ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
                 <div className="flex items-start gap-2">
                   <span className="text-lg">{daysToRegistry < 0 ? "⚠️" : registryUrgent ? "🔴" : "📅"}</span>
                   <div>
-                    <p className={`text-xs font-bold ${registryUrgent ? "text-rose-300" : "text-slate-300"}`}>
+                    <p className={`text-xs font-bold ${registryUrgent ? "text-rose-700" : "text-slate-700"}`}>
                       {daysToRegistry < 0 ? `Registry ${Math.abs(daysToRegistry)} days overdue`
                         : daysToRegistry === 0 ? "Registry TODAY"
                         : `Registry in ${daysToRegistry} days`}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(property.expected_registry_date)}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{formatDate(property.expected_registry_date)}</p>
                   </div>
                 </div>
               </div>
@@ -944,7 +944,7 @@ export default function PropertyDetail() {
             {/* Notes */}
             {property.notes && (
               <Section title="Notes" icon="📝">
-                <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">{property.notes}</p>
+                <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">{property.notes}</p>
               </Section>
             )}
 
@@ -953,12 +953,12 @@ export default function PropertyDetail() {
               <div className="space-y-2">
                 <button
                   onClick={() => setShowShare(true)}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 rounded-xl text-xs font-semibold hover:bg-cyan-500/20 transition text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-semibold hover:bg-indigo-100 transition text-left"
                 >
                   <span>🔗</span>
                   <div>
                     <p>Generate Shareable Summary</p>
-                    <p className="text-[10px] text-slate-500 font-normal">Copy or download deal brief</p>
+                    <p className="text-[10px] text-slate-400 font-normal">Copy or download deal brief</p>
                   </div>
                 </button>
                 <button
@@ -983,22 +983,22 @@ export default function PropertyDetail() {
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-700/60 border border-slate-600/60 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700 transition text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition text-left"
                 >
                   <span>⬇</span>
                   <div>
                     <p>Download Receipt</p>
-                    <p className="text-[10px] text-slate-500 font-normal">Save transaction history</p>
+                    <p className="text-[10px] text-slate-400 font-normal">Save transaction history</p>
                   </div>
                 </button>
                 <button
                   onClick={() => navigate(`/properties/${id}/edit`)}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-700/60 border border-slate-600/60 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700 transition text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition text-left"
                 >
                   <span>✏</span>
                   <div>
                     <p>Edit Deal Details</p>
-                    <p className="text-[10px] text-slate-500 font-normal">Update rates, dates, notes</p>
+                    <p className="text-[10px] text-slate-400 font-normal">Update rates, dates, notes</p>
                   </div>
                 </button>
               </div>
