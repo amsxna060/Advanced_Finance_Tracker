@@ -191,6 +191,73 @@ def _get_linked_partnership_data(property_id: int, db: Session) -> Optional[dict
     }
 
 
+_ACTIVE_STATUSES = {"negotiating", "advance_given", "registry_done", "buyer_found"}
+
+
+@router.get("/stats")
+def portfolio_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aggregate portfolio stats with accurate share % resolution."""
+    from app.models.partnership import Partnership
+
+    properties = db.query(PropertyDeal).filter(
+        PropertyDeal.is_deleted == False,
+        PropertyDeal.is_legacy == False,
+    ).all()
+
+    my_capital = Decimal("0")
+    my_liability = Decimal("0")
+    settled_profit = Decimal("0")
+    active_count = 0
+
+    for prop in properties:
+        share_pct = _decimal(prop.my_share_percentage) if prop.my_share_percentage is not None else None
+
+        if share_pct is None:
+            # Resolve share from linked partnership if available
+            partnership = db.query(Partnership).filter(
+                Partnership.linked_property_deal_id == prop.id,
+                Partnership.is_deleted == False,
+            ).first()
+            if partnership:
+                sm = db.query(PartnershipMember).filter(
+                    PartnershipMember.partnership_id == partnership.id,
+                    PartnershipMember.is_self == True,
+                ).first()
+                if sm:
+                    total_contrib = _decimal(
+                        db.query(func.coalesce(func.sum(PartnershipMember.advance_contributed), 0))
+                        .filter(PartnershipMember.partnership_id == partnership.id)
+                        .scalar()
+                    )
+                    if total_contrib > 0:
+                        share_pct = _decimal(sm.advance_contributed) / total_contrib * Decimal("100")
+
+        share_pct = share_pct if share_pct is not None else Decimal("100")
+        share_ratio = share_pct / Decimal("100")
+
+        advance = _decimal(prop.advance_paid)
+        total_seller = _decimal(prop.total_seller_value) if prop.total_seller_value else Decimal("0")
+
+        if prop.status in _ACTIVE_STATUSES:
+            active_count += 1
+            my_capital += advance * share_ratio
+            my_liability += max(Decimal("0"), total_seller - advance) * share_ratio
+        elif prop.status == "settled":
+            net_profit = _decimal(prop.net_profit) if prop.net_profit else Decimal("0")
+            settled_profit += net_profit * share_ratio
+
+    return {
+        "my_capital": float(my_capital),
+        "my_liability": float(my_liability),
+        "settled_profit": float(settled_profit),
+        "active_count": active_count,
+        "total_count": len(properties),
+    }
+
+
 @router.get("", response_model=List[PropertyDealOut])
 def get_properties(
     status: Optional[str] = None,

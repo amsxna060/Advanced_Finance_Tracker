@@ -1,9 +1,26 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
-import { formatCurrency, formatDate } from "../../lib/utils";
-import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
+import { formatCurrency } from "../../lib/utils";
+import { PageHero, PageBody, Button } from "../../components/ui";
+
+/* ── Portfolio stat card (larger, more readable) ───────────────────────────── */
+function PortfolioStat({ label, value, sub, accent }) {
+  const C = {
+    sky:     { border: "border-l-sky-400",     val: "text-sky-300" },
+    amber:   { border: "border-l-amber-400",   val: "text-amber-300" },
+    emerald: { border: "border-l-emerald-400", val: "text-emerald-300" },
+  }[accent] || { border: "border-l-indigo-400", val: "text-white" };
+
+  return (
+    <div className={`bg-white/[0.06] backdrop-blur border border-white/[0.10] border-l-[3px] ${C.border} rounded-2xl px-6 py-5 flex flex-col gap-2`}>
+      <p className="text-white/50 text-[11px] font-semibold uppercase tracking-[0.18em] leading-none">{label}</p>
+      <p className={`text-[1.75rem] font-black tracking-tight leading-none ${C.val}`}>{value}</p>
+      {sub && <p className="text-white/40 text-xs leading-snug">{sub}</p>}
+    </div>
+  );
+}
 
 /* ── Stage pipeline ────────────────────────────────────────────────────────── */
 const STAGES = [
@@ -170,34 +187,11 @@ export default function PropertyList() {
     },
   });
 
-  const stats = useMemo(() => {
-    const active = properties.filter(p => ["negotiating","advance_given","buyer_found","registry_done"].includes(p.status));
-
-    // My Active Capital = advance_paid × my share% (null/undefined = sole owner = 100%, 0 = no share)
-    const myCapital = active.reduce((s, p) => {
-      const paid  = parseFloat(p.advance_paid || 0);
-      const share = p.my_share_percentage != null ? parseFloat(p.my_share_percentage) / 100 : 1;
-      return s + paid * share;
-    }, 0);
-
-    // My Upcoming Liability = remaining seller amount × my share% across active deals
-    const myLiability = active.reduce((s, p) => {
-      const total = parseFloat(p.total_seller_value || 0);
-      const paid  = parseFloat(p.advance_paid || 0);
-      const share = p.my_share_percentage != null ? parseFloat(p.my_share_percentage) / 100 : 1;
-      return s + Math.max(0, total - paid) * share;
-    }, 0);
-
-    // My Settled Profit = net_profit × my share% for settled deals
-    const settledProfit = properties
-      .filter(p => p.status === "settled")
-      .reduce((s, p) => {
-        const share = p.my_share_percentage != null ? parseFloat(p.my_share_percentage) / 100 : 1;
-        return s + parseFloat(p.net_profit || 0) * share;
-      }, 0);
-
-    return { myCapital, myLiability, settledProfit, activeCount: active.length, totalCount: properties.length };
-  }, [properties]);
+  const { data: stats = {} } = useQuery({
+    queryKey: ["properties-stats"],
+    queryFn: () => api.get("/api/properties/stats").then(r => r.data),
+    staleTime: 30_000,
+  });
 
   const hasFilters = filters.search || filters.status || filters.property_type;
 
@@ -205,7 +199,7 @@ export default function PropertyList() {
     <div className="min-h-screen bg-slate-50">
       <PageHero
         title="Property Portfolio"
-        subtitle={`${stats.totalCount} deal${stats.totalCount !== 1 ? "s" : ""} · ${stats.activeCount} active`}
+        subtitle={`${stats.total_count ?? "—"} deal${stats.total_count !== 1 ? "s" : ""} · ${stats.active_count ?? "—"} active`}
         backTo="/dashboard"
         actions={
           <Button variant="white" onClick={() => navigate("/properties/new")}>
@@ -213,23 +207,23 @@ export default function PropertyList() {
           </Button>
         }
       >
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
-          <HeroStat
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-7">
+          <PortfolioStat
             label="My Active Capital"
-            value={formatCurrency(stats.myCapital)}
-            sub={`my share · ${stats.activeCount} active deal${stats.activeCount !== 1 ? "s" : ""}`}
+            value={stats.my_capital != null ? formatCurrency(stats.my_capital) : "—"}
+            sub={`advance paid × my share% · ${stats.active_count ?? 0} active deals`}
             accent="sky"
           />
-          <HeroStat
+          <PortfolioStat
             label="My Upcoming Liability"
-            value={formatCurrency(stats.myLiability)}
-            sub="my share of pending payments"
+            value={stats.my_liability != null ? formatCurrency(stats.my_liability) : "—"}
+            sub="remaining seller amount × my share%"
             accent="amber"
           />
-          <HeroStat
+          <PortfolioStat
             label="Settled Profit (My Share)"
-            value={formatCurrency(stats.settledProfit)}
-            sub="from closed deals"
+            value={stats.settled_profit != null ? formatCurrency(stats.settled_profit) : "—"}
+            sub="net profit × my share% for closed deals"
             accent="emerald"
           />
         </div>
