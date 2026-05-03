@@ -73,9 +73,9 @@ function StageBar({ status }) {
           </div>
         ))}
       </div>
-      <div className="flex justify-between mt-1.5">
+      <div className="flex justify-between mt-2">
         {STAGES.map((s, i) => (
-          <span key={s.key} className={`text-[10px] font-medium ${i === idx ? "text-indigo-600" : i < idx ? "text-slate-400" : "text-slate-300"}`}>
+          <span key={s.key} className={`text-[11px] font-semibold ${i === idx ? "text-indigo-600" : i < idx ? "text-slate-400" : "text-slate-300"}`}>
             {s.label}
           </span>
         ))}
@@ -87,8 +87,8 @@ function StageBar({ status }) {
 /* ── Property card ─────────────────────────────────────────────────────────── */
 function PropertyCard({ property, onClick }) {
   const days = daysTo(property.expected_registry_date);
-  const registryColor = days === null ? "" : days <= 14 ? "text-rose-400" : days <= 30 ? "text-amber-400" : "text-slate-400";
-  const registryDotColor = days !== null && days <= 14 ? "bg-rose-400" : days !== null && days <= 30 ? "bg-amber-400" : "";
+  const registryColor = days === null ? "" : days <= 14 ? "text-rose-500" : days <= 30 ? "text-amber-500" : "text-slate-500";
+  const registryDotColor = days !== null && days <= 14 ? "bg-rose-500" : days !== null && days <= 30 ? "bg-amber-400" : "";
   const registryPulse = days !== null && days <= 14;
   const chipCls = STATUS_CHIP[property.status] || STATUS_CHIP.negotiating;
   const isActive = !["settled", "cancelled"].includes(property.status);
@@ -101,23 +101,23 @@ function PropertyCard({ property, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="group bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-indigo-300/60 transition-all duration-200 cursor-pointer p-6 overflow-hidden"
+      className="group bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-lg hover:border-indigo-300/60 transition-all duration-200 cursor-pointer p-7 overflow-hidden"
     >
       {/* Header row */}
-      <div className="flex items-start justify-between gap-2 mb-3">
+      <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-bold text-slate-900 truncate group-hover:text-indigo-700 transition-colors">
+          <h3 className="text-lg font-bold text-slate-900 truncate group-hover:text-indigo-700 transition-colors leading-tight">
             {property.title}
           </h3>
           {property.location && (
-            <p className="text-xs text-slate-400 mt-1 truncate">📍 {property.location}</p>
+            <p className="text-sm text-slate-400 mt-1.5 truncate">📍 {property.location}</p>
           )}
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span className={`text-[11px] px-2.5 py-0.5 rounded-full border font-semibold uppercase tracking-wide ${chipCls}`}>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <span className={`text-xs px-3 py-1 rounded-full border font-semibold uppercase tracking-wide ${chipCls}`}>
             {property.status?.replace(/_/g, " ")}
           </span>
-          <span className="text-[11px] text-slate-400 capitalize">{property.property_type}</span>
+          <span className="text-xs text-slate-400 capitalize font-medium">{property.property_type}</span>
         </div>
       </div>
 
@@ -125,43 +125,43 @@ function PropertyCard({ property, onClick }) {
       <StageBar status={property.status} />
 
       {/* Key metrics grid */}
-      <div className="grid grid-cols-3 gap-3 mt-5">
+      <div className="grid grid-cols-3 gap-4 mt-6">
         <div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">Advance Paid</p>
-          <p className="text-sm font-bold text-amber-600 mt-1">{formatCurrency(advancePaid)}</p>
+          <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Advance Paid</p>
+          <p className="text-base font-bold text-amber-600 mt-1.5">{formatCurrency(advancePaid)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">My Remaining</p>
-          <p className={`text-sm font-bold mt-1 ${myRemaining > 0 ? "text-rose-600" : "text-slate-400"}`}>
+          <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Remaining</p>
+          <p className={`text-base font-bold mt-1.5 ${myRemaining > 0 ? "text-rose-600" : "text-slate-400"}`}>
             {myRemaining > 0 ? formatCurrency(myRemaining) : "—"}
           </p>
         </div>
         <div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">Area</p>
-          <p className="text-sm font-bold text-slate-700 mt-1">
+          <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Area</p>
+          <p className="text-base font-bold text-slate-700 mt-1.5">
             {property.total_area_sqft ? `${Number(property.total_area_sqft).toLocaleString()} sqft` : "—"}
           </p>
         </div>
       </div>
 
       {/* Footer: ownership + registry */}
-      <div className="flex items-end justify-between mt-5 pt-3 border-t border-slate-100">
+      <div className="flex items-end justify-between mt-6 pt-4 border-t border-slate-100">
         <div className="flex items-center gap-2">
           {myShare > 0 && myShare < 100 && (
-            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+            <span className="text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">
               {myShare}% mine
             </span>
           )}
           {property.net_profit > 0 && (
-            <span className="text-xs font-semibold text-emerald-600">
+            <span className="text-sm font-semibold text-emerald-600">
               +{formatCurrency(property.net_profit)} profit
             </span>
           )}
         </div>
         {days !== null && isActive && (
-          <div className={`flex items-center gap-1 ${registryColor}`}>
-            {registryDotColor && <span className={`w-1.5 h-1.5 rounded-full ${registryDotColor} ${registryPulse ? "animate-pulse" : ""}`} />}
-            <span className="text-xs font-medium">
+          <div className={`flex items-center gap-1.5 ${registryColor}`}>
+            {registryDotColor && <span className={`w-2 h-2 rounded-full ${registryDotColor} ${registryPulse ? "animate-pulse" : ""}`} />}
+            <span className="text-sm font-semibold">
               {days < 0 ? `Registry ${Math.abs(days)}d overdue` : days === 0 ? "Registry Today" : `Registry in ${days}d`}
             </span>
           </div>
