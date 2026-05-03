@@ -9,8 +9,8 @@ import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
 const STAGES = [
   { key: "negotiating",  label: "Nego",     short: "Negotiating" },
   { key: "advance_given",label: "Advance",  short: "Advance Given" },
-  { key: "registry_done",label: "Registry", short: "Registry Done" },
   { key: "buyer_found",  label: "Buyer",    short: "Buyer Found" },
+  { key: "registry_done",label: "Registry", short: "Registry Done" },
   { key: "settled",      label: "Settled",  short: "Settled" },
 ];
 
@@ -51,14 +51,14 @@ function StageBar({ status }) {
       <div className="flex items-center gap-0.5">
         {STAGES.map((s, i) => (
           <div key={s.key} className="flex items-center flex-1 min-w-0">
-            <div className={`h-1.5 flex-1 rounded-full transition-all ${i <= idx ? "bg-indigo-500" : "bg-slate-200"}`} />
-            {i < STAGES.length - 1 && <div className={`w-1 h-1 rounded-full shrink-0 mx-0.5 ${i < idx ? "bg-indigo-500" : "bg-slate-200"}`} />}
+            <div className={`h-2 flex-1 rounded-full transition-all ${i <= idx ? "bg-indigo-500" : "bg-slate-200"}`} />
+            {i < STAGES.length - 1 && <div className={`w-1.5 h-1.5 rounded-full shrink-0 mx-0.5 ${i < idx ? "bg-indigo-500" : "bg-slate-200"}`} />}
           </div>
         ))}
       </div>
-      <div className="flex justify-between mt-1">
+      <div className="flex justify-between mt-1.5">
         {STAGES.map((s, i) => (
-          <span key={s.key} className={`text-[8px] font-medium ${i === idx ? "text-indigo-600" : i < idx ? "text-slate-400" : "text-slate-300"}`}>
+          <span key={s.key} className={`text-[10px] font-medium ${i === idx ? "text-indigo-600" : i < idx ? "text-slate-400" : "text-slate-300"}`}>
             {s.label}
           </span>
         ))}
@@ -84,23 +84,23 @@ function PropertyCard({ property, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="group bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-indigo-300/60 transition-all duration-200 cursor-pointer p-5 overflow-hidden"
+      className="group bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-indigo-300/60 transition-all duration-200 cursor-pointer p-6 overflow-hidden"
     >
       {/* Header row */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-bold text-slate-900 truncate group-hover:text-indigo-700 transition-colors">
+          <h3 className="text-base font-bold text-slate-900 truncate group-hover:text-indigo-700 transition-colors">
             {property.title}
           </h3>
           {property.location && (
-            <p className="text-[11px] text-slate-400 mt-0.5 truncate">📍 {property.location}</p>
+            <p className="text-xs text-slate-400 mt-1 truncate">📍 {property.location}</p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span className={`text-[9px] px-2 py-0.5 rounded-full border font-semibold uppercase tracking-wide ${chipCls}`}>
+          <span className={`text-[11px] px-2.5 py-0.5 rounded-full border font-semibold uppercase tracking-wide ${chipCls}`}>
             {property.status?.replace(/_/g, " ")}
           </span>
-          <span className="text-[9px] text-slate-400 capitalize">{property.property_type}</span>
+          <span className="text-[11px] text-slate-400 capitalize">{property.property_type}</span>
         </div>
       </div>
 
@@ -108,35 +108,35 @@ function PropertyCard({ property, onClick }) {
       <StageBar status={property.status} />
 
       {/* Key metrics grid */}
-      <div className="grid grid-cols-3 gap-2 mt-4">
+      <div className="grid grid-cols-3 gap-3 mt-5">
         <div>
-          <p className="text-[9px] text-slate-400 uppercase tracking-wider">Advance Paid</p>
-          <p className="text-xs font-bold text-amber-600 mt-0.5">{formatCurrency(advancePaid)}</p>
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">Advance Paid</p>
+          <p className="text-sm font-bold text-amber-600 mt-1">{formatCurrency(advancePaid)}</p>
         </div>
         <div>
-          <p className="text-[9px] text-slate-400 uppercase tracking-wider">My Remaining</p>
-          <p className={`text-xs font-bold mt-0.5 ${myRemaining > 0 ? "text-rose-600" : "text-slate-400"}`}>
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">My Remaining</p>
+          <p className={`text-sm font-bold mt-1 ${myRemaining > 0 ? "text-rose-600" : "text-slate-400"}`}>
             {myRemaining > 0 ? formatCurrency(myRemaining) : "—"}
           </p>
         </div>
         <div>
-          <p className="text-[9px] text-slate-400 uppercase tracking-wider">Area</p>
-          <p className="text-xs font-bold text-slate-700 mt-0.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">Area</p>
+          <p className="text-sm font-bold text-slate-700 mt-1">
             {property.total_area_sqft ? `${Number(property.total_area_sqft).toLocaleString()} sqft` : "—"}
           </p>
         </div>
       </div>
 
       {/* Footer: ownership + registry */}
-      <div className="flex items-end justify-between mt-4 pt-3 border-t border-slate-100">
+      <div className="flex items-end justify-between mt-5 pt-3 border-t border-slate-100">
         <div className="flex items-center gap-2">
           {myShare > 0 && myShare < 100 && (
-            <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
               {myShare}% mine
             </span>
           )}
           {property.net_profit > 0 && (
-            <span className="text-[10px] font-semibold text-emerald-600">
+            <span className="text-xs font-semibold text-emerald-600">
               +{formatCurrency(property.net_profit)} profit
             </span>
           )}
@@ -144,7 +144,7 @@ function PropertyCard({ property, onClick }) {
         {days !== null && isActive && (
           <div className={`flex items-center gap-1 ${registryColor}`}>
             {registryDotColor && <span className={`w-1.5 h-1.5 rounded-full ${registryDotColor} ${registryPulse ? "animate-pulse" : ""}`} />}
-            <span className="text-[10px] font-medium">
+            <span className="text-xs font-medium">
               {days < 0 ? `Registry ${Math.abs(days)}d overdue` : days === 0 ? "Registry Today" : `Registry in ${days}d`}
             </span>
           </div>

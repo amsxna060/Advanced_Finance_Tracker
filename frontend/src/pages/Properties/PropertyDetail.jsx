@@ -8,8 +8,8 @@ import { formatCurrency, formatDate } from "../../lib/utils";
 const STAGES = [
   { key: "negotiating",   label: "Negotiation" },
   { key: "advance_given", label: "Advance" },
-  { key: "registry_done", label: "Registry" },
   { key: "buyer_found",   label: "Buyer Found" },
+  { key: "registry_done", label: "Registry" },
   { key: "settled",       label: "Settled" },
 ];
 const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
