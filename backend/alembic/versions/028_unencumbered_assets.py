@@ -4,7 +4,7 @@ from alembic import op
 from sqlalchemy import text
 
 revision = "028_unencumbered_assets"
-down_revision = "027_account_transactions_soft_delete"
+down_revision = "027_account_txn_soft_delete"
 branch_labels = None
 depends_on = None
 

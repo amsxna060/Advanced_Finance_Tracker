@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import text
 
-revision = "026_recurring_transactions_loan_priority"
+revision = "026_recurring_txn_loan_prio"
 down_revision = "025_forecast_overrides"
 branch_labels = None
 depends_on = None
