@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
+import { PageHero, PageBody, HeroStat, Button } from "../../components/ui";
 
 /* ─── Stage pipeline ────────────────────────────────────────────────────────── */
 const STAGES = [
@@ -71,21 +72,21 @@ function PlotDiagram({ left, right, top, bottom, area, roads }) {
     const dir = (rd.direction || "").toLowerCase();
     const w = parseFloat(rd.width_ft) || 20;
     const label = `Road ${w}ft`;
-    if (dir === "north") return (<g key={i}><rect x={cx - topW / 2 - 5} y={Math.min(y1L, y1R) - ROAD_W - 2} width={topW + 10} height={ROAD_W} rx={3} fill="#1e293b" stroke="#334155" strokeWidth={1} /><text x={cx} y={Math.min(y1L, y1R) - ROAD_W / 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#94a3b8">{label}</text></g>);
-    if (dir === "south") return (<g key={i}><rect x={cx - botW / 2 - 5} y={y4 + 2} width={botW + 10} height={ROAD_W} rx={3} fill="#1e293b" stroke="#334155" strokeWidth={1} /><text x={cx} y={y4 + ROAD_W / 2 + 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#94a3b8">{label}</text></g>);
-    if (dir === "east") return (<g key={i}><rect x={Math.max(x3, cx + topW / 2) + 2} y={Math.min(y1R, y1L)} width={ROAD_W} height={plotH} rx={3} fill="#1e293b" stroke="#334155" strokeWidth={1} /><text x={Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#94a3b8" transform={`rotate(90, ${Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}, ${midY})`}>{label}</text></g>);
-    if (dir === "west") return (<g key={i}><rect x={Math.min(x4, cx - topW / 2) - ROAD_W - 2} y={Math.min(y1L, y1R)} width={ROAD_W} height={plotH} rx={3} fill="#1e293b" stroke="#334155" strokeWidth={1} /><text x={Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#94a3b8" transform={`rotate(-90, ${Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}, ${midY})`}>{label}</text></g>);
+    if (dir === "north") return (<g key={i}><rect x={cx - topW / 2 - 5} y={Math.min(y1L, y1R) - ROAD_W - 2} width={topW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#cbd5e1" strokeWidth={1} /><text x={cx} y={Math.min(y1L, y1R) - ROAD_W / 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text></g>);
+    if (dir === "south") return (<g key={i}><rect x={cx - botW / 2 - 5} y={y4 + 2} width={botW + 10} height={ROAD_W} rx={3} fill="#e2e8f0" stroke="#cbd5e1" strokeWidth={1} /><text x={cx} y={y4 + ROAD_W / 2 + 2} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569">{label}</text></g>);
+    if (dir === "east") return (<g key={i}><rect x={Math.max(x3, cx + topW / 2) + 2} y={Math.min(y1R, y1L)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#cbd5e1" strokeWidth={1} /><text x={Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(90, ${Math.max(x3, cx + topW / 2) + ROAD_W / 2 + 2}, ${midY})`}>{label}</text></g>);
+    if (dir === "west") return (<g key={i}><rect x={Math.min(x4, cx - topW / 2) - ROAD_W - 2} y={Math.min(y1L, y1R)} width={ROAD_W} height={plotH} rx={3} fill="#e2e8f0" stroke="#cbd5e1" strokeWidth={1} /><text x={Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#475569" transform={`rotate(-90, ${Math.min(x4, cx - topW / 2) - ROAD_W / 2 - 2}, ${midY})`}>{label}</text></g>);
     return null;
   });
   return (
     <svg width={svgW} height={svgH} style={{ overflow: "visible" }}>
       {roadRects}
-      <polygon points={points} fill="#0f172a" stroke="#22d3ee" strokeWidth={1.5} strokeLinejoin="round" />
-      <text x={cx} y={Math.min(y1L, y1R) - 16} textAnchor="middle" fontSize={11} fill="#67e8f9">{top ? `N: ${top}ft` : "—"}</text>
-      <text x={cx} y={y4 + 20} textAnchor="middle" fontSize={11} fill="#67e8f9">{bottom ? `S: ${bottom}ft` : "—"}</text>
-      <text x={Math.min(x4, cx - topW / 2) - 8} y={(y1L + y4) / 2} textAnchor="end" dominantBaseline="middle" fontSize={11} fill="#67e8f9">{left ? `W: ${left}ft` : "—"}</text>
-      <text x={Math.max(x3, cx + topW / 2) + 8} y={(y1R + y4) / 2} textAnchor="start" dominantBaseline="middle" fontSize={11} fill="#67e8f9">{right ? `E: ${right}ft` : "—"}</text>
-      {area && <text x={cx} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#22d3ee" fontWeight="600">{Number(area).toLocaleString()} sqft</text>}
+      <polygon points={points} fill="#eef2ff" stroke="#6366f1" strokeWidth={1.5} strokeLinejoin="round" />
+      <text x={cx} y={Math.min(y1L, y1R) - 16} textAnchor="middle" fontSize={11} fill="#374151">{top ? `N: ${top}ft` : "—"}</text>
+      <text x={cx} y={y4 + 20} textAnchor="middle" fontSize={11} fill="#374151">{bottom ? `S: ${bottom}ft` : "—"}</text>
+      <text x={Math.min(x4, cx - topW / 2) - 8} y={(y1L + y4) / 2} textAnchor="end" dominantBaseline="middle" fontSize={11} fill="#374151">{left ? `W: ${left}ft` : "—"}</text>
+      <text x={Math.max(x3, cx + topW / 2) + 8} y={(y1R + y4) / 2} textAnchor="start" dominantBaseline="middle" fontSize={11} fill="#374151">{right ? `E: ${right}ft` : "—"}</text>
+      {area && <text x={cx} y={midY} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#4f46e5" fontWeight="600">{Number(area).toLocaleString()} sqft</text>}
     </svg>
   );
 }
@@ -415,57 +416,47 @@ export default function PropertyDetail() {
         />
       )}
 
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
-
-        {/* ── Top navigation + actions ── */}
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <button
-              onClick={() => navigate("/properties")}
-              className="text-slate-500 hover:text-slate-700 text-xs mb-2 flex items-center gap-1 transition"
-            >
-              ← Properties
-            </button>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">{property.title}</h1>
-              <StatusBadge status={property.status} />
-              <span className="text-xs text-slate-500 capitalize">{property.property_type}</span>
-              {property.location && <span className="text-xs text-slate-500">📍 {property.location}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => setShowShare(true)}
-              className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
-            >
-              🔗 Share
-            </button>
-            <button
-              onClick={() => navigate(`/properties/${id}/edit`)}
-              className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
-            >
-              ✏ Edit
-            </button>
-            <button
+      <PageHero
+        title={property.title}
+        subtitle={[property.property_type, property.location].filter(Boolean).join(" · ")}
+        backTo="/properties"
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="white" size="sm" onClick={() => setShowShare(true)}>🔗 Share</Button>
+            <Button variant="white" size="sm" onClick={() => navigate(`/properties/${id}/edit`)}>✏ Edit</Button>
+            <Button variant="white" size="sm"
               onClick={() => { if (window.confirm("Delete this deal?")) deleteMutation.mutate(); }}
-              className="px-3 py-1.5 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold hover:bg-rose-100 transition"
-            >
-              🗑
-            </button>
+              className="!text-rose-600 hover:!text-rose-700"
+            >🗑</Button>
           </div>
+        }
+      >
+        <div className="flex items-center gap-2 mt-3">
+          <StatusBadge status={property.status} />
         </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+          <HeroStat label="Total Deal Value" value={formatCurrency(totalSeller)} accent="indigo" />
+          <HeroStat label="My Investment" value={formatCurrency(myInvested)} sub={myShare > 0 ? `${myShare}% ownership` : undefined} accent="sky" />
+          <HeroStat
+            label="My Remaining"
+            value={myRemainingCommitment > 0 ? formatCurrency(myRemainingCommitment) : "None ✓"}
+            accent={myRemainingCommitment > 0 ? "amber" : "emerald"}
+          />
+          <HeroStat
+            label={isSettled ? "Net Profit" : "Projected Profit"}
+            value={formatCurrency(property.net_profit || 0)}
+            sub={myShare > 0 && property.net_profit > 0 ? `My share: ${formatCurrency(parseFloat(property.net_profit) * myShare / 100)}` : undefined}
+            accent={parseFloat(property.net_profit || 0) > 0 ? "emerald" : "rose"}
+          />
+        </div>
+      </PageHero>
+
+      <PageBody>
+      <div className="space-y-5">
 
         {/* ── Stage progress ── */}
         <div className="bg-white border border-slate-200/60 rounded-2xl shadow-sm px-5 py-4">
           <StageBar status={property.status} />
-        </div>
-
-        {/* ── Hero stat row ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <MetricCard label="Total Deal Value" value={formatCurrency(totalSeller)} accent="slate" />
-          <MetricCard label="My Investment" value={formatCurrency(myInvested)} sub={myShare > 0 ? `${myShare}% ownership` : undefined} accent="cyan" />
-          <MetricCard label="My Remaining Commitment" value={myRemainingCommitment > 0 ? formatCurrency(myRemainingCommitment) : "None"} sub={myRemainingCommitment > 0 ? `${myShare > 0 ? `${myShare}% of ` : ""}${formatCurrency(remainingOwedToSeller)} outstanding` : "Fully deployed"} accent={myRemainingCommitment > 0 ? "amber" : "emerald"} />
-          <MetricCard label={isSettled ? "Net Profit" : "Projected Profit"} value={formatCurrency(property.net_profit || 0)} sub={myShare > 0 && property.net_profit > 0 ? `My share: ${formatCurrency(parseFloat(property.net_profit) * myShare / 100)}` : undefined} accent={parseFloat(property.net_profit || 0) > 0 ? "emerald" : "rose"} />
         </div>
 
         {/* ── Partnership link + Quick Actions ── */}
@@ -1007,6 +998,7 @@ export default function PropertyDetail() {
           </div>
         </div>
       </div>
+      </PageBody>
     </div>
   );
 }

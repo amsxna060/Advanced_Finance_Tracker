@@ -5,6 +5,14 @@ import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
 import { PageHero, PageBody, Button } from "../../components/ui";
 
+/* ── Compact Indian number format (avoids card overflow) ───────────────────── */
+function fmtCpt(val) {
+  const n = parseFloat(val) || 0;
+  if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(2)}Cr`;
+  if (n >= 100_000)    return `₹${(n / 100_000).toFixed(1)}L`;
+  return formatCurrency(n);
+}
+
 /* ── Portfolio stat card (larger, more readable) ───────────────────────────── */
 function PortfolioStat({ label, value, sub, accent }) {
   const C = {
@@ -126,19 +134,19 @@ function PropertyCard({ property, onClick }) {
 
       {/* Key metrics grid */}
       <div className="grid grid-cols-3 gap-4 mt-6">
-        <div>
-          <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Advance Paid</p>
-          <p className="text-base font-bold text-amber-600 mt-1.5">{formatCurrency(advancePaid)}</p>
+        <div className="min-w-0">
+          <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Advance</p>
+          <p className="text-base font-bold text-amber-600 mt-1.5 truncate">{fmtCpt(advancePaid)}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Remaining</p>
-          <p className={`text-base font-bold mt-1.5 ${myRemaining > 0 ? "text-rose-600" : "text-slate-400"}`}>
-            {myRemaining > 0 ? formatCurrency(myRemaining) : "—"}
+          <p className={`text-base font-bold mt-1.5 truncate ${myRemaining > 0 ? "text-rose-600" : "text-slate-400"}`}>
+            {myRemaining > 0 ? fmtCpt(myRemaining) : "—"}
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Area</p>
-          <p className="text-base font-bold text-slate-700 mt-1.5">
+          <p className="text-base font-bold text-slate-700 mt-1.5 truncate">
             {property.total_area_sqft ? `${Number(property.total_area_sqft).toLocaleString()} sqft` : "—"}
           </p>
         </div>
