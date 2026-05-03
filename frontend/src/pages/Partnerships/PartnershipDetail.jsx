@@ -485,6 +485,28 @@ export default function PartnershipDetail() {
     assignBuyerMutation.mutate(payload);
   };
 
+  // ─── My View scale helper (must be before early returns — Rules of Hooks) ───
+  const [myViewMode, setMyViewMode] = useState(false);
+
+  // ─── Timeline events (useMemo must be before early returns) ────────────────
+  const _transactions = data?.transactions || [];
+  const _partnership = data?.partnership || {};
+  const _isSettled = data?.partnership?.status === "settled";
+  const timelineEvents = useMemo(() => {
+    const events = [];
+    if (_partnership.start_date) events.push({ label: "Deal Started", date: _partnership.start_date, done: true, color: "indigo" });
+    const firstAdvance = [..._transactions].reverse().find(t => t.txn_type === "advance_to_seller" || t.txn_type === "advance_given");
+    if (firstAdvance) events.push({ label: "Token / First Advance", date: firstAdvance.txn_date, done: true, color: "purple" });
+    const hasBuyer = _transactions.some(t => ["buyer_advance", "buyer_payment"].includes(t.txn_type));
+    if (hasBuyer) events.push({ label: "Buyer Found", date: null, done: true, color: "emerald" });
+    if (_partnership.expected_end_date && !_isSettled) {
+      const isPast = new Date(_partnership.expected_end_date) < new Date();
+      events.push({ label: "Registry / Handover", date: _partnership.expected_end_date, done: false, isPast, color: isPast ? "rose" : "amber" });
+    }
+    if (_isSettled && _partnership.actual_end_date) events.push({ label: "Settled", date: _partnership.actual_end_date, done: true, color: "emerald" });
+    return events;
+  }, [_transactions, _partnership, _isSettled]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -533,25 +555,7 @@ export default function PartnershipDetail() {
   const settleTotal = parseFloat(settleForm.total_received || 0);
   const settleProfit = settleTotal - totalOutflow;
 
-  // ─── My View scale helper ────────────────────────────────────────
-  const [myViewMode, setMyViewMode] = useState(false);
   const scale = (v) => myViewMode && selfShare > 0 ? v * (selfShare / 100) : v;
-
-  // ─── Timeline events ────────────────────────────────────────────
-  const timelineEvents = useMemo(() => {
-    const events = [];
-    if (partnership.start_date) events.push({ label: "Deal Started", date: partnership.start_date, done: true, color: "indigo" });
-    const firstAdvance = [...transactions].reverse().find(t => t.txn_type === "advance_to_seller" || t.txn_type === "advance_given");
-    if (firstAdvance) events.push({ label: "Token / First Advance", date: firstAdvance.txn_date, done: true, color: "purple" });
-    const hasBuyer = transactions.some(t => ["buyer_advance", "buyer_payment"].includes(t.txn_type));
-    if (hasBuyer) events.push({ label: "Buyer Found", date: null, done: true, color: "emerald" });
-    if (partnership.expected_end_date && !isSettled) {
-      const isPast = new Date(partnership.expected_end_date) < new Date();
-      events.push({ label: "Registry / Handover", date: partnership.expected_end_date, done: false, isPast, color: isPast ? "rose" : "amber" });
-    }
-    if (isSettled && partnership.actual_end_date) events.push({ label: "Settled", date: partnership.actual_end_date, done: true, color: "emerald" });
-    return events;
-  }, [transactions, partnership, isSettled]);
 
   // ─── WhatsApp report ─────────────────────────────────────────────
   const handleWhatsAppShare = () => {
