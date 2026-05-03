@@ -29,6 +29,9 @@ from app.services.interest import calculate_outstanding, generate_emi_schedule, 
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
+# Transaction types that represent actual personal cash deployed into a property
+_PERSONAL_OUTFLOW_TXNS = ("advance_to_seller", "payment_to_seller", "remaining_to_seller")
+
 _D = lambda v: Decimal("0") if v is None else Decimal(str(v))
 
 
@@ -87,7 +90,7 @@ def analytics_overview(
         if p.linked_property_deal_id and p.status != "cancelled"
     }
 
-    # Plot Advances (My Share): standalone → advance_paid, partnership → self contribution
+    # Plot Advances (My Share): standalone → sum of personal outflow txns, partnership → self contribution
     total_property_advance = Decimal("0")
     for prop in properties:
         if prop.status == "cancelled" or prop.property_type == "site":
@@ -102,13 +105,27 @@ def analytics_overview(
                 if sm:
                     total_property_advance += _D(sm.advance_contributed)
         else:
-            total_property_advance += _D(prop.advance_paid)
+            total_property_advance += _D(
+                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
+                .filter(
+                    PropertyTransaction.property_deal_id == prop.id,
+                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+                )
+                .scalar()
+            )
 
-    # Site Investments: max(my_investment, advance_paid) — they represent the same money
+    # Site Investments: sum of personal outflow transactions (never denormalized my_investment field)
     total_property_investment = Decimal("0")
     for prop in properties:
         if prop.property_type == "site" and prop.status != "cancelled":
-            total_property_investment += max(_D(prop.my_investment), _D(prop.advance_paid))
+            total_property_investment += _D(
+                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
+                .filter(
+                    PropertyTransaction.property_deal_id == prop.id,
+                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+                )
+                .scalar()
+            )
 
     # Partnership invested — only non-property partnerships (pure business partnerships)
     total_partnership_invested = Decimal("0")
@@ -125,16 +142,10 @@ def analytics_overview(
             PartnershipMember.partnership_id == p.id,
             PartnershipMember.is_self == True,
         ).first()
-        if self_member:
-            invested = _D(self_member.advance_contributed)
-            received = _D(self_member.total_received)
-        else:
-            invested = _D(p.our_investment)
-            received = (
-                _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
-                if p.our_share_percentage
-                else _D(p.total_received)
-            )
+        if not self_member:
+            continue  # no personal contribution record — skip to avoid using deal-level totals
+        invested = _D(self_member.advance_contributed)
+        received = _D(self_member.total_received)
         total_partnership_invested += invested
         total_partnership_received += received
         net = invested - received
@@ -643,8 +654,14 @@ def analytics_assets(
         current_value = Decimal("0")
 
         if prop.property_type == "site":
-            my_invested = max(_D(prop.my_investment), _D(prop.advance_paid))
-            # For sites, current value = invested + proportional profit (if settled)
+            my_invested = _D(
+                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
+                .filter(
+                    PropertyTransaction.property_deal_id == prop.id,
+                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+                )
+                .scalar()
+            )
             current_value = my_invested
             if prop.status == "settled" and prop.net_profit:
                 pct = _D(prop.my_share_percentage or 100)
@@ -660,9 +677,14 @@ def analytics_assets(
                     my_invested = _D(sm.advance_contributed)
                     current_value = my_invested
         else:
-            # Use only the actual cash personally invested — never the full purchase/sale price
-            # which would inflate assets by including bank financing or unsettled appreciation.
-            my_invested = max(_D(prop.advance_paid), _D(prop.my_investment))
+            my_invested = _D(
+                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
+                .filter(
+                    PropertyTransaction.property_deal_id == prop.id,
+                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+                )
+                .scalar()
+            )
             current_value = my_invested
 
         if my_invested <= 0 and current_value <= 0:
@@ -692,14 +714,10 @@ def analytics_assets(
             PartnershipMember.partnership_id == p.id,
             PartnershipMember.is_self == True,
         ).first()
-        invested = _D(self_member.advance_contributed) if self_member else _D(p.our_investment)
-        received = Decimal("0")
-        if self_member:
-            received = _D(self_member.total_received)
-        elif p.our_share_percentage:
-            received = _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
-        else:
-            received = _D(p.total_received)
+        if not self_member:
+            continue  # no personal contribution record — skip to avoid polluting totals with deal-level values
+        invested = _D(self_member.advance_contributed)
+        received = _D(self_member.total_received)
         net_value = invested - received  # positive = unreturned capital (asset), negative = over-withdrawal (liability)
 
         if net_value > 0:

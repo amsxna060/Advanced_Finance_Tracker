@@ -28,6 +28,8 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 INFLOW_PROPERTY_TXN_TYPES = {"received_from_buyer", "sale_proceeds", "refund"}
 OUTFLOW_PROPERTY_TXN_TYPES = {"advance_to_seller", "payment_to_seller", "commission_paid", "expense", "other"}
+# Only these transaction types represent actual personal cash invested in a property
+_PERSONAL_OUTFLOW_TXNS = ("advance_to_seller", "payment_to_seller", "remaining_to_seller")
 INFLOW_PARTNERSHIP_TXN_TYPES = {"received", "profit_distributed"}
 OUTFLOW_PARTNERSHIP_TXN_TYPES = {"invested", "expense"}
 
@@ -783,7 +785,7 @@ def get_dashboard_v2(
         if p.linked_property_deal_id and p.status != "cancelled"
     }
 
-    # Property invested: use personal cash actually deployed (never purchase_price)
+    # Property invested: use actual personal outflow transactions (never denormalized fields)
     prop_invested = Decimal("0")
     for p in properties:
         if p.id in _linked_prop_ids:
@@ -796,7 +798,14 @@ def get_dashboard_v2(
                 if sm:
                     prop_invested += _decimal(sm.advance_contributed)
         else:
-            prop_invested += max(_decimal(p.my_investment), _decimal(p.advance_paid))
+            prop_invested += _decimal(
+                db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0))
+                .filter(
+                    PropertyTransaction.property_deal_id == p.id,
+                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+                )
+                .scalar()
+            )
     prop_profit = sum(_decimal(p.net_profit) for p in properties if p.net_profit)
 
     # Partnerships: exclude property-linked; use self_member contribution; compute net
@@ -811,8 +820,10 @@ def get_dashboard_v2(
             PartnershipMember.partnership_id == p.id,
             PartnershipMember.is_self == True,
         ).first()
-        inv = _decimal(sm.advance_contributed) if sm else _decimal(p.our_investment)
-        rec = _decimal(sm.total_received) if sm else _decimal(p.total_received)
+        if not sm:
+            continue  # no personal contribution record — skip to avoid using deal-level totals
+        inv = _decimal(sm.advance_contributed)
+        rec = _decimal(sm.total_received)
         part_invested += inv
         part_received += rec
         net = inv - rec
