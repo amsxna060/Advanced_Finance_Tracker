@@ -17,8 +17,9 @@ from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.collateral import Collateral
 from app.models.expense import Expense
 from app.models.loan import Loan, LoanPayment
-from app.models.partnership import Partnership, PartnershipTransaction
+from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.property_deal import PropertyDeal, PropertyTransaction
+from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.user import User
 from app.models.obligation import MoneyObligation, ObligationSettlement
 from app.services.interest import calculate_outstanding, check_capitalization_due, _days_in_year, _calc_period_interest, get_emi_schedule_with_payments
@@ -772,19 +773,65 @@ def get_dashboard_v2(
     partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
     all_beesis = db.query(Beesi).filter(Beesi.is_deleted == False).all()
 
-    prop_invested = sum(
-        _decimal(p.my_investment) if p.my_investment else _decimal(p.purchase_price) if p.purchase_price else Decimal("0")
-        for p in properties
-    )
+    # Partnership-linked property IDs (advance counted via self_member, not property fields)
+    _linked_prop_ids = {
+        p.linked_property_deal_id for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+    _prop_to_part = {
+        p.linked_property_deal_id: p for p in partnerships
+        if p.linked_property_deal_id and p.status != "cancelled"
+    }
+
+    # Property invested: use personal cash actually deployed (never purchase_price)
+    prop_invested = Decimal("0")
+    for p in properties:
+        if p.id in _linked_prop_ids:
+            part = _prop_to_part.get(p.id)
+            if part:
+                sm = db.query(PartnershipMember).filter(
+                    PartnershipMember.partnership_id == part.id,
+                    PartnershipMember.is_self == True,
+                ).first()
+                if sm:
+                    prop_invested += _decimal(sm.advance_contributed)
+        else:
+            prop_invested += max(_decimal(p.my_investment), _decimal(p.advance_paid))
     prop_profit = sum(_decimal(p.net_profit) for p in properties if p.net_profit)
 
-    part_invested = sum(_decimal(p.our_investment) for p in partnerships)
-    part_received = sum(_decimal(p.total_received) for p in partnerships)
+    # Partnerships: exclude property-linked; use self_member contribution; compute net
+    part_invested = Decimal("0")
+    part_received = Decimal("0")
+    _part_net_asset = Decimal("0")
+    _part_self_payable = Decimal("0")
+    for p in partnerships:
+        if p.status == "cancelled" or p.linked_property_deal_id:
+            continue
+        sm = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == p.id,
+            PartnershipMember.is_self == True,
+        ).first()
+        inv = _decimal(sm.advance_contributed) if sm else _decimal(p.our_investment)
+        rec = _decimal(sm.total_received) if sm else _decimal(p.total_received)
+        part_invested += inv
+        part_received += rec
+        net = inv - rec
+        if net > 0:
+            _part_net_asset += net
+        elif net < 0:
+            _part_self_payable += abs(net)
 
     beesi_paid = beesi_received = Decimal("0")
     for b in all_beesis:
         beesi_paid += sum(_decimal(i.actual_paid) for i in b.installments)
         beesi_received += sum(_decimal(w.net_received) for w in b.withdrawals)
+
+    # Unencumbered standalone assets
+    _unencumbered_total = _decimal(
+        db.query(func.coalesce(func.sum(UnencumberedAsset.estimated_value), 0))
+        .filter(UnencumberedAsset.is_deleted == False)
+        .scalar()
+    )
 
     # ── NET WORTH ────────────────────────────────────────────────────────
     cash_accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
@@ -792,11 +839,15 @@ def get_dashboard_v2(
     for acc in cash_accounts:
         bal = _decimal(acc.opening_balance)
         for txn in acc.transactions:
-            bal += _decimal(txn.amount) if txn.txn_type == "credit" else -_decimal(txn.amount)
+            if not getattr(txn, "is_voided", False):
+                bal += _decimal(txn.amount) if txn.txn_type == "credit" else -_decimal(txn.amount)
         total_cash += bal
 
-    total_assets = total_cash + total_outstanding_receivable + prop_invested + part_invested + recv_pending
-    total_liabilities = total_outstanding_payable + pay_pending
+    total_assets = (
+        total_cash + total_outstanding_receivable + prop_invested
+        + _part_net_asset + recv_pending + _unencumbered_total
+    )
+    total_liabilities = total_outstanding_payable + pay_pending + _part_self_payable
 
     # ── ALERTS ────────────────────────────────────────────────────────────
     alerts: List[dict] = []

@@ -24,6 +24,7 @@ from app.models.contact import Contact
 from app.models.obligation import MoneyObligation
 from app.models.user import User
 from app.models.property_anomaly import PropertyAnomaly
+from app.models.unencumbered_asset import UnencumberedAsset
 from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments, _build_monthly_periods, _calc_period_interest
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -112,6 +113,9 @@ def analytics_overview(
     # Partnership invested — only non-property partnerships (pure business partnerships)
     total_partnership_invested = Decimal("0")
     total_partnership_received = Decimal("0")
+    # Net asset/liability split: invested > received → asset, received > invested → self-payable
+    _part_net_asset = Decimal("0")
+    _part_self_payable = Decimal("0")
     for p in partnerships:
         if p.status == "cancelled":
             continue
@@ -122,16 +126,22 @@ def analytics_overview(
             PartnershipMember.is_self == True,
         ).first()
         if self_member:
-            total_partnership_invested += _D(self_member.advance_contributed)
-            total_partnership_received += _D(self_member.total_received)
+            invested = _D(self_member.advance_contributed)
+            received = _D(self_member.total_received)
         else:
-            total_partnership_invested += _D(p.our_investment)
-            if p.our_share_percentage:
-                total_partnership_received += (
-                    _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
-                )
-            else:
-                total_partnership_received += _D(p.total_received)
+            invested = _D(p.our_investment)
+            received = (
+                _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
+                if p.our_share_percentage
+                else _D(p.total_received)
+            )
+        total_partnership_invested += invested
+        total_partnership_received += received
+        net = invested - received
+        if net > 0:
+            _part_net_asset += net
+        elif net < 0:
+            _part_self_payable += abs(net)
     partnership_pnl = total_partnership_received - total_partnership_invested
 
     # Profit from standalone properties only; partnership-linked deal profits
@@ -257,11 +267,23 @@ def analytics_overview(
             top_contacts.append({"id": c.id, "name": c.name, "outstanding": float(amt)})
 
     # ── NET WORTH ────────────────────────────────────────────────────────
-    # Assets: cash + loans receivable + property advances + partnership investments + beesi invested (not yet withdrawn)
-    total_investments = total_given_outstanding + total_property_advance + total_property_investment + total_partnership_invested + total_beesi_invested
-    # Liabilities: loans payable + partner liabilities
-    total_liabilities = total_taken_outstanding + partner_liabilities
-    net_worth = total_cash + total_investments - total_liabilities - total_beesi_invested + total_beesi_withdrawn
+    # Unencumbered assets (standalone owned assets not linked to any deal)
+    _total_unencumbered = _D(
+        db.query(sa_func.coalesce(sa_func.sum(UnencumberedAsset.estimated_value), 0))
+        .filter(UnencumberedAsset.is_deleted == False)
+        .scalar()
+    )
+
+    # Assets: cash + loans receivable + property advances + net partnership asset
+    #         + beesi net + unencumbered standalone assets
+    # Note: collateral is NOT included — it belongs to borrowers, not us.
+    total_investments = (
+        total_given_outstanding + total_property_advance + total_property_investment
+        + _part_net_asset + total_beesi_invested
+    )
+    # Liabilities: loans payable + partner liabilities + self over-withdrawal from partnership pots
+    total_liabilities = total_taken_outstanding + partner_liabilities + _part_self_payable
+    net_worth = total_cash + total_investments - total_liabilities - total_beesi_invested + total_beesi_withdrawn + _total_unencumbered
 
     return {
         "as_of_date": today.isoformat(),
@@ -280,6 +302,7 @@ def analytics_overview(
             "loans_taken_outstanding": float(total_taken_outstanding),
             "loans_taken_interest_pending": float(total_taken_interest),
             "partner_payables": float(partner_liabilities),
+            "partner_self_payables": float(_part_self_payable),
             "total": float(total_liabilities),
         },
         # P&L
@@ -637,13 +660,10 @@ def analytics_assets(
                     my_invested = _D(sm.advance_contributed)
                     current_value = my_invested
         else:
-            my_invested = _D(prop.advance_paid)
+            # Use only the actual cash personally invested — never the full purchase/sale price
+            # which would inflate assets by including bank financing or unsettled appreciation.
+            my_invested = max(_D(prop.advance_paid), _D(prop.my_investment))
             current_value = my_invested
-            if prop.deal_type == "purchase_and_hold":
-                if prop.purchase_price:
-                    current_value = _D(prop.purchase_price)
-                if prop.sale_price and prop.status == "settled":
-                    current_value = _D(prop.sale_price)
 
         if my_invested <= 0 and current_value <= 0:
             continue
@@ -663,6 +683,8 @@ def analytics_assets(
     # ── PARTNERSHIPS (non-property) ─────────────────────────────────────────
     partnership_items = []
     total_partnership = Decimal("0")
+    self_payable_items = []
+    total_self_payable = Decimal("0")
     for p in partnerships:
         if p.status == "cancelled" or p.linked_property_deal_id:
             continue
@@ -678,17 +700,27 @@ def analytics_assets(
             received = _D(p.total_received) * _D(p.our_share_percentage) / Decimal("100")
         else:
             received = _D(p.total_received)
-        net_value = invested - received  # unreturned capital = asset
-        if net_value <= 0 and invested <= 0:
-            continue
-        total_partnership += max(net_value, Decimal("0"))
-        partnership_items.append({
-            "id": p.id, "title": p.title,
-            "status": p.status,
-            "invested": float(invested), "received": float(received),
-            "net_value": float(max(net_value, Decimal("0"))),
-        })
+        net_value = invested - received  # positive = unreturned capital (asset), negative = over-withdrawal (liability)
+
+        if net_value > 0:
+            total_partnership += net_value
+            partnership_items.append({
+                "id": p.id, "title": p.title,
+                "status": p.status,
+                "invested": float(invested), "received": float(received),
+                "net_value": float(net_value),
+            })
+        elif net_value < 0:
+            # I withdrew more than I contributed — this is a liability until settled
+            total_self_payable += abs(net_value)
+            self_payable_items.append({
+                "id": p.id, "title": p.title,
+                "status": p.status,
+                "invested": float(invested), "received": float(received),
+                "pending": float(abs(net_value)),
+            })
     partnership_items.sort(key=lambda x: x["net_value"], reverse=True)
+    self_payable_items.sort(key=lambda x: x["pending"], reverse=True)
 
     # ── RECEIVABLES (obligations owed TO me) ────────────────────────────────
     receivables = db.query(MoneyObligation).filter(
@@ -762,7 +794,7 @@ def analytics_assets(
                 })
     partner_liability_items.sort(key=lambda x: x["pending"], reverse=True)
 
-    # ── COLLATERAL HELD (assets securing loans I gave) ───────────────────────
+    # ── COLLATERAL HELD (informational only — NOT counted in total assets) ───
     from app.models.collateral import Collateral
     collaterals = db.query(Collateral).join(Loan).filter(
         Loan.loan_direction == "given",
@@ -787,9 +819,31 @@ def analytics_assets(
         })
     collateral_items.sort(key=lambda x: x["estimated_value"], reverse=True)
 
+    # ── UNENCUMBERED ASSETS (standalone owned assets, no loan linkage) ───────
+    unencumbered_rows = db.query(UnencumberedAsset).filter(
+        UnencumberedAsset.is_deleted == False
+    ).order_by(UnencumberedAsset.estimated_value.desc()).all()
+    unencumbered_items = []
+    total_unencumbered = Decimal("0")
+    for u in unencumbered_rows:
+        val = _D(u.estimated_value)
+        total_unencumbered += val
+        unencumbered_items.append({
+            "id": u.id, "title": u.title,
+            "category": u.category,
+            "estimated_value": float(val),
+            "date_acquired": u.date_acquired.isoformat() if u.date_acquired else None,
+            "notes": u.notes,
+        })
+
     # ── TOTALS ──────────────────────────────────────────────────────────────
-    total_assets = total_cash + total_given + total_property + total_partnership + total_receivable
-    total_liabilities = total_taken + total_payable + total_partner_liability
+    # Assets: collateral is intentionally excluded (it belongs to the borrower,
+    # not to us — we hold it only as security for the loan).
+    total_assets = (
+        total_cash + total_given + total_property
+        + total_partnership + total_receivable + total_unencumbered
+    )
+    total_liabilities = total_taken + total_payable + total_partner_liability + total_self_payable
     net_worth = total_assets - total_liabilities
 
     return {
@@ -824,10 +878,10 @@ def analytics_assets(
                 "count": len(receivable_items),
                 "items": receivable_items,
             },
-            "collateral_held": {
-                "total": float(total_collateral),
-                "count": len(collateral_items),
-                "items": collateral_items,
+            "unencumbered_assets": {
+                "total": float(total_unencumbered),
+                "count": len(unencumbered_items),
+                "items": unencumbered_items,
             },
         },
         "liabilities": {
@@ -848,6 +902,17 @@ def analytics_assets(
                 "count": len(partner_liability_items),
                 "items": partner_liability_items,
             },
+            "self_payables": {
+                "total": float(total_self_payable),
+                "count": len(self_payable_items),
+                "items": self_payable_items,
+            },
+        },
+        # Collateral is excluded from assets — informational only
+        "collateral_info": {
+            "total": float(total_collateral),
+            "count": len(collateral_items),
+            "items": collateral_items,
         },
     }
 

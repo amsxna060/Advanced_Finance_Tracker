@@ -20,6 +20,7 @@ import app.models  # noqa: F401 — registers Contact, Loan, Collateral, Propert
 from app.routers import auth, contacts, loans, collateral, property_deals, partnerships, expenses, dashboard, reports
 from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot, forecast
 from app.routers import recurring_transactions as recurring_router
+from app.routers import unencumbered_assets as unencumbered_router
 
 # Scheduler
 from app.services.scheduler import start_scheduler, stop_scheduler
@@ -66,8 +67,33 @@ app.include_router(admin.router)
 app.include_router(chatbot.router)
 app.include_router(forecast.router)
 app.include_router(recurring_router.router)
+app.include_router(unencumbered_router.router)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _ensure_v028_schema(conn):
+    """Safety net: apply migration-028 DDL (unencumbered_assets table)."""
+    stmts = [
+        """CREATE TABLE IF NOT EXISTS unencumbered_assets (
+            id SERIAL PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            category VARCHAR(50) NOT NULL DEFAULT 'other',
+            estimated_value NUMERIC(15,2) NOT NULL,
+            date_acquired DATE,
+            notes TEXT,
+            is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_unencumbered_assets_created_by ON unencumbered_assets (created_by)",
+    ]
+    for stmt in stmts:
+        try:
+            conn.execute(text(stmt))
+        except Exception as e:
+            print(f"⚠️  _ensure_v028_schema: {e}")
 
 
 def _ensure_v027_schema(conn):
@@ -157,6 +183,15 @@ def startup():
         print("✅ v027 schema verified (account_transactions.is_voided)")
     except Exception as e:
         print(f"⚠️  v027 schema safety-net failed: {e}")
+
+    # Apply migration-028 schema directly (idempotent safety net)
+    try:
+        with engine.connect() as conn:
+            _ensure_v028_schema(conn)
+            conn.commit()
+        print("✅ v028 schema verified (unencumbered_assets)")
+    except Exception as e:
+        print(f"⚠️  v028 schema safety-net failed: {e}")
 
     # Seed admin user if no users exist
     db = next(get_db())

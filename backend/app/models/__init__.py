@@ -14,6 +14,7 @@ from app.models.obligation import MoneyObligation, ObligationSettlement
 from app.models.property_anomaly import PropertyAnomaly
 from app.models.forecast_override import ForecastOverride
 from app.models.recurring_transaction import RecurringTransaction
+from app.models.unencumbered_asset import UnencumberedAsset
 
 __all__ = [
     "User",
@@ -41,4 +42,5 @@ __all__ = [
     "PropertyAnomaly",
     "ForecastOverride",
     "RecurringTransaction",
+    "UnencumberedAsset",
 ]
