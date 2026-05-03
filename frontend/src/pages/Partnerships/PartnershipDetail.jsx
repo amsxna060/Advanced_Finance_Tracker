@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
-import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
+import { PageBody } from "../../components/ui";
 
 const TXN_TYPE_LABELS = {
   advance_to_seller: "Advance to Seller",
@@ -533,48 +533,221 @@ export default function PartnershipDetail() {
   const settleTotal = parseFloat(settleForm.total_received || 0);
   const settleProfit = settleTotal - totalOutflow;
 
+  // ─── My View scale helper ────────────────────────────────────────
+  const [myViewMode, setMyViewMode] = useState(false);
+  const scale = (v) => myViewMode && selfShare > 0 ? v * (selfShare / 100) : v;
+
+  // ─── Timeline events ────────────────────────────────────────────
+  const timelineEvents = useMemo(() => {
+    const events = [];
+    if (partnership.start_date) events.push({ label: "Deal Started", date: partnership.start_date, done: true, color: "indigo" });
+    const firstAdvance = [...transactions].reverse().find(t => t.txn_type === "advance_to_seller" || t.txn_type === "advance_given");
+    if (firstAdvance) events.push({ label: "Token / First Advance", date: firstAdvance.txn_date, done: true, color: "purple" });
+    const hasBuyer = transactions.some(t => ["buyer_advance", "buyer_payment"].includes(t.txn_type));
+    if (hasBuyer) events.push({ label: "Buyer Found", date: null, done: true, color: "emerald" });
+    if (partnership.expected_end_date && !isSettled) {
+      const isPast = new Date(partnership.expected_end_date) < new Date();
+      events.push({ label: "Registry / Handover", date: partnership.expected_end_date, done: false, isPast, color: isPast ? "rose" : "amber" });
+    }
+    if (isSettled && partnership.actual_end_date) events.push({ label: "Settled", date: partnership.actual_end_date, done: true, color: "emerald" });
+    return events;
+  }, [transactions, partnership, isSettled]);
+
+  // ─── WhatsApp report ─────────────────────────────────────────────
+  const handleWhatsAppShare = () => {
+    const cashOnHand = totalInflow - parseFloat(summary.total_outflow || 0) + parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+    const sellerDue = (() => {
+      if (!linkedProperty) return 0;
+      const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
+      const paid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+      return Math.max(0, sellerTotal - paid);
+    })();
+    const lines = [
+      `*${partnership.title}* — Partnership Update`,
+      `Status: ${partnership.status.toUpperCase()}`,
+      ``,
+      `📊 *Financial Snapshot*`,
+      `Total Invested: ${formatCurrency(scale(totalOutflow))}`,
+      `Buyer Inflows: ${formatCurrency(scale(parseFloat(summary.buyer_inflow || 0)))}`,
+      `Net P&L: ${formatCurrency(scale(netPnl))}`,
+      ``,
+      sellerDue > 0 ? `⚠️ Remaining to Seller: ${formatCurrency(scale(sellerDue))}` : `✅ Seller fully paid`,
+      ``,
+      myViewMode ? `(your ${selfShare}% share view)` : `(full partnership view)`,
+      `Generated: ${new Date().toLocaleDateString("en-IN")}`,
+    ];
+    window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <PageHero
-        title={partnership.title}
-        subtitle={`${partnership.status.charAt(0).toUpperCase() + partnership.status.slice(1)} · ${members.length} partner${members.length !== 1 ? "s" : ""}`}
-        backTo="/partnerships"
-        actions={
-          <div className="flex gap-2">
-            <Button variant="white" onClick={() => navigate(`/partnerships/${id}/edit`)}>Edit</Button>
-            <Button variant="danger" size="sm" onClick={() => { if (window.confirm("Delete this partnership?")) deletePartnershipMutation.mutate(); }}>Delete</Button>
+
+      {/* ── Hero ── */}
+      <div className="bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-600 px-6 pt-8 pb-6">
+        <div className="max-w-5xl mx-auto">
+          {/* Top row */}
+          <div className="flex items-start justify-between gap-3 mb-6">
+            <div>
+              <button onClick={() => navigate("/partnerships")} className="text-indigo-200 hover:text-white text-xs flex items-center gap-1 mb-2 transition-colors">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                Partnerships
+              </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold text-white">{partnership.title}</h1>
+                <span className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border ${partnership.status === "active" ? "bg-emerald-400/20 text-emerald-200 border-emerald-300/30" : "bg-white/10 text-white/70 border-white/20"}`}>
+                  {partnership.status}
+                </span>
+                {(() => {
+                  const isPastDue = partnership.expected_end_date && partnership.status === "active" && new Date(partnership.expected_end_date) < new Date();
+                  return isPastDue && <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-400/30 text-amber-200 border border-amber-300/40 animate-pulse">⏰ Pending Settlement</span>;
+                })()}
+              </div>
+              <p className="text-indigo-200 text-sm mt-1">{members.length} partner{members.length !== 1 ? "s" : ""} · {transactions.length} transaction{transactions.length !== 1 ? "s" : ""}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+              {/* My View toggle */}
+              <button
+                onClick={() => setMyViewMode(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${myViewMode ? "bg-white text-indigo-700 border-white shadow-lg" : "bg-indigo-600/50 text-indigo-100 border-indigo-400/50 hover:bg-indigo-600/70"}`}
+                title={`Toggle to see your ${selfShare}% share`}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                {myViewMode ? `My ${selfShare}%` : "My View"}
+              </button>
+              {/* WhatsApp */}
+              <button onClick={handleWhatsAppShare} className="flex items-center gap-1.5 px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-green-900/20" title="Share WhatsApp Status Report">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                Share
+              </button>
+              <button onClick={() => navigate(`/partnerships/${id}/edit`)} className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium border border-white/20 transition-colors">
+                Edit
+              </button>
+              <button onClick={() => { if (window.confirm("Delete this partnership and all its data?")) deletePartnershipMutation.mutate(); }} className="px-3 py-2 bg-rose-500/80 hover:bg-rose-500 text-white rounded-xl text-sm font-medium border border-rose-400/40 transition-colors">
+                Delete
+              </button>
+            </div>
           </div>
-        }
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-          <HeroStat label="Total Outflow" value={formatCurrency(totalOutflow)} accent="indigo" />
-          <HeroStat label="Total Inflow" value={formatCurrency(totalInflow)} accent="emerald" />
-          <HeroStat label="Net P&L" value={formatCurrency(netPnl)} accent={netPnl >= 0 ? "teal" : "rose"} />
-          <HeroStat label="Your Share" value={`${selfShare}%`} accent="violet" />
+
+          {/* KPI tiles */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-4 border border-white/20">
+              <p className="text-indigo-200 text-[11px] font-semibold uppercase tracking-wider">Total Invested</p>
+              <p className="text-white text-xl font-bold mt-1 font-mono tabular-nums">{formatCurrency(scale(totalOutflow))}</p>
+              {myViewMode && <p className="text-indigo-300 text-[10px]">your {selfShare}% share</p>}
+            </div>
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-4 border border-white/20">
+              <p className="text-indigo-200 text-[11px] font-semibold uppercase tracking-wider">Total Inflow</p>
+              <p className="text-emerald-300 text-xl font-bold mt-1 font-mono tabular-nums">{formatCurrency(scale(totalInflow))}</p>
+            </div>
+            <div className={`backdrop-blur rounded-2xl p-4 border ${netPnl >= 0 ? "bg-emerald-400/10 border-emerald-300/30" : "bg-rose-400/10 border-rose-300/30"}`}>
+              <p className="text-indigo-200 text-[11px] font-semibold uppercase tracking-wider">Net P&L</p>
+              <p className={`text-xl font-bold mt-1 font-mono tabular-nums ${netPnl >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{formatCurrency(scale(netPnl))}</p>
+            </div>
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-4 border border-white/20">
+              <p className="text-indigo-200 text-[11px] font-semibold uppercase tracking-wider">Your Share</p>
+              <p className="text-violet-300 text-xl font-bold mt-1 font-mono">{selfShare > 0 ? `${selfShare}%` : "—"}</p>
+            </div>
+          </div>
         </div>
-      </PageHero>
+      </div>
 
       <PageBody>
         <div className="space-y-5">
+
+          {/* Property link banner */}
           {isLinkedToProperty && linkedProperty && (
             <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-start gap-3">
               <span className="text-indigo-500 text-xl">🏘</span>
               <div>
                 <p className="text-sm font-semibold text-indigo-800">Linked to property: {linkedProperty.title}</p>
-                <Link to={`/properties/${partnership.linked_property_deal_id}`} className="text-sm text-indigo-600 hover:underline">
-                  View Property →
-                </Link>
+                <Link to={`/properties/${partnership.linked_property_deal_id}`} className="text-sm text-indigo-600 hover:underline">View Property →</Link>
                 <p className="text-xs text-indigo-600 mt-1">All financial transactions are managed here. Property page shows synced read-only data.</p>
               </div>
             </div>
           )}
 
+          {/* ── SELLER MASTER CARD ── */}
+          {isLinkedToProperty && linkedProperty && (() => {
+            const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
+            if (!sellerTotal) return null;
+            const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+            const paidPct = Math.min(100, sellerTotal > 0 ? (alreadyPaid / sellerTotal) * 100 : 0);
+            const outstanding = Math.max(0, sellerTotal - alreadyPaid);
+            const sellerTxns = transactions.filter(t => ["advance_to_seller", "advance_given", "remaining_to_seller"].includes(t.txn_type));
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border border-purple-200 p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>
+                    </div>
+                    <h2 className="text-base font-bold text-slate-900">Seller Payment Tracker</h2>
+                  </div>
+                  {isActive && outstanding > 0 && (
+                    <button
+                      onClick={() => {
+                        setTxnForm(p => ({ ...p, txn_type: "remaining_to_seller", amount: String(outstanding) }));
+                        setShowTxnForm(true);
+                      }}
+                      className="px-3 py-1.5 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700 transition-colors shadow-sm"
+                    >
+                      + Record Payment
+                    </button>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Paid <span className="text-purple-700 font-semibold font-mono">{formatCurrency(scale(alreadyPaid))}</span></span>
+                    <span>Total <span className="font-semibold font-mono text-slate-700">{formatCurrency(scale(sellerTotal))}</span></span>
+                  </div>
+                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-400 to-purple-600 rounded-full transition-all duration-700"
+                      style={{ width: `${paidPct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">{paidPct.toFixed(0)}% paid</span>
+                    <span className={`font-bold font-mono ${outstanding > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                      {outstanding > 0 ? `${formatCurrency(scale(outstanding))} still due` : "Fully paid ✓"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Seller payment history */}
+                {sellerTxns.length > 0 && (
+                  <div className="border-t border-slate-100 pt-3 space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Payment History</p>
+                    {sellerTxns.map((t) => (
+                      <div key={t.id} className="flex justify-between items-center py-1.5 border-b border-slate-50 last:border-0">
+                        <div>
+                          <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">
+                            {TXN_TYPE_LABELS[t.txn_type] || t.txn_type}
+                          </span>
+                          {t.description && <p className="text-[11px] text-slate-400 mt-0.5">{t.description}</p>}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold font-mono text-rose-600">−{formatCurrency(scale(parseFloat(t.amount || 0)))}</p>
+                          <p className="text-[10px] text-slate-400">{formatDate(t.txn_date)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── MAIN GRID: left + right sidebar ── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-5">
-              {/* Partners Table */}
+
+              {/* ── PARTNER NET POSITION ── */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-bold text-slate-800">Partner Distribution</h2>
+                  <h2 className="text-base font-bold text-slate-800">Partner Net Position</h2>
                   {isActive && (
                     <button onClick={() => setShowAddMemberModal(true)} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm hover:bg-indigo-100">+ Add Partner</button>
                   )}
@@ -583,126 +756,139 @@ export default function PartnershipDetail() {
                 {members.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-6">No partners added yet.</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200">
-                          <th className="text-left py-2 text-slate-500 font-medium">Partner</th>
-                          <th className="text-right py-2 text-slate-500 font-medium">Share %</th>
-                          <th className="text-right py-2 text-slate-500 font-medium">Advance</th>
-                          <th className="text-right py-2 text-slate-500 font-medium">Total Received</th>
-                          {isActive && <th className="text-right py-2 text-slate-500 font-medium">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {members.map((m, i) => {
-                          const received = parseFloat(m.member?.total_received || 0);
-                          const advance = parseFloat(m.member?.advance_contributed || 0);
-                          const isFullyReceived = isSettled && received > 0;
-                          const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
-                          return (
-                            <tr key={i} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${isFullyReceived ? "bg-emerald-50" : ""}`}>
-                              <td className="py-2 font-medium">
-                                {name}
-                                {m.member?.is_self && <span className="ml-1 text-xs bg-indigo-100 text-indigo-700 px-1.5 rounded-full">you</span>}
-                              </td>
-                              <td className="text-right py-2">{m.member?.share_percentage}%</td>
-                              <td className="text-right py-2">{formatCurrency(advance)}</td>
-                              <td className={`text-right py-2 font-semibold ${isFullyReceived ? "text-emerald-700" : "text-slate-400"}`}>
-                                {isFullyReceived ? formatCurrency(received) : "—"}
-                              </td>
-                              {isActive && (
-                                <td className="text-right py-2 space-x-1">
-                                  <button onClick={() => openEditMember(m)} className="text-xs text-indigo-600 hover:underline">Edit</button>
-                                  <button onClick={() => { if (window.confirm(`Remove ${name}?`)) deleteMemberMutation.mutate(m.member?.id); }} className="text-xs text-rose-600 hover:underline">Delete</button>
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })}
-                        <tr className="border-t border-slate-300 font-semibold">
-                          <td className="py-2">Total</td>
-                          <td className="text-right py-2">{members.reduce((s, m) => s + parseFloat(m.member?.share_percentage || 0), 0).toFixed(1)}%</td>
-                          <td className="text-right py-2">{formatCurrency(totalAdvance)}</td>
-                          <td className="text-right py-2">
-                            {isSettled ? formatCurrency(members.reduce((s, m) => s + parseFloat(m.member?.total_received || 0), 0)) : "—"}
-                          </td>
-                          {isActive && <td />}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {/* Partner Fund Balances */}
-                {transactions.length > 0 && members.length > 0 && (() => {
-                  const fundRows = members.map(m => {
-                    const memberId = m.member?.id;
-                    const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
-                    const collected = transactions
-                      .filter(t => INFLOW_TYPES.includes(t.txn_type) && t.received_by_member_id === memberId)
-                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const selfCollected = m.member?.is_self
-                      ? transactions.filter(t => INFLOW_TYPES.includes(t.txn_type) && !t.received_by_member_id).reduce((s, t) => s + parseFloat(t.amount || 0), 0)
-                      : 0;
-                    const invested = transactions
-                      .filter(t => (OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type)) && t.member_id === memberId)
-                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const transfersOut = transactions
-                      .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId)
-                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const transfersIn = transactions
-                      .filter(t => t.txn_type === "partner_transfer" && t.received_by_member_id === memberId)
-                      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const totalCollected = collected + selfCollected;
-                    const netHolding = totalCollected + transfersIn - transfersOut - invested;
-                    return { name, totalCollected, invested, transfersOut, transfersIn, netHolding };
-                  }).filter(r => r.totalCollected > 0 || r.invested > 0 || r.transfersOut > 0 || r.transfersIn > 0);
-                  if (fundRows.length === 0) return null;
-                  return (
-                    <div className="mt-3 pt-3 border-t border-slate-100">
-                      <p className="text-xs font-semibold text-slate-500 mb-2">💰 Partner Ledger <span className="font-normal text-slate-400">(investment, collections & transfers)</span></p>
-                      <div className="space-y-2">
-                        {fundRows.map((r, i) => (
-                          <div key={i} className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                            <p className="text-xs font-semibold text-slate-700 mb-1.5">{r.name}</p>
-                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                              {r.invested > 0 && <div className="flex justify-between"><span className="text-slate-500">Invested / Paid out</span><span className="text-rose-600 font-medium">−{formatCurrency(r.invested)}</span></div>}
-                              {r.totalCollected > 0 && <div className="flex justify-between"><span className="text-slate-500">Collected from buyers</span><span className="text-emerald-600 font-medium">+{formatCurrency(r.totalCollected)}</span></div>}
-                              {r.transfersIn > 0 && <div className="flex justify-between"><span className="text-slate-500">Received (transfers)</span><span className="text-violet-600 font-medium">+{formatCurrency(r.transfersIn)}</span></div>}
-                              {r.transfersOut > 0 && <div className="flex justify-between"><span className="text-slate-500">Sent (transfers)</span><span className="text-orange-600 font-medium">−{formatCurrency(r.transfersOut)}</span></div>}
+                  <div className="space-y-3">
+                    {members.map((m, i) => {
+                      const memberId = m.member?.id;
+                      const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+                      const sharePct = parseFloat(m.member?.share_percentage || 0);
+                      const advance = parseFloat(m.member?.advance_contributed || 0);
+                      const expensesPaid = transactions
+                        .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const withdrawals = transactions
+                        .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const profitTaken = transactions
+                        .filter(t => t.txn_type === "profit_received" && t.received_by_member_id === memberId)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const currentStake = advance + expensesPaid - withdrawals;
+                      return (
+                        <div key={i} className={`rounded-xl border p-4 ${m.member?.is_self ? "bg-indigo-50 border-indigo-200" : "bg-slate-50 border-slate-200"}`}>
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <span className="text-sm font-bold text-slate-900">{name}</span>
+                              {m.member?.is_self && <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">YOU</span>}
+                              {m.contact?.phone && <p className="text-xs text-slate-400 mt-0.5">{m.contact.phone}</p>}
                             </div>
-                            <div className="mt-1.5 pt-1.5 border-t border-slate-200 flex justify-between text-[11px]">
-                              <span className="text-slate-500 font-medium">Net holding</span>
-                              <span className={`font-bold ${r.netHolding > 0 ? "text-amber-600" : r.netHolding < 0 ? "text-rose-600" : "text-slate-400"}`}>
-                                {r.netHolding > 0 ? "+" : ""}{formatCurrency(r.netHolding)}
-                              </span>
+                            <div className="text-right">
+                              <span className="text-lg font-bold font-mono text-violet-700">{sharePct}%</span>
+                              <p className="text-[10px] text-slate-400">equity share</p>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
+                          {/* Stake breakdown: Advance + Expenses − Withdrawals = Stake */}
+                          <div className="flex items-center gap-1 text-xs flex-wrap mb-2">
+                            <span className="font-mono text-slate-600 bg-slate-200 rounded px-1.5 py-0.5">{formatCurrency(scale(advance))}</span>
+                            <span className="text-slate-400">advance</span>
+                            {expensesPaid > 0 && <>
+                              <span className="text-slate-400">+</span>
+                              <span className="font-mono text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 border border-blue-100">{formatCurrency(scale(expensesPaid))}</span>
+                              <span className="text-slate-400">expenses</span>
+                            </>}
+                            {withdrawals > 0 && <>
+                              <span className="text-slate-400">−</span>
+                              <span className="font-mono text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 border border-amber-100">{formatCurrency(scale(withdrawals))}</span>
+                              <span className="text-slate-400">out</span>
+                            </>}
+                            <span className="text-slate-400">=</span>
+                            <span className={`font-mono font-bold rounded px-1.5 py-0.5 ${currentStake > 0 ? "text-emerald-700 bg-emerald-50 border border-emerald-100" : "text-rose-700 bg-rose-50 border border-rose-100"}`}>{formatCurrency(scale(currentStake))}</span>
+                            <span className="text-slate-500 font-medium">current stake</span>
+                          </div>
+                          {profitTaken > 0 && (
+                            <p className="text-xs text-emerald-600"><span className="font-mono">{formatCurrency(scale(profitTaken))}</span> profit already taken</p>
+                          )}
+                          {isActive && (
+                            <div className="flex gap-2 mt-2 pt-2 border-t border-slate-200">
+                              <button onClick={() => openEditMember(m)} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                              <button onClick={() => { if (window.confirm(`Remove ${name}?`)) deleteMemberMutation.mutate(memberId); }} className="text-xs text-rose-600 hover:underline">Delete</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* Reimbursement Queue */}
+                    {(() => {
+                      const queue = members
+                        .map(m => {
+                          const memberId = m.member?.id;
+                          const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+                          const owed = transactions
+                            .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId && !t.from_partnership_pot)
+                            .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                          return { name, owed, isSelf: m.member?.is_self };
+                        })
+                        .filter(r => r.owed > 0);
+                      if (queue.length === 0) return null;
+                      return (
+                        <div className="mt-3 pt-3 border-t border-slate-200">
+                          <p className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1.5">
+                            <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                            Reimbursement Queue <span className="font-normal text-slate-400">(out-of-pocket expenses before profit split)</span>
+                          </p>
+                          <div className="space-y-1.5">
+                            {queue.map((r, i) => (
+                              <div key={i} className="flex justify-between items-center bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                                <span className="text-sm text-blue-900 font-medium">{r.name}</span>
+                                <span className="text-sm font-bold font-mono text-blue-700">{formatCurrency(scale(r.owed))} to reimburse</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
-              {/* Plot Buyers / Site Plots */}
+              {/* ── INTERACTIVE TIMELINE ── */}
+              {timelineEvents.length > 0 && (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
+                  <h2 className="text-base font-bold text-slate-800 mb-4">Deal Timeline</h2>
+                  <div className="relative pl-5">
+                    <div className="absolute left-2 top-2 bottom-2 w-0.5 bg-slate-200 rounded-full" />
+                    <div className="space-y-4">
+                      {timelineEvents.map((ev, i) => (
+                        <div key={i} className="relative flex items-start gap-3">
+                          <div className={`absolute -left-3 top-1 w-4 h-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center ${ev.done ? `bg-${ev.color}-500` : ev.isPast ? "bg-rose-400" : "bg-amber-400"}`}>
+                            {ev.done && (
+                              <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                            )}
+                          </div>
+                          <div>
+                            <p className={`text-sm font-semibold ${ev.done ? "text-slate-800" : ev.isPast ? "text-rose-700" : "text-amber-700"}`}>{ev.label}</p>
+                            {ev.date && <p className="text-xs text-slate-400">{formatDate(ev.date)}{ev.isPast ? " (overdue)" : ""}</p>}
+                            {!ev.done && !ev.isPast && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">NEXT</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── PLOT BUYERS / SITE PLOTS ── */}
               {isLinkedToProperty && (plotBuyers.length > 0 || sitePlots.length > 0 || isActive) && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-base font-bold text-slate-800">{isPlotDeal ? "Plot Subdivisions & Buyers" : "Site Plots & Buyers"}</h2>
                     {isActive && (
                       <div className="flex gap-2">
-                        <button onClick={() => { setShowAddPlotForm(!showAddPlotForm); setShowBuyerForm(false); }} className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-sm hover:bg-blue-100">
-                          + Add Plot
-                        </button>
-                        <button onClick={() => { setShowBuyerForm(!showBuyerForm); setShowAddPlotForm(false); }} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm hover:bg-emerald-100">
-                          + Quick Buyer
-                        </button>
+                        <button onClick={() => { setShowAddPlotForm(!showAddPlotForm); setShowBuyerForm(false); }} className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-sm hover:bg-blue-100">+ Add Plot</button>
+                        <button onClick={() => { setShowBuyerForm(!showBuyerForm); setShowAddPlotForm(false); }} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm hover:bg-emerald-100">+ Quick Buyer</button>
                       </div>
                     )}
                   </div>
 
-                  {/* ── Add Plot Form (Step 1: plot details, NO buyer) ── */}
+                  {/* Add Plot Form */}
                   {showAddPlotForm && (
                     <div className="mb-4 p-4 bg-blue-50/50 rounded-xl border border-blue-200/60 space-y-3">
                       <p className="text-xs font-semibold text-blue-800 mb-1">Add a plot subdivision (buyer can be assigned later)</p>
@@ -721,18 +907,10 @@ export default function PartnershipDetail() {
                         </InputField>
                       </div>
                       <div className="grid grid-cols-4 gap-2">
-                        <InputField label="North (ft)">
-                          <input type="number" value={plotForm.side_north_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_north_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
-                        <InputField label="South (ft)">
-                          <input type="number" value={plotForm.side_south_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_south_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
-                        <InputField label="East (ft)">
-                          <input type="number" value={plotForm.side_east_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_east_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
-                        <InputField label="West (ft)">
-                          <input type="number" value={plotForm.side_west_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_west_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
+                        <InputField label="North (ft)"><input type="number" value={plotForm.side_north_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_north_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
+                        <InputField label="South (ft)"><input type="number" value={plotForm.side_south_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_south_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
+                        <InputField label="East (ft)"><input type="number" value={plotForm.side_east_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_east_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
+                        <InputField label="West (ft)"><input type="number" value={plotForm.side_west_ft} onChange={(e) => setPlotForm(p => ({ ...p, side_west_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
                       </div>
                       <InputField label="Notes">
                         <input type="text" value={plotForm.notes} onChange={(e) => setPlotForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional" />
@@ -746,48 +924,30 @@ export default function PartnershipDetail() {
                     </div>
                   )}
 
-                  {/* ── Legacy Quick Buyer + Plot (backward compat) ── */}
+                  {/* Quick Buyer Form */}
                   {showBuyerForm && (
                     <div className="mb-4 p-4 bg-emerald-50/50 rounded-xl border border-emerald-200/60 space-y-3">
                       <p className="text-xs font-semibold text-emerald-800 mb-1">Quick: Create buyer contact + plot together</p>
                       <div className="grid grid-cols-2 gap-3">
-                        <InputField label="Buyer Name *">
-                          <input type="text" value={buyerForm.name} onChange={(e) => setBuyerForm(p => ({ ...p, name: e.target.value }))} className={inputCls} placeholder="Full name" />
-                        </InputField>
-                        <InputField label="Phone">
-                          <input type="text" value={buyerForm.phone} onChange={(e) => setBuyerForm(p => ({ ...p, phone: e.target.value }))} className={inputCls} placeholder="Optional" />
-                        </InputField>
+                        <InputField label="Buyer Name *"><input type="text" value={buyerForm.name} onChange={(e) => setBuyerForm(p => ({ ...p, name: e.target.value }))} className={inputCls} placeholder="Full name" /></InputField>
+                        <InputField label="Phone"><input type="text" value={buyerForm.phone} onChange={(e) => setBuyerForm(p => ({ ...p, phone: e.target.value }))} className={inputCls} placeholder="Optional" /></InputField>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
-                        <InputField label="City">
-                          <input type="text" value={buyerForm.city} onChange={(e) => setBuyerForm(p => ({ ...p, city: e.target.value }))} className={inputCls} placeholder="Optional" />
-                        </InputField>
-                        <InputField label="Notes">
-                          <input type="text" value={buyerForm.notes} onChange={(e) => setBuyerForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional" />
-                        </InputField>
+                        <InputField label="City"><input type="text" value={buyerForm.city} onChange={(e) => setBuyerForm(p => ({ ...p, city: e.target.value }))} className={inputCls} placeholder="Optional" /></InputField>
+                        <InputField label="Notes"><input type="text" value={buyerForm.notes} onChange={(e) => setBuyerForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional" /></InputField>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <InputField label="Area (sq ft)">
                           <input type="number" value={buyerForm.area_sqft} onChange={(e) => setBuyerForm(p => ({ ...p, area_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
                           {remainingArea !== null && <p className="text-xs text-emerald-600 mt-0.5">Remaining: {remainingArea.toFixed(2)} sq ft</p>}
                         </InputField>
-                        <InputField label="Rate (₹/sq ft)">
-                          <input type="number" value={buyerForm.rate_per_sqft} onChange={(e) => setBuyerForm(p => ({ ...p, rate_per_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
+                        <InputField label="Rate (₹/sq ft)"><input type="number" value={buyerForm.rate_per_sqft} onChange={(e) => setBuyerForm(p => ({ ...p, rate_per_sqft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
                       </div>
                       <div className="grid grid-cols-4 gap-2">
-                        <InputField label="North (ft)">
-                          <input type="number" value={buyerForm.side_north_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_north_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
-                        <InputField label="South (ft)">
-                          <input type="number" value={buyerForm.side_south_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_south_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
-                        <InputField label="East (ft)">
-                          <input type="number" value={buyerForm.side_east_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_east_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
-                        <InputField label="West (ft)">
-                          <input type="number" value={buyerForm.side_west_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_west_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                        </InputField>
+                        <InputField label="North (ft)"><input type="number" value={buyerForm.side_north_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_north_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
+                        <InputField label="South (ft)"><input type="number" value={buyerForm.side_south_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_south_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
+                        <InputField label="East (ft)"><input type="number" value={buyerForm.side_east_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_east_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
+                        <InputField label="West (ft)"><input type="number" value={buyerForm.side_west_ft} onChange={(e) => setBuyerForm(p => ({ ...p, side_west_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" /></InputField>
                       </div>
                       <div className="flex gap-2 justify-end">
                         <button onClick={() => setShowBuyerForm(false)} className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
@@ -798,38 +958,26 @@ export default function PartnershipDetail() {
                     </div>
                   )}
 
-                  {/* ── Assign Buyer Modal (inline) ── */}
+                  {/* Assign Buyer Inline */}
                   {assigningBuyerTo && (
                     <div className="mb-4 p-4 bg-amber-50/50 rounded-xl border border-amber-200/60 space-y-3">
                       <p className="text-xs font-semibold text-amber-800 mb-1">{assigningBuyerTo.isReassign ? "Reassign buyer for" : "Assign buyer to"}: {assigningBuyerTo.label}</p>
                       <div className="flex gap-2 mb-2">
-                        <button onClick={() => setAssignBuyerMode("existing")} className={`px-3 py-1 rounded-lg text-xs font-medium ${assignBuyerMode === "existing" ? "bg-amber-200 text-amber-900" : "bg-white text-slate-600 border border-slate-200"}`}>
-                          Pick Existing Contact
-                        </button>
-                        <button onClick={() => setAssignBuyerMode("new")} className={`px-3 py-1 rounded-lg text-xs font-medium ${assignBuyerMode === "new" ? "bg-amber-200 text-amber-900" : "bg-white text-slate-600 border border-slate-200"}`}>
-                          Create New Contact
-                        </button>
+                        <button onClick={() => setAssignBuyerMode("existing")} className={`px-3 py-1 rounded-lg text-xs font-medium ${assignBuyerMode === "existing" ? "bg-amber-200 text-amber-900" : "bg-white text-slate-600 border border-slate-200"}`}>Pick Existing Contact</button>
+                        <button onClick={() => setAssignBuyerMode("new")} className={`px-3 py-1 rounded-lg text-xs font-medium ${assignBuyerMode === "new" ? "bg-amber-200 text-amber-900" : "bg-white text-slate-600 border border-slate-200"}`}>Create New Contact</button>
                       </div>
                       {assignBuyerMode === "existing" ? (
                         <InputField label="Select Contact">
                           <select value={assignBuyerForm.contact_id} onChange={(e) => setAssignBuyerForm(p => ({ ...p, contact_id: e.target.value }))} className={inputCls}>
                             <option value="">— Select buyer —</option>
-                            {contacts.map(c => (
-                              <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>
-                            ))}
+                            {contacts.map(c => <option key={c.id} value={c.id}>{c.name}{c.phone ? ` (${c.phone})` : ""}</option>)}
                           </select>
                         </InputField>
                       ) : (
                         <div className="grid grid-cols-3 gap-3">
-                          <InputField label="Name *">
-                            <input type="text" value={assignBuyerForm.name} onChange={(e) => setAssignBuyerForm(p => ({ ...p, name: e.target.value }))} className={inputCls} placeholder="Full name" />
-                          </InputField>
-                          <InputField label="Phone">
-                            <input type="text" value={assignBuyerForm.phone} onChange={(e) => setAssignBuyerForm(p => ({ ...p, phone: e.target.value }))} className={inputCls} placeholder="Optional" />
-                          </InputField>
-                          <InputField label="City">
-                            <input type="text" value={assignBuyerForm.city} onChange={(e) => setAssignBuyerForm(p => ({ ...p, city: e.target.value }))} className={inputCls} placeholder="Optional" />
-                          </InputField>
+                          <InputField label="Name *"><input type="text" value={assignBuyerForm.name} onChange={(e) => setAssignBuyerForm(p => ({ ...p, name: e.target.value }))} className={inputCls} placeholder="Full name" /></InputField>
+                          <InputField label="Phone"><input type="text" value={assignBuyerForm.phone} onChange={(e) => setAssignBuyerForm(p => ({ ...p, phone: e.target.value }))} className={inputCls} placeholder="Optional" /></InputField>
+                          <InputField label="City"><input type="text" value={assignBuyerForm.city} onChange={(e) => setAssignBuyerForm(p => ({ ...p, city: e.target.value }))} className={inputCls} placeholder="Optional" /></InputField>
                         </div>
                       )}
                       <div className="flex gap-2 justify-end">
@@ -841,7 +989,7 @@ export default function PartnershipDetail() {
                     </div>
                   )}
 
-                  {/* ── Plot / Buyer Cards ── */}
+                  {/* Plot Buyer cards */}
                   {isPlotDeal ? (
                     plotBuyers.length > 0 ? (
                       <div className="space-y-3">
@@ -854,122 +1002,61 @@ export default function PartnershipDetail() {
                           const plotTxns = transactions.filter(t => t.plot_buyer_id === b.id);
                           return (
                             <div key={b.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                              <div
-                                className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors"
-                                onClick={() => setExpandedPlotId(isExpanded ? null : plotKey)}
-                              >
+                              <div className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors" onClick={() => setExpandedPlotId(isExpanded ? null : plotKey)}>
                                 <div className="flex justify-between items-start">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-xs text-slate-400 transition-transform duration-200" style={{ display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
-                                      <p className="text-sm font-semibold text-slate-800">
-                                        {b.buyer_name || <span className="text-slate-400 italic">No buyer assigned</span>}
-                                      </p>
+                                      <span className="text-xs text-slate-400 transition-transform duration-200 inline-block" style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                      <p className="text-sm font-semibold text-slate-800">{b.buyer_name || <span className="text-slate-400 italic">No buyer assigned</span>}</p>
                                     </div>
-                                    <p className="text-xs text-slate-500 ml-4">
-                                      {b.area_sqft ? `${b.area_sqft} sq ft` : ""}
-                                      {b.rate_per_sqft ? ` @ ₹${b.rate_per_sqft}/sqft` : ""}
-                                    </p>
-                                    {(b.side_north_ft || b.side_south_ft || b.side_east_ft || b.side_west_ft) && (
-                                      <p className="text-xs text-slate-400 ml-4">
-                                        N:{b.side_north_ft || "—"} S:{b.side_south_ft || "—"} E:{b.side_east_ft || "—"} W:{b.side_west_ft || "—"} ft
-                                      </p>
-                                    )}
+                                    <p className="text-xs text-slate-500 ml-4">{b.area_sqft ? `${b.area_sqft} sq ft` : ""}{b.rate_per_sqft ? ` @ ₹${b.rate_per_sqft}/sqft` : ""}</p>
                                   </div>
                                   <div className="text-right ml-3 shrink-0">
-                                    <p className="text-sm font-bold text-slate-800">{formatCurrency(totalValue)}</p>
-                                    <p className="text-xs text-emerald-600">Paid: {formatCurrency(totalPaid)}</p>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${b.status === "registry_done" ? "bg-emerald-100 text-emerald-700" : b.status === "advance_received" ? "bg-amber-100 text-amber-700" : b.status === "payment_done" ? "bg-teal-100 text-teal-700" : b.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                                      {(b.status || "negotiating").replace(/_/g, " ")}
-                                    </span>
+                                    <p className="text-sm font-bold font-mono text-slate-800">{formatCurrency(scale(totalValue))}</p>
+                                    <p className="text-xs text-emerald-600 font-mono">Paid: {formatCurrency(scale(totalPaid))}</p>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${b.status === "registry_done" ? "bg-emerald-100 text-emerald-700" : b.status === "advance_received" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{(b.status || "negotiating").replace(/_/g, " ")}</span>
                                   </div>
                                 </div>
                                 {totalValue > 0 && (
                                   <div className="mt-2 ml-4">
-                                    <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
-                                      <span>{formatCurrency(totalPaid)} paid</span>
-                                      <span>{formatCurrency(totalValue - totalPaid)} remaining</span>
-                                    </div>
-                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${paidPct}%` }} />
-                                    </div>
+                                    <div className="flex justify-between text-[10px] text-slate-400 mb-0.5"><span>{formatCurrency(scale(totalPaid))} paid</span><span>{formatCurrency(scale(totalValue - totalPaid))} remaining</span></div>
+                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${paidPct}%` }} /></div>
                                   </div>
                                 )}
                                 <div className="flex gap-2 mt-2 ml-4 flex-wrap">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setViewingPlot({ ...b, plotType: "plot_buyer" }); }}
-                                    className="text-xs text-indigo-600 hover:underline font-medium border border-indigo-200 px-2 py-0.5 rounded-lg bg-indigo-50"
-                                  >
-                                    Details
-                                  </button>
-                                  {isActive && !b.buyer_contact_id && (
-                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}` }); }} className="text-xs text-amber-600 hover:underline font-medium">
-                                      Assign Buyer →
-                                    </button>
-                                  )}
-                                  {isActive && b.buyer_contact_id && b.status === "negotiating" && (
-                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: `Plot ${b.area_sqft ? b.area_sqft + " sqft" : "#" + b.id}`, isReassign: true }); }} className="text-xs text-orange-500 hover:underline font-medium">
-                                      Reassign Buyer →
-                                    </button>
-                                  )}
+                                  <button onClick={(e) => { e.stopPropagation(); setViewingPlot({ ...b, plotType: "plot_buyer" }); }} className="text-xs text-blue-600 hover:underline">View Details</button>
                                   {isActive && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setEditingPlot({ type: "plot_buyer", id: b.id, hasPaid: parseFloat(b.total_paid || 0) > 0 }); setEditPlotForm({ plot_number: "", area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), notes: b.notes || "", side_north_ft: String(b.side_north_ft || ""), side_south_ft: String(b.side_south_ft || ""), side_east_ft: String(b.side_east_ft || ""), side_west_ft: String(b.side_west_ft || "") }); }}
-                                      className="text-xs text-slate-600 hover:underline font-medium border border-slate-200 px-2 py-0.5 rounded-lg"
-                                    >
-                                      Edit
-                                    </button>
-                                  )}
-                                  {isActive && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete this plot buyer${b.buyer_name ? " (" + b.buyer_name + ")" : ""}? This cannot be undone.`)) deletePlotMutation.mutate({ type: "plot_buyer", plotId: b.id }); }}
-                                      disabled={deletePlotMutation.isPending}
-                                      className="text-xs text-red-600 hover:underline font-medium border border-red-200 px-2 py-0.5 rounded-lg bg-red-50 disabled:opacity-50"
-                                    >
-                                      Delete
-                                    </button>
-                                  )}
-                                  {isActive && b.status !== "registry_done" && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "plot_buyer", id: b.id, label: b.buyer_name || `Plot #${b.id}`, area_sqft: b.area_sqft, rate_per_sqft: b.rate_per_sqft }); setCloseDealForm({ area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), registry_date: "", notes: "" }); }}
-                                      className="text-xs text-rose-600 hover:underline font-medium border border-rose-200 px-2 py-0.5 rounded-lg bg-rose-50"
-                                    >
-                                      Close Deal
-                                    </button>
+                                    <>
+                                      <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "plot_buyer", id: b.id, label: b.buyer_name || `Plot Buyer #${b.id}`, isReassign: !!b.buyer_name }); }} className="text-xs text-amber-600 hover:underline">{b.buyer_name ? "Reassign" : "Assign Buyer"}</button>
+                                      <button onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingPlot({ type: "plot_buyer", id: b.id, hasPaid: plotTxns.some(t => parseFloat(t.amount) > 0), area_sqft: b.area_sqft });
+                                        setEditPlotForm({ plot_number: "", area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), notes: b.notes || "", side_north_ft: String(b.side_north_ft || ""), side_south_ft: String(b.side_south_ft || ""), side_east_ft: String(b.side_east_ft || ""), side_west_ft: String(b.side_west_ft || "") });
+                                      }} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                      {b.status !== "registry_done" && (
+                                        <button onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "plot_buyer", id: b.id, label: b.buyer_name || `Buyer #${b.id}`, area_sqft: b.area_sqft, price_per_sqft: b.rate_per_sqft }); setCloseDealForm({ area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), registry_date: "", notes: "" }); }} className="text-xs text-emerald-600 hover:underline">Close Deal</button>
+                                      )}
+                                      <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete plot buyer entry?`)) deletePlotMutation.mutate({ type: "plot_buyer", plotId: b.id }); }} className="text-xs text-rose-600 hover:underline">Delete</button>
+                                    </>
                                   )}
                                 </div>
                               </div>
-                              {isExpanded && (
-                                <div className="border-t border-slate-100 bg-slate-50/50 p-3">
-                                  <p className="text-xs font-semibold text-slate-500 mb-2">Payment History</p>
-                                  {plotTxns.length === 0 ? (
-                                    <p className="text-xs text-slate-400 italic">No payments recorded yet</p>
-                                  ) : (
-                                    <div className="space-y-1.5">
-                                      {plotTxns.map(t => {
-                                        const isOut = OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type);
-                                        return (
-                                          <div key={t.id} className="flex justify-between items-center text-xs">
-                                            <div>
-                                              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
-                                              <span className="text-slate-700 font-medium">{TXN_TYPE_LABELS[t.txn_type] || t.txn_type.replace(/_/g, " ")}</span>
-                                              <span className="text-slate-400 ml-1">· {formatDate(t.txn_date)}</span>
-                                            </div>
-                                            <span className={`font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>{isOut ? "−" : "+"}{formatCurrency(t.amount)}</span>
-                                          </div>
-                                        );
-                                      })}
+                              {isExpanded && plotTxns.length > 0 && (
+                                <div className="border-t border-slate-100 bg-slate-50 p-3 space-y-2">
+                                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Payment History</p>
+                                  {plotTxns.map(t => (
+                                    <div key={t.id} className="flex justify-between text-xs">
+                                      <span className="text-slate-600">{formatDate(t.txn_date)} · {TXN_TYPE_LABELS[t.txn_type] || t.txn_type}</span>
+                                      <span className="font-mono font-semibold text-emerald-600">+{formatCurrency(scale(parseFloat(t.amount || 0)))}</span>
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
                               )}
                             </div>
                           );
                         })}
                       </div>
-                    ) : (
-                      <p className="text-sm text-slate-400 text-center py-4">No plots yet. Add a plot subdivision, then assign buyers.</p>
-                    )
+                    ) : <p className="text-sm text-slate-400 text-center py-4">No plot buyers yet. Add a plot to get started.</p>
                   ) : (
                     sitePlots.length > 0 ? (
                       <div className="space-y-3">
@@ -982,843 +1069,550 @@ export default function PartnershipDetail() {
                           const plotTxns = transactions.filter(t => t.site_plot_id === sp.id);
                           return (
                             <div key={sp.id} className="border border-slate-200 rounded-xl overflow-hidden">
-                              <div
-                                className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors"
-                                onClick={() => setExpandedPlotId(isExpanded ? null : plotKey)}
-                              >
+                              <div className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors" onClick={() => setExpandedPlotId(isExpanded ? null : plotKey)}>
                                 <div className="flex justify-between items-start">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-xs text-slate-400 transition-transform duration-200" style={{ display: "inline-block", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
-                                      <p className="text-sm font-semibold text-slate-800">
-                                        {sp.buyer_name || sp.plot_number || `Plot #${sp.id}`}
-                                        {sp.buyer_name && sp.plot_number && <span className="text-xs text-slate-400 ml-1">({sp.plot_number})</span>}
-                                      </p>
+                                      <span className="text-xs text-slate-400 inline-block transition-transform duration-200" style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                      <p className="text-sm font-semibold text-slate-800">{sp.plot_number || `Plot #${sp.id}`}</p>
+                                      {sp.buyer_name && <span className="text-xs text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded-full border border-teal-100">{sp.buyer_name}</span>}
                                     </div>
-                                    <p className="text-xs text-slate-500 ml-4">
-                                      {sp.area_sqft ? `${sp.area_sqft} sq ft` : ""}
-                                      {sp.sold_price_per_sqft ? ` @ ₹${sp.sold_price_per_sqft}/sqft` : ""}
-                                    </p>
-                                    {(sp.side_north_ft || sp.side_south_ft || sp.side_east_ft || sp.side_west_ft) && (
-                                      <p className="text-xs text-slate-400 ml-4">
-                                        N:{sp.side_north_ft || "—"} S:{sp.side_south_ft || "—"} E:{sp.side_east_ft || "—"} W:{sp.side_west_ft || "—"} ft
-                                      </p>
-                                    )}
-                                    {!sp.buyer_contact_id && <p className="text-xs text-amber-500 italic mt-0.5 ml-4">No buyer assigned</p>}
+                                    <p className="text-xs text-slate-500 ml-4">{sp.area_sqft ? `${sp.area_sqft} sq ft` : ""}{sp.sold_price_per_sqft ? ` @ ₹${sp.sold_price_per_sqft}/sqft` : ""}</p>
                                   </div>
                                   <div className="text-right ml-3 shrink-0">
-                                    <p className="text-sm font-bold text-slate-800">{formatCurrency(totalValue)}</p>
-                                    <p className="text-xs text-emerald-600">Paid: {formatCurrency(totalPaid)}</p>
-                                    <span className={`text-xs px-2 py-0.5 rounded-full ${sp.status === "sold" || sp.status === "registered" ? "bg-emerald-100 text-emerald-700" : sp.status === "advance_received" ? "bg-amber-100 text-amber-700" : sp.status === "payment_done" ? "bg-teal-100 text-teal-700" : sp.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                                      {(sp.status || "available").replace(/_/g, " ")}
-                                    </span>
+                                    <p className="text-sm font-bold font-mono text-slate-800">{formatCurrency(scale(totalValue))}</p>
+                                    <p className="text-xs text-emerald-600 font-mono">Paid: {formatCurrency(scale(totalPaid))}</p>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${sp.status === "sold" ? "bg-emerald-100 text-emerald-700" : sp.status === "advance_received" ? "bg-amber-100 text-amber-700" : sp.status === "available" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>{(sp.status || "available").replace(/_/g, " ")}</span>
                                   </div>
                                 </div>
                                 {totalValue > 0 && (
                                   <div className="mt-2 ml-4">
-                                    <div className="flex justify-between text-[10px] text-slate-400 mb-0.5">
-                                      <span>{formatCurrency(totalPaid)} paid</span>
-                                      <span>{formatCurrency(totalValue - totalPaid)} remaining</span>
-                                    </div>
-                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${paidPct}%` }} />
-                                    </div>
+                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-teal-400 to-teal-500 rounded-full transition-all duration-500" style={{ width: `${paidPct}%` }} /></div>
                                   </div>
                                 )}
                                 <div className="flex gap-2 mt-2 ml-4 flex-wrap">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setViewingPlot({ ...sp, plotType: "site_plot" }); }}
-                                    className="text-xs text-indigo-600 hover:underline font-medium border border-indigo-200 px-2 py-0.5 rounded-lg bg-indigo-50"
-                                  >
-                                    Details
-                                  </button>
-                                  {isActive && !sp.buyer_contact_id && (
-                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}` }); }} className="text-xs text-amber-600 hover:underline font-medium">
-                                      Assign Buyer →
-                                    </button>
-                                  )}
-                                  {isActive && sp.buyer_contact_id && sp.status === "negotiating" && (
-                                    <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, isReassign: true }); }} className="text-xs text-orange-500 hover:underline font-medium">
-                                      Reassign Buyer →
-                                    </button>
-                                  )}
+                                  <button onClick={(e) => { e.stopPropagation(); setViewingPlot({ ...sp, plotType: "site_plot" }); }} className="text-xs text-blue-600 hover:underline">View Details</button>
                                   {isActive && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setEditingPlot({ type: "site_plot", id: sp.id, hasPaid: parseFloat(sp.total_paid || 0) > 0 }); setEditPlotForm({ plot_number: sp.plot_number || "", area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), notes: sp.notes || "", side_north_ft: String(sp.side_north_ft || ""), side_south_ft: String(sp.side_south_ft || ""), side_east_ft: String(sp.side_east_ft || ""), side_west_ft: String(sp.side_west_ft || "") }); }}
-                                      className="text-xs text-slate-600 hover:underline font-medium border border-slate-200 px-2 py-0.5 rounded-lg"
-                                    >
-                                      Edit
-                                    </button>
-                                  )}
-                                  {isActive && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete this site plot${sp.buyer_name || sp.plot_number ? " (" + (sp.buyer_name || sp.plot_number) + ")" : ""}? This cannot be undone.`)) deletePlotMutation.mutate({ type: "site_plot", plotId: sp.id }); }}
-                                      disabled={deletePlotMutation.isPending}
-                                      className="text-xs text-red-600 hover:underline font-medium border border-red-200 px-2 py-0.5 rounded-lg bg-red-50 disabled:opacity-50"
-                                    >
-                                      Delete
-                                    </button>
-                                  )}
-                                  {isActive && sp.status !== "sold" && sp.status !== "registered" && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "site_plot", id: sp.id, label: sp.buyer_name || sp.plot_number || `Plot #${sp.id}`, area_sqft: sp.area_sqft, price_per_sqft: sp.sold_price_per_sqft }); setCloseDealForm({ area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), registry_date: "", notes: "" }); }}
-                                      className="text-xs text-rose-600 hover:underline font-medium border border-rose-200 px-2 py-0.5 rounded-lg bg-rose-50"
-                                    >
-                                      Close Deal
-                                    </button>
+                                    <>
+                                      <button onClick={(e) => { e.stopPropagation(); setAssigningBuyerTo({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, isReassign: !!sp.buyer_name }); }} className="text-xs text-amber-600 hover:underline">{sp.buyer_name ? "Reassign Buyer" : "Assign Buyer"}</button>
+                                      <button onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingPlot({ type: "site_plot", id: sp.id, hasPaid: plotTxns.some(t => parseFloat(t.amount) > 0) });
+                                        setEditPlotForm({ plot_number: sp.plot_number || "", area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), notes: sp.notes || "", side_north_ft: String(sp.side_north_ft || ""), side_south_ft: String(sp.side_south_ft || ""), side_east_ft: String(sp.side_east_ft || ""), side_west_ft: String(sp.side_west_ft || "") });
+                                      }} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                      {sp.status !== "sold" && (
+                                        <button onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, area_sqft: sp.area_sqft, price_per_sqft: sp.sold_price_per_sqft }); setCloseDealForm({ area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), registry_date: "", notes: "" }); }} className="text-xs text-emerald-600 hover:underline">Close Deal</button>
+                                      )}
+                                      <button onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete this site plot?")) deletePlotMutation.mutate({ type: "site_plot", plotId: sp.id }); }} className="text-xs text-rose-600 hover:underline">Delete</button>
+                                    </>
                                   )}
                                 </div>
                               </div>
-                              {isExpanded && (
-                                <div className="border-t border-slate-100 bg-slate-50/50 p-3">
-                                  <p className="text-xs font-semibold text-slate-500 mb-2">Payment History</p>
-                                  {plotTxns.length === 0 ? (
-                                    <p className="text-xs text-slate-400 italic">No payments recorded yet</p>
-                                  ) : (
-                                    <div className="space-y-1.5">
-                                      {plotTxns.map(t => {
-                                        const isOut = OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type);
-                                        const buyerLabel = t.plot_buyer_id
-                                          ? plotBuyers.find(b => b.id === t.plot_buyer_id)?.buyer_name
-                                          : t.site_plot_id
-                                          ? (sitePlots.find(s => s.id === t.site_plot_id)?.buyer_name || sitePlots.find(s => s.id === t.site_plot_id)?.plot_number)
-                                          : null;
-                                        return (
-                                          <div key={t.id} className="flex justify-between items-center text-xs">
-                                            <div>
-                                              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
-                                              <span className="text-slate-700 font-medium">{TXN_TYPE_LABELS[t.txn_type] || t.txn_type.replace(/_/g, " ")}</span>
-                                              {buyerLabel && <span className="text-teal-600 ml-1">· {buyerLabel}</span>}
-                                              <span className="text-slate-400 ml-1">· {formatDate(t.txn_date)}</span>
-                                            </div>
-                                            <span className={`font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}>{isOut ? "−" : "+"}{formatCurrency(t.amount)}</span>
-                                          </div>
-                                        );
-                                      })}
+                              {isExpanded && plotTxns.length > 0 && (
+                                <div className="border-t border-slate-100 bg-slate-50 p-3 space-y-2">
+                                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Payment History</p>
+                                  {plotTxns.map(t => (
+                                    <div key={t.id} className="flex justify-between text-xs">
+                                      <span className="text-slate-600">{formatDate(t.txn_date)} · {TXN_TYPE_LABELS[t.txn_type] || t.txn_type}</span>
+                                      <span className="font-mono font-semibold text-emerald-600">+{formatCurrency(scale(parseFloat(t.amount || 0)))}</span>
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
                               )}
                             </div>
                           );
                         })}
                       </div>
-                    ) : (
-                      <p className="text-sm text-slate-400 text-center py-4">No site plots yet. Add plots to track area and buyers.</p>
-                    )
+                    ) : <p className="text-sm text-slate-400 text-center py-4">No site plots yet.</p>
+                  )}
+                  {remainingArea !== null && remainingArea > 0 && (
+                    <div className="mt-3 text-xs text-slate-400 text-right">Unallocated: {remainingArea.toFixed(2)} sq ft of {totalPropertyArea.toLocaleString()} sq ft total</div>
                   )}
                 </div>
               )}
 
-              {/* Transactions */}
+              {/* ── TRANSACTIONS ── */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-base font-bold text-slate-800">Transactions</h2>
                   {isActive && (
-                    <button onClick={() => setShowTxnForm(!showTxnForm)} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm hover:bg-indigo-100">
-                      + Add Transaction
+                    <button
+                      onClick={() => setShowTxnForm(!showTxnForm)}
+                      className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm hover:bg-indigo-100"
+                    >
+                      {showTxnForm ? "Cancel" : "+ Add Transaction"}
                     </button>
                   )}
                 </div>
 
+                {/* Add Transaction Form */}
                 {showTxnForm && (
-                  <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200/60 space-y-3">
-                    <InputField label="Transaction Type">
-                      <select
-                        value={txnForm.txn_type}
-                        onChange={(e) => setTxnForm(p => ({ ...p, txn_type: e.target.value, plot_buyer_id: "", site_plot_id: "", broker_name: "", from_partnership_pot: false, member_id: "", profit_source: "" }))}
-                        className={inputCls}
-                      >
-                        <optgroup label="Outflows (Money Going Out)">
-                          <option value="advance_to_seller">Advance to Seller</option>
-                          <option value="remaining_to_seller">Remaining to Seller</option>
-                          <option value="broker_commission">Broker Commission</option>
-                          <option value="expense">Expense</option>
-                        </optgroup>
-                        <optgroup label="Inflows (Money Coming In)">
-                          <option value="buyer_advance">Buyer Advance</option>
-                          <option value="buyer_payment">Buyer Payment</option>
-                        </optgroup>
-                        <optgroup label="Internal — Partner Transfers">
-                          <option value="partner_transfer">Partner Transfer</option>
-                        </optgroup>
-                      </select>
-                    </InputField>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <InputField label="Amount (₹)">
-                        <input type="number" value={txnForm.amount} onChange={(e) => setTxnForm(p => ({ ...p, amount: e.target.value }))} className={inputCls} placeholder="0" min="0" />
-                      </InputField>
-                      <InputField label="Date">
-                        <input type="date" value={txnForm.txn_date} onChange={(e) => setTxnForm(p => ({ ...p, txn_date: e.target.value }))} className={inputCls} />
-                      </InputField>
+                  <div className="mb-5 p-4 bg-slate-50 rounded-xl border border-slate-200/60 space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="col-span-1">
+                        <label className="block text-xs text-slate-500 mb-0.5">Type</label>
+                        <select value={txnForm.txn_type} onChange={(e) => setTxnForm(p => ({ ...p, txn_type: e.target.value, member_id: "", received_by_member_id: "", plot_buyer_id: "", site_plot_id: "", account_id: "", broker_name: "", from_partnership_pot: false }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                          <optgroup label="Outflows">
+                            <option value="advance_to_seller">Advance to Seller</option>
+                            <option value="remaining_to_seller">Remaining to Seller</option>
+                            <option value="broker_commission">Broker Commission</option>
+                            <option value="expense">Expense / Other</option>
+                          </optgroup>
+                          <optgroup label="Inflows">
+                            <option value="buyer_advance">Buyer Advance</option>
+                            <option value="buyer_payment">Buyer Payment</option>
+                            <option value="profit_received">Profit Received</option>
+                          </optgroup>
+                          <optgroup label="Transfers">
+                            <option value="partner_transfer">Partner Transfer</option>
+                          </optgroup>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-0.5">Amount</label>
+                        <input type="number" value={txnForm.amount} onChange={(e) => setTxnForm(p => ({ ...p, amount: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm" placeholder="0" />
+                        {txnForm.txn_type === "remaining_to_seller" && isLinkedToProperty && linkedProperty && (() => {
+                          const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
+                          const paid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+                          const bal = Math.max(0, sellerTotal - paid);
+                          return bal > 0 ? <p className="text-xs text-rose-600 mt-0.5">Balance due: {formatCurrency(bal)}</p> : null;
+                        })()}
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-0.5">Date</label>
+                        <input type="date" value={txnForm.txn_date} onChange={(e) => setTxnForm(p => ({ ...p, txn_date: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm" />
+                      </div>
                     </div>
 
-                    {/* Seller remaining hint for seller payment types */}
-                    {(txnForm.txn_type === "advance_to_seller" || txnForm.txn_type === "remaining_to_seller") && isLinkedToProperty && linkedProperty && (() => {
-                      const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
-                      const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
-                      const outstanding = sellerTotal - alreadyPaid;
-                      if (sellerTotal <= 0) return null;
-                      return (
-                        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between">
-                          <div>
-                            <p className="text-xs font-semibold text-rose-800">Seller Balance</p>
-                            <p className="text-xs text-rose-600">Paid: {formatCurrency(alreadyPaid)} · Total: {formatCurrency(sellerTotal)}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-bold text-rose-700">{formatCurrency(Math.max(0, outstanding))}</p>
-                            <p className="text-[10px] text-rose-500">outstanding</p>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <InputField label="Paid by (member)">
-                          <select value={txnForm.from_partnership_pot ? "" : txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value, account_id: "" }))} className={inputCls} disabled={txnForm.from_partnership_pot}>
-                            <option value="">— Select —</option>
-                            {members.map((m) => (
-                              <option key={m.member?.id} value={String(m.member?.id)}>
-                                {m.member?.is_self ? "Self (Me)" : m.contact?.name || "Partner"}
-                              </option>
-                            ))}
+                    <div className="grid grid-cols-3 gap-3">
+                      {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-0.5">Paid by</label>
+                          <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value, account_id: "" }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                            <option value="">— From pot —</option>
+                            {members.map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
                           </select>
-                        </InputField>
-                        {(() => { const selMember = members.find(m => String(m.member?.id) === String(txnForm.member_id)); return selMember?.member?.is_self && !txnForm.from_partnership_pot; })() && (
-                          <InputField label="From Account">
-                            <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className={inputCls}>
-                              <option value="">— No account —</option>
-                              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </div>
+                      )}
+                      {txnForm.txn_type === "partner_transfer" && (
+                        <>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-0.5">From</label>
+                            <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                              <option value="">— Select —</option>
+                              {members.map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
                             </select>
-                          </InputField>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-0.5">To</label>
+                            <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value, account_id: "" }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                              <option value="">— Select —</option>
+                              {members.map(m => <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === txnForm.member_id}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
+                            </select>
+                          </div>
+                          {(() => { const toMember = members.find(m => String(m.member?.id) === String(txnForm.received_by_member_id)); return toMember?.member?.is_self && accounts.length > 0; })() && (
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-0.5">Into Account</label>
+                              <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                                <option value="">— None —</option>
+                                {accounts.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+                              </select>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {INFLOW_TYPES.includes(txnForm.txn_type) && (
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-0.5">Received by</label>
+                          <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                            <option value="">Self (Me)</option>
+                            {members.filter(m => !m.member?.is_self).map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>)}
+                            {["buyer_advance", "buyer_payment"].includes(txnForm.txn_type) && <option value="seller">→ Seller (Buyer paid directly)</option>}
+                          </select>
+                        </div>
+                      )}
+                      {OUTFLOW_TYPES.includes(txnForm.txn_type) && (() => { const sel = members.find(m => String(m.member?.id) === String(txnForm.member_id)); return sel?.member?.is_self; })() && (
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                          <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                            <option value="">None</option>
+                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {INFLOW_TYPES.includes(txnForm.txn_type) && !txnForm.received_by_member_id && (
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                          <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                            <option value="">None</option>
+                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {["buyer_advance", "buyer_payment"].includes(txnForm.txn_type) && (plotBuyers.length > 0 || sitePlots.length > 0) && (
+                      <div className="grid grid-cols-2 gap-3">
+                        {plotBuyers.length > 0 && (
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-0.5">Plot Buyer</label>
+                            <select value={txnForm.plot_buyer_id} onChange={(e) => setTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                              <option value="">— None —</option>
+                              {plotBuyers.map(b => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        {sitePlots.length > 0 && (
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-0.5">Site Plot</label>
+                            <select value={txnForm.site_plot_id} onChange={(e) => setTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm">
+                              <option value="">— None —</option>
+                              {sitePlots.map(sp => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
+                            </select>
+                          </div>
                         )}
                       </div>
                     )}
 
-                    {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
+                    {txnForm.txn_type === "broker_commission" && (
                       <div className="grid grid-cols-2 gap-3">
-                        {txnForm.txn_type === "broker_commission" && (
-                          <InputField label="Broker Name">
-                            <input type="text" value={txnForm.broker_name} onChange={(e) => setTxnForm(p => ({ ...p, broker_name: e.target.value }))} className={inputCls} placeholder="Broker name" />
-                          </InputField>
-                        )}
+                        <InputField label="Broker Name">
+                          <input type="text" value={txnForm.broker_name} onChange={(e) => setTxnForm(p => ({ ...p, broker_name: e.target.value }))} className={inputCls} placeholder="Broker name" />
+                        </InputField>
                         <div className="flex items-end pb-1">
                           <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked, ...( e.target.checked ? { member_id: "", account_id: "" } : {}) }))} className="rounded" />
-                            <span className="text-sm text-slate-700">Paid from partnership pot</span>
+                            <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" />
+                            <span className="text-xs text-slate-700">From partnership pot</span>
                           </label>
                         </div>
                       </div>
                     )}
 
-                    {INFLOW_TYPES.includes(txnForm.txn_type) && (
-                      <>
-                        {/* ── Seller balance hint for remaining_to_seller ── */}
-                        {txnForm.txn_type !== "profit_received" && (() => {
-                          if (!isLinkedToProperty || !linkedProperty) return null;
-                          const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
-                          if (!sellerTotal) return null;
-                          return null; // hints only for outflows handled below
-                        })()}
-
-                        {/* ── PROFIT RECEIVED: source selection ── */}
-                        {txnForm.txn_type === "profit_received" && (
-                          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-3">
-                            <p className="text-xs font-semibold text-teal-800">💰 Profit Source — who gave you this profit?</p>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setTxnForm(p => ({ ...p, profit_source: "partner", plot_buyer_id: "", site_plot_id: "" }))}
-                                className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                                  txnForm.profit_source === "partner"
-                                    ? "bg-teal-600 text-white border-teal-600 shadow-sm"
-                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                                }`}
-                              >
-                                🤝 A Partner forwarded it
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setTxnForm(p => ({ ...p, profit_source: "buyer", member_id: "" }))}
-                                className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                                  txnForm.profit_source === "buyer"
-                                    ? "bg-teal-600 text-white border-teal-600 shadow-sm"
-                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                                }`}
-                              >
-                                🏠 Direct from Buyer
-                              </button>
-                            </div>
-
-                            {txnForm.profit_source === "partner" && (
-                              <div className="space-y-2">
-                                <p className="text-[10px] text-teal-600">The partner collected money from buyer(s) and forwarded your profit share to you.</p>
-                                <InputField label="Partner who gave you profit *">
-                                  <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value }))} className={inputCls}>
-                                    <option value="">— Select Partner —</option>
-                                    {members.filter(m => !m.member?.is_self).map(m => (
-                                      <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>
-                                    ))}
-                                  </select>
-                                </InputField>
-                                {(plotBuyers.length > 0 || sitePlots.length > 0) && (
-                                  <InputField label="Linked to buyer (optional)">
-                                    <select
-                                      value={txnForm.plot_buyer_id || txnForm.site_plot_id}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        const isPb = plotBuyers.some(b => String(b.id) === val);
-                                        setTxnForm(p => ({ ...p, plot_buyer_id: isPb ? val : "", site_plot_id: !isPb && val ? val : "" }));
-                                      }}
-                                      className={inputCls}
-                                    >
-                                      <option value="">— Unspecified —</option>
-                                      {plotBuyers.map(b => <option key={`pb-${b.id}`} value={String(b.id)}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
-                                      {sitePlots.map(sp => <option key={`sp-${sp.id}`} value={String(sp.id)}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
-                                    </select>
-                                  </InputField>
-                                )}
-                              </div>
-                            )}
-
-                            {txnForm.profit_source === "buyer" && (
-                              <div className="space-y-2">
-                                <p className="text-[10px] text-teal-600">The buyer paid you directly — select which buyer this profit came from.</p>
-                                {plotBuyers.length === 0 && sitePlots.length === 0 ? (
-                                  <p className="text-xs text-amber-700">⚠ No buyers linked yet. Add a buyer first.</p>
-                                ) : (
-                                  <InputField label="Which buyer paid you *">
-                                    <select
-                                      value={txnForm.plot_buyer_id || txnForm.site_plot_id}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        const isPb = plotBuyers.some(b => String(b.id) === val);
-                                        setTxnForm(p => ({ ...p, plot_buyer_id: isPb ? val : "", site_plot_id: !isPb && val ? val : "" }));
-                                      }}
-                                      className={inputCls}
-                                    >
-                                      <option value="">— Select Buyer —</option>
-                                      {plotBuyers.map(b => <option key={`pb-${b.id}`} value={String(b.id)}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
-                                      {sitePlots.map(sp => <option key={`sp-${sp.id}`} value={String(sp.id)}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
-                                    </select>
-                                  </InputField>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <InputField label={txnForm.txn_type === "profit_received" ? "Received by (you or partner)" : "Received by"}>
-                            <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className={inputCls}>
-                              <option value="">Self (Me)</option>
-                              {members.filter((m) => !m.member?.is_self).map((m) => (
-                                <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>
-                              ))}
-                              {["buyer_advance", "buyer_payment"].includes(txnForm.txn_type) && (
-                                <option value="seller">→ Seller (Buyer paid directly to Seller)</option>
-                              )}
-                            </select>
-                          </InputField>
-                          {!txnForm.received_by_member_id && (
-                            <InputField label="Deposit to Account">
-                              <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className={inputCls}>
-                                <option value="">— No account —</option>
-                                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                              </select>
-                            </InputField>
-                          )}
-                        </div>
-
-                        {["buyer_advance", "buyer_payment"].includes(txnForm.txn_type) && (
-                          <>
-                            {plotBuyers.length === 0 && sitePlots.length === 0 ? (
-                              <div className="col-span-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                                <p className="text-sm text-amber-800 font-medium">⚠ No buyer linked to this property. Add a buyer first before recording buyer payments.</p>
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-2 gap-3">
-                                {plotBuyers.length > 0 && (
-                                  <InputField label="Plot Buyer *">
-                                    <select value={txnForm.plot_buyer_id} onChange={(e) => setTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className={inputCls} required>
-                                      <option value="">— Select Buyer —</option>
-                                      {plotBuyers.map((b) => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
-                                    </select>
-                                  </InputField>
-                                )}
-                                {sitePlots.length > 0 && (
-                                  <InputField label="Site Plot *">
-                                    <select value={txnForm.site_plot_id} onChange={(e) => setTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className={inputCls} required>
-                                      <option value="">— Select Plot —</option>
-                                      {sitePlots.map((sp) => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
-                                    </select>
-                                  </InputField>
-                                )}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </>
-                    )}
-
-                    {/* ── PARTNER TRANSFER form ── */}
-                    {txnForm.txn_type === "partner_transfer" && (
-                      <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl space-y-3">
-                        <p className="text-xs font-semibold text-violet-800">↕ Internal Transfer — record money moving between partners</p>
-                        <p className="text-[10px] text-violet-600">Use this to track profit distributions, investment returns, advance refunds or any money one partner gives another. This does NOT affect the deal's P&L — it's purely a partner ledger entry.</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <InputField label="From Partner *">
-                            <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value }))} className={inputCls}>
-                              <option value="">— Select —</option>
-                              {members.map(m => (
-                                <option key={m.member?.id} value={String(m.member?.id)}>
-                                  {m.member?.is_self ? "Self (Me)" : m.contact?.name || "Partner"}
-                                </option>
-                              ))}
-                            </select>
-                          </InputField>
-                          <InputField label="To Partner *">
-                            <select value={txnForm.received_by_member_id} onChange={(e) => setTxnForm(p => ({ ...p, received_by_member_id: e.target.value, account_id: "" }))} className={inputCls}>
-                              <option value="">— Select —</option>
-                              {members.map(m => (
-                                <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === txnForm.member_id}>
-                                  {m.member?.is_self ? "Self (Me)" : m.contact?.name || "Partner"}
-                                </option>
-                              ))}
-                            </select>
-                          </InputField>
-                        </div>
-                        {(() => { const toMember = members.find(m => String(m.member?.id) === String(txnForm.received_by_member_id)); return toMember?.member?.is_self && accounts.length > 0; })() && (
-                          <InputField label="Received into Account">
-                            <select value={txnForm.account_id} onChange={(e) => setTxnForm(p => ({ ...p, account_id: e.target.value }))} className={inputCls}>
-                              <option value="">— No specific account —</option>
-                              {accounts.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-                            </select>
-                          </InputField>
-                        )}
-                        <InputField label="Purpose / Reason">
-                          <select value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className={inputCls}>
-                            <option value="">— Select or type below —</option>
-                            <option value="Profit Share">Profit Share</option>
-                            <option value="Investment Return">Investment Return</option>
-                            <option value="Advance Refund">Advance Refund</option>
-                            <option value="Holding Settlement">Holding Settlement</option>
-                            <option value="Partial Distribution">Partial Distribution</option>
-                          </select>
-                        </InputField>
+                    {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked, member_id: e.target.checked ? "" : p.member_id }))} className="rounded" />
+                          <span className="text-xs text-slate-700">Paid from partnership pot (no individual member)</span>
+                        </label>
                       </div>
                     )}
 
-                    <InputField label="Description">
-                      <input type="text" value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className={inputCls} placeholder={txnForm.txn_type === "partner_transfer" ? "Add any notes (optional)" : "Optional"} />
-                    </InputField>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-0.5">Description</label>
+                      <input type="text" value={txnForm.description} onChange={(e) => setTxnForm(p => ({ ...p, description: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2.5 py-2 text-sm" placeholder="Optional" />
+                    </div>
 
                     <div className="flex gap-2 justify-end">
                       <button onClick={() => setShowTxnForm(false)} className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
-                      <button
-                        onClick={handleAddTxn}
-                        disabled={
-                          !txnForm.amount || addTxnMutation.isPending ||
-                          (["buyer_advance","buyer_payment"].includes(txnForm.txn_type) && !txnForm.plot_buyer_id && !txnForm.site_plot_id) ||
-                          (txnForm.txn_type === "partner_transfer" && (!txnForm.member_id || !txnForm.received_by_member_id))
-                        }
-                        className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
-                      >
-                        {addTxnMutation.isPending ? "Saving..." : "Save"}
+                      <button onClick={handleAddTxn} disabled={addTxnMutation.isPending || !txnForm.amount} className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                        {addTxnMutation.isPending ? "Adding..." : "Add Transaction"}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {transactions.length > 0 ? (
-                  (() => {
-                    // Group transactions by date (desc)
-                    const grouped = transactions.reduce((acc, txn) => {
-                      const d = txn.txn_date;
-                      if (!acc[d]) acc[d] = [];
-                      acc[d].push(txn);
-                      return acc;
-                    }, {});
-                    const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+                {/* Transaction list grouped by date */}
+                {transactions.length > 0 ? (() => {
+                  const grouped = {};
+                  transactions.forEach(t => {
+                    const d = t.txn_date || "unknown";
+                    if (!grouped[d]) grouped[d] = [];
+                    grouped[d].push(t);
+                  });
+                  const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+                  // Color-coding helper
+                  const txnTagStyle = (type) => {
+                    if (["advance_to_seller", "remaining_to_seller", "advance_given"].includes(type)) return "bg-purple-50 text-purple-700 border border-purple-100";
+                    if (["expense", "other_expense"].includes(type)) return "bg-blue-50 text-blue-700 border border-blue-100";
+                    if (type === "partner_transfer") return "bg-amber-50 text-amber-700 border border-amber-100";
+                    if (["buyer_advance", "buyer_payment"].includes(type)) return "bg-emerald-50 text-emerald-700 border border-emerald-100";
+                    if (type === "broker_commission" || type === "broker_paid") return "bg-orange-50 text-orange-700 border border-orange-100";
+                    if (type === "profit_received") return "bg-teal-50 text-teal-700 border border-teal-100";
+                    return "bg-slate-50 text-slate-600 border border-slate-100";
+                  };
+
+                  return sortedDates.map(date => {
+                    const dayTxns = grouped[date];
+                    const isCollapsed = collapsedDates[date];
+                    const dayOutflow = dayTxns.filter(t => OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const dayInflow = dayTxns.filter(t => INFLOW_TYPES.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                     return (
-                      <div className="space-y-1">
-                        {sortedDates.map((dateKey) => {
-                          const dayTxns = grouped[dateKey];
-                          const isCollapsed = collapsedDates[dateKey] !== false; // default collapsed
-                          const dayInflow = dayTxns.filter(t => !OUTFLOW_TYPES.includes(t.txn_type) && !LEGACY_OUTFLOW.includes(t.txn_type) && t.txn_type !== "partner_transfer").reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                          const dayOutflow = dayTxns.filter(t => OUTFLOW_TYPES.includes(t.txn_type) || LEGACY_OUTFLOW.includes(t.txn_type)).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                          const dayTransfer = dayTxns.filter(t => t.txn_type === "partner_transfer").reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                          return (
-                            <div key={dateKey} className="border border-slate-100 rounded-xl overflow-hidden">
-                              <button
-                                className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-                                onClick={() => setCollapsedDates(prev => ({ ...prev, [dateKey]: !isCollapsed }))}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-slate-400 transition-transform duration-200" style={{ display: "inline-block", transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}>▶</span>
-                                  <span className="text-xs font-semibold text-slate-600">{formatDate(dateKey)}</span>
-                                  <span className="text-xs text-slate-400">({dayTxns.length} entr{dayTxns.length === 1 ? "y" : "ies"})</span>
-                                </div>
-                                <div className="flex gap-2 text-xs">
-                                  {dayInflow > 0 && <span className="text-emerald-600 font-medium">+{formatCurrency(dayInflow)}</span>}
-                                  {dayOutflow > 0 && <span className="text-rose-600 font-medium">−{formatCurrency(dayOutflow)}</span>}
-                                  {dayTransfer > 0 && <span className="text-violet-500 font-medium">↕{formatCurrency(dayTransfer)}</span>}
-                                </div>
-                              </button>
-                              {!isCollapsed && (
-                                <>
-                                <div className="divide-y divide-slate-50">
-                                  {dayTxns.map((txn) => {
-                                    const isOut = OUTFLOW_TYPES.includes(txn.txn_type) || LEGACY_OUTFLOW.includes(txn.txn_type);
-                                    const buyerName = txn.plot_buyer_id
-                                      ? plotBuyers.find(b => b.id === txn.plot_buyer_id)?.buyer_name
-                                      : txn.site_plot_id
-                                      ? (sitePlots.find(sp => sp.id === txn.site_plot_id)?.buyer_name || sitePlots.find(sp => sp.id === txn.site_plot_id)?.plot_number)
-                                      : null;
-                                    return (
-                                      <div key={txn.id} className="px-3 py-2">
-                                        {editingTxnId === txn.id && editTxnForm ? (
-                                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
-                                            <div className="grid grid-cols-3 gap-2">
+                      <div key={date} className="border border-slate-100 rounded-xl overflow-hidden mb-3">
+                        <div
+                          className="flex items-center justify-between px-3 py-2 bg-slate-50 cursor-pointer hover:bg-slate-100/70 select-none"
+                          onClick={() => setCollapsedDates(p => ({ ...p, [date]: !p[date] }))}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400 inline-block transition-transform" style={{ transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}>▼</span>
+                            <span className="text-xs font-semibold text-slate-600">{formatDate(date)}</span>
+                            <span className="text-xs text-slate-400">({dayTxns.length} txn{dayTxns.length !== 1 ? "s" : ""})</span>
+                          </div>
+                          <div className="flex gap-2 text-xs">
+                            {dayOutflow > 0 && <span className="text-rose-600 font-mono font-semibold">−{formatCurrency(scale(dayOutflow))}</span>}
+                            {dayInflow > 0 && <span className="text-emerald-600 font-mono font-semibold">+{formatCurrency(scale(dayInflow))}</span>}
+                          </div>
+                        </div>
+                        {!isCollapsed && (
+                          <>
+                            <div className="divide-y divide-slate-50">
+                              {dayTxns.map((txn) => {
+                                const isOut = OUTFLOW_TYPES.includes(txn.txn_type) || LEGACY_OUTFLOW.includes(txn.txn_type);
+                                const buyerName = txn.plot_buyer_id
+                                  ? plotBuyers.find(b => b.id === txn.plot_buyer_id)?.buyer_name || `Buyer #${txn.plot_buyer_id}`
+                                  : txn.site_plot_id
+                                    ? sitePlots.find(sp => sp.id === txn.site_plot_id)?.buyer_name || sitePlots.find(sp => sp.id === txn.site_plot_id)?.plot_number || `Plot #${txn.site_plot_id}`
+                                    : null;
+                                return (
+                                  <div key={txn.id} className="px-3 py-3 hover:bg-slate-50/50 transition-colors">
+                                    {editingTxnId === txn.id && editTxnForm ? (
+                                      <div className="space-y-2">
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <div>
+                                            <label className="block text-xs text-slate-500 mb-0.5">Type</label>
+                                            <select value={editTxnForm.txn_type} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_type: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                              <optgroup label="Outflows">
+                                                <option value="advance_to_seller">Advance to Seller</option>
+                                                <option value="remaining_to_seller">Remaining to Seller</option>
+                                                <option value="broker_commission">Broker Commission</option>
+                                                <option value="expense">Expense</option>
+                                              </optgroup>
+                                              <optgroup label="Inflows">
+                                                <option value="buyer_advance">Buyer Advance</option>
+                                                <option value="buyer_payment">Buyer Payment</option>
+                                                <option value="profit_received">Profit Received</option>
+                                              </optgroup>
+                                              <optgroup label="Transfers">
+                                                <option value="partner_transfer">Partner Transfer</option>
+                                              </optgroup>
+                                            </select>
+                                          </div>
+                                          <div>
+                                            <label className="block text-xs text-slate-500 mb-0.5">Amount</label>
+                                            <input type="number" value={editTxnForm.amount} onChange={(e) => setEditTxnForm(p => ({ ...p, amount: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                          </div>
+                                          <div>
+                                            <label className="block text-xs text-slate-500 mb-0.5">Date</label>
+                                            <input type="date" value={editTxnForm.txn_date} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_date: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                          </div>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2">
+                                          {OUTFLOW_TYPES.includes(editTxnForm.txn_type) && (
+                                            <div>
+                                              <label className="block text-xs text-slate-500 mb-0.5">Paid by</label>
+                                              <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                <option value="">— Select —</option>
+                                                {members.map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
+                                              </select>
+                                            </div>
+                                          )}
+                                          {editTxnForm.txn_type === "partner_transfer" && (
+                                            <>
                                               <div>
-                                                <label className="block text-xs text-slate-500 mb-0.5">Type</label>
-                                                <select value={editTxnForm.txn_type} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_type: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                  <optgroup label="Outflows">
-                                                    <option value="advance_to_seller">Advance to Seller</option>
-                                                    <option value="remaining_to_seller">Remaining to Seller</option>
-                                                    <option value="broker_commission">Broker Commission</option>
-                                                    <option value="expense">Expense</option>
-                                                  </optgroup>
-                                                  <optgroup label="Inflows">
-                                                    <option value="buyer_advance">Buyer Advance</option>
-                                                    <option value="buyer_payment">Buyer Payment</option>
-                                                    {editTxnForm.txn_type === "profit_received" && <option value="profit_received">Profit Received (legacy)</option>}
-                                                  </optgroup>
-                                                  <optgroup label="Internal">
-                                                    <option value="partner_transfer">Partner Transfer</option>
-                                                  </optgroup>
+                                                <label className="block text-xs text-slate-500 mb-0.5">From</label>
+                                                <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                  <option value="">— Select —</option>
+                                                  {members.map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
                                                 </select>
                                               </div>
                                               <div>
-                                                <label className="block text-xs text-slate-500 mb-0.5">Amount</label>
-                                                <input type="number" value={editTxnForm.amount} onChange={(e) => setEditTxnForm(p => ({ ...p, amount: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                                <label className="block text-xs text-slate-500 mb-0.5">To</label>
+                                                <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value, account_id: "" }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                  <option value="">— Select —</option>
+                                                  {members.map(m => <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === editTxnForm.member_id}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
+                                                </select>
                                               </div>
-                                              <div>
-                                                <label className="block text-xs text-slate-500 mb-0.5">Date</label>
-                                                <input type="date" value={editTxnForm.txn_date} onChange={(e) => setEditTxnForm(p => ({ ...p, txn_date: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
-                                              </div>
-                                            </div>
-                                            <div className="grid grid-cols-3 gap-2">
-                                              {OUTFLOW_TYPES.includes(editTxnForm.txn_type) && (
+                                              {(() => { const toMember = members.find(m => String(m.member?.id) === String(editTxnForm.received_by_member_id)); return toMember?.member?.is_self && accounts.length > 0; })() && (
                                                 <div>
-                                                  <label className="block text-xs text-slate-500 mb-0.5">Paid by</label>
-                                                  <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                    <option value="">— Select —</option>
-                                                    {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
-                                                  </select>
-                                                </div>
-                                              )}
-                                              {editTxnForm.txn_type === "partner_transfer" && (
-                                                <>
-                                                  <div>
-                                                    <label className="block text-xs text-slate-500 mb-0.5">From</label>
-                                                    <select value={editTxnForm.member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                      <option value="">— Select —</option>
-                                                      {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
-                                                    </select>
-                                                  </div>
-                                                  <div>
-                                                    <label className="block text-xs text-slate-500 mb-0.5">To</label>
-                                                    <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value, account_id: "" }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                      <option value="">— Select —</option>
-                                                      {members.map((m) => <option key={m.member?.id} value={String(m.member?.id)} disabled={String(m.member?.id) === editTxnForm.member_id}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
-                                                    </select>
-                                                  </div>
-                                                  {(() => { const toMember = members.find(m => String(m.member?.id) === String(editTxnForm.received_by_member_id)); return toMember?.member?.is_self && accounts.length > 0; })() && (
-                                                    <div>
-                                                      <label className="block text-xs text-slate-500 mb-0.5">Into Account</label>
-                                                      <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                        <option value="">— None —</option>
-                                                        {accounts.map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-                                                      </select>
-                                                    </div>
-                                                  )}
-                                                </>
-                                              )}
-                                              {INFLOW_TYPES.includes(editTxnForm.txn_type) && (
-                                                <div>
-                                                  <label className="block text-xs text-slate-500 mb-0.5">Received by</label>
-                                                  <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                    <option value="">Self (Me)</option>
-                                                    {members.filter(m => !m.member?.is_self).map((m) => <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>)}
-                                                    {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && (
-                                                      <option value="seller">→ Seller (Buyer paid directly)</option>
-                                                    )}
-                                                  </select>
-                                                </div>
-                                              )}
-                                              {(() => { const selMember = members.find(m => String(m.member?.id) === String(editTxnForm.member_id)); return OUTFLOW_TYPES.includes(editTxnForm.txn_type) && selMember?.member?.is_self; })() && (
-                                                <div>
-                                                  <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                                                  <label className="block text-xs text-slate-500 mb-0.5">Into Account</label>
                                                   <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                    <option value="">None</option>
-                                                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                    <option value="">— None —</option>
+                                                    {accounts.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
                                                   </select>
                                                 </div>
                                               )}
-                                              {INFLOW_TYPES.includes(editTxnForm.txn_type) && !editTxnForm.received_by_member_id && (
-                                                <div>
-                                                  <label className="block text-xs text-slate-500 mb-0.5">Account</label>
-                                                  <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                    <option value="">None</option>
-                                                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                                  </select>
-                                                </div>
-                                              )}
-                                            </div>
-                                            {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && (plotBuyers.length > 0 || sitePlots.length > 0) && (
-                                              <div className="grid grid-cols-2 gap-2">
-                                                {plotBuyers.length > 0 && (
-                                                  <div>
-                                                    <label className="block text-xs text-slate-500 mb-0.5">Plot Buyer</label>
-                                                    <select value={editTxnForm.plot_buyer_id} onChange={(e) => setEditTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                      <option value="">— None —</option>
-                                                      {plotBuyers.map(b => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}
-                                                    </select>
-                                                  </div>
-                                                )}
-                                                {sitePlots.length > 0 && (
-                                                  <div>
-                                                    <label className="block text-xs text-slate-500 mb-0.5">Site Plot</label>
-                                                    <select value={editTxnForm.site_plot_id} onChange={(e) => setEditTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
-                                                      <option value="">— None —</option>
-                                                      {sitePlots.map(sp => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}
-                                                    </select>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-                                            {editTxnForm.txn_type === "broker_commission" && (
-                                              <div className="grid grid-cols-2 gap-2">
-                                                <div>
-                                                  <label className="block text-xs text-slate-500 mb-0.5">Broker Name</label>
-                                                  <input type="text" value={editTxnForm.broker_name} onChange={(e) => setEditTxnForm(p => ({ ...p, broker_name: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" placeholder="Broker name" />
-                                                </div>
-                                                <div className="flex items-end pb-1">
-                                                  <label className="flex items-center gap-2 cursor-pointer">
-                                                    <input type="checkbox" checked={editTxnForm.from_partnership_pot} onChange={(e) => setEditTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" />
-                                                    <span className="text-xs text-slate-700">From partnership pot</span>
-                                                  </label>
-                                                </div>
-                                              </div>
-                                            )}
+                                            </>
+                                          )}
+                                          {INFLOW_TYPES.includes(editTxnForm.txn_type) && (
                                             <div>
-                                              <label className="block text-xs text-slate-500 mb-0.5">Description</label>
-                                              <input type="text" value={editTxnForm.description} onChange={(e) => setEditTxnForm(p => ({ ...p, description: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" />
+                                              <label className="block text-xs text-slate-500 mb-0.5">Received by</label>
+                                              <select value={editTxnForm.received_by_member_id} onChange={(e) => setEditTxnForm(p => ({ ...p, received_by_member_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                <option value="">Self (Me)</option>
+                                                {members.filter(m => !m.member?.is_self).map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.contact?.name || "Partner"}</option>)}
+                                                {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && <option value="seller">→ Seller (Buyer paid directly)</option>}
+                                              </select>
                                             </div>
-                                            <div className="flex gap-2 justify-end">
-                                              <button onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }} className="px-2 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-200">Cancel</button>
-                                              <button onClick={handleUpdateTxn} disabled={updateTxnMutation.isPending} className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
-                                                {updateTxnMutation.isPending ? "Saving..." : "Update"}
-                                              </button>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <div className="flex justify-between items-start">
+                                          )}
+                                          {(() => { const sel = members.find(m => String(m.member?.id) === String(editTxnForm.member_id)); return OUTFLOW_TYPES.includes(editTxnForm.txn_type) && sel?.member?.is_self; })() && (
                                             <div>
-                                              {txn.txn_type === "partner_transfer" ? (
-                                                <>
-                                                  <p className="text-sm font-medium text-violet-700">
-                                                    <span className="inline-block w-2 h-2 rounded-full mr-1.5 bg-violet-400"></span>
-                                                    ↕ Partner Transfer
-                                                  </p>
-                                                  {(() => {
-                                                    const fromName = txn.member_id
-                                                      ? (members.find(m => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.member_id)?.contact?.name || "Partner")
-                                                      : "?";
-                                                    const toName = txn.received_by_member_id
-                                                      ? (members.find(m => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner")
-                                                      : "?";
-                                                    return <p className="text-xs font-semibold text-violet-600 ml-3.5">{fromName} → {toName}</p>;
-                                                  })()}
-                                                  {txn.description && <p className="text-xs text-slate-400 ml-3.5">{txn.description}</p>}
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <p className="text-sm font-medium text-slate-800">
-                                                    <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOut ? "bg-rose-400" : "bg-emerald-400"}`}></span>
-                                                    {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
-                                                    {buyerName && !["buyer_advance", "buyer_payment"].includes(txn.txn_type) && <span className="text-teal-600 font-normal text-xs ml-1.5">· {buyerName}</span>}
-                                                  </p>
-                                                  {["buyer_advance", "buyer_payment"].includes(txn.txn_type) && buyerName && (
-                                                    <p className="text-xs font-semibold text-teal-700 ml-3.5">From: {buyerName}</p>
-                                                  )}
-                                                  {txn.description?.includes("→ Paid directly to Seller") && (
-                                                    <p className="text-xs font-medium text-rose-500 ml-3.5">→ Buyer paid Seller directly</p>
-                                                  )}
-                                                  {txn.member_id && (() => {
-                                                    const memberName = members.find((m) => m.member?.id === txn.member_id)?.member?.is_self
-                                                      ? "Self"
-                                                      : members.find((m) => m.member?.id === txn.member_id)?.contact?.name || "Partner";
-                                                    const label = txn.txn_type === "profit_received" ? "Given by" : "Paid by";
-                                                    return <p className="text-xs text-indigo-600 ml-3.5">{label}: {memberName}</p>;
-                                                  })()}
-                                                  {txn.received_by_member_id && (
-                                                    <p className="text-xs text-amber-600 ml-3.5">
-                                                      Received by: {members.find((m) => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find((m) => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}
-                                                    </p>
-                                                  )}
-                                                  {txn.broker_name && <p className="text-xs text-slate-400 ml-3.5">Broker: {txn.broker_name}</p>}
-                                                  {txn.from_partnership_pot && <p className="text-xs text-violet-600 ml-3.5">Paid from partnership pot</p>}
-                                                  {(() => {
-                                                    const cleanDesc = (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
-                                                    return cleanDesc ? <p className="text-xs text-slate-400 ml-3.5">{cleanDesc}</p> : null;
-                                                  })()}
-                                                </>
-                                              )}
+                                              <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                                              <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                <option value="">None</option>
+                                                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                              </select>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                              <span className={`text-sm font-semibold ${txn.txn_type === "partner_transfer" ? "text-violet-600" : isOut ? "text-rose-600" : "text-emerald-600"}`}>
-                                                {txn.txn_type === "partner_transfer" ? "↕" : isOut ? "−" : "+"}{formatCurrency(txn.amount)}
-                                              </span>
-                                              {isActive && (
-                                                <>
-                                                  <button onClick={() => openEditTxn(txn)} className="text-xs text-indigo-600 hover:underline">Edit</button>
-                                                  <button onClick={() => { if (window.confirm("Delete this transaction?")) deleteTxnMutation.mutate(txn.id); }} className="text-xs text-rose-600 hover:underline">Delete</button>
-                                                </>
-                                              )}
+                                          )}
+                                          {INFLOW_TYPES.includes(editTxnForm.txn_type) && !editTxnForm.received_by_member_id && (
+                                            <div>
+                                              <label className="block text-xs text-slate-500 mb-0.5">Account</label>
+                                              <select value={editTxnForm.account_id} onChange={(e) => setEditTxnForm(p => ({ ...p, account_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm">
+                                                <option value="">None</option>
+                                                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                              </select>
                                             </div>
+                                          )}
+                                        </div>
+                                        {["buyer_advance", "buyer_payment"].includes(editTxnForm.txn_type) && (plotBuyers.length > 0 || sitePlots.length > 0) && (
+                                          <div className="grid grid-cols-2 gap-2">
+                                            {plotBuyers.length > 0 && <div><label className="block text-xs text-slate-500 mb-0.5">Plot Buyer</label><select value={editTxnForm.plot_buyer_id} onChange={(e) => setEditTxnForm(p => ({ ...p, plot_buyer_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm"><option value="">— None —</option>{plotBuyers.map(b => <option key={b.id} value={b.id}>{b.buyer_name || `Buyer #${b.id}`}</option>)}</select></div>}
+                                            {sitePlots.length > 0 && <div><label className="block text-xs text-slate-500 mb-0.5">Site Plot</label><select value={editTxnForm.site_plot_id} onChange={(e) => setEditTxnForm(p => ({ ...p, site_plot_id: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm"><option value="">— None —</option>{sitePlots.map(sp => <option key={sp.id} value={sp.id}>{sp.plot_number || sp.buyer_name || `Plot #${sp.id}`}</option>)}</select></div>}
                                           </div>
                                         )}
+                                        {editTxnForm.txn_type === "broker_commission" && (
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <InputField label="Broker Name"><input type="text" value={editTxnForm.broker_name} onChange={(e) => setEditTxnForm(p => ({ ...p, broker_name: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" placeholder="Broker name" /></InputField>
+                                            <div className="flex items-end pb-1"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={editTxnForm.from_partnership_pot} onChange={(e) => setEditTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" /><span className="text-xs text-slate-700">From partnership pot</span></label></div>
+                                          </div>
+                                        )}
+                                        <div><label className="block text-xs text-slate-500 mb-0.5">Description</label><input type="text" value={editTxnForm.description} onChange={(e) => setEditTxnForm(p => ({ ...p, description: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-2 py-1 text-sm" /></div>
+                                        <div className="flex gap-2 justify-end">
+                                          <button onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }} className="px-2 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-200">Cancel</button>
+                                          <button onClick={handleUpdateTxn} disabled={updateTxnMutation.isPending} className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                                            {updateTxnMutation.isPending ? "Saving..." : "Update"}
+                                          </button>
+                                        </div>
                                       </div>
-                                    );
+                                    ) : (
+                                      <div className="flex justify-between items-start gap-3">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${txnTagStyle(txn.txn_type)}`}>
+                                              {TXN_TYPE_LABELS[txn.txn_type] || txn.txn_type.replace(/_/g, " ")}
+                                            </span>
+                                            {buyerName && <span className="text-[10px] text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded-full border border-teal-100">{buyerName}</span>}
+                                          </div>
+                                          {txn.txn_type === "partner_transfer" && (() => {
+                                            const fromName = txn.member_id ? (members.find(m => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.member_id)?.contact?.name || "?") : "?";
+                                            const toName = txn.received_by_member_id ? (members.find(m => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.received_by_member_id)?.contact?.name || "?") : "?";
+                                            return <p className="text-xs font-semibold text-amber-700">{fromName} → {toName}</p>;
+                                          })()}
+                                          {txn.member_id && txn.txn_type !== "partner_transfer" && (
+                                            <p className="text-xs text-slate-500">
+                                              {["profit_received"].includes(txn.txn_type) ? "Given by" : "Paid by"}: <span className="font-medium">{members.find(m => m.member?.id === txn.member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.member_id)?.contact?.name || "Partner"}</span>
+                                            </p>
+                                          )}
+                                          {txn.received_by_member_id && txn.txn_type !== "partner_transfer" && (
+                                            <p className="text-xs text-slate-500">Received by: <span className="font-medium">{members.find(m => m.member?.id === txn.received_by_member_id)?.member?.is_self ? "Self" : members.find(m => m.member?.id === txn.received_by_member_id)?.contact?.name || "Partner"}</span></p>
+                                          )}
+                                          {txn.broker_name && <p className="text-xs text-slate-400">Broker: {txn.broker_name}</p>}
+                                          {txn.from_partnership_pot && <p className="text-xs text-violet-600">From partnership pot</p>}
+                                          {(() => {
+                                            const cleanDesc = (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
+                                            return cleanDesc ? <p className="text-xs text-slate-400">{cleanDesc}</p> : null;
+                                          })()}
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className={`text-sm font-bold font-mono tabular-nums ${txn.txn_type === "partner_transfer" ? "text-amber-600" : isOut ? "text-rose-600" : "text-emerald-600"}`}>
+                                            {txn.txn_type === "partner_transfer" ? "↕" : isOut ? "−" : "+"}{formatCurrency(scale(parseFloat(txn.amount || 0)))}
+                                          </span>
+                                          {isActive && (
+                                            <>
+                                              <button onClick={() => openEditTxn(txn)} className="text-xs text-indigo-600 hover:underline">Edit</button>
+                                              <button onClick={() => { if (window.confirm("Delete this transaction?")) deleteTxnMutation.mutate(txn.id); }} className="text-xs text-rose-600 hover:underline">Del</button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* Day subtotals when multiple same-type txns */}
+                            {(() => {
+                              const typeGroups = {};
+                              dayTxns.forEach(t => { if (!typeGroups[t.txn_type]) typeGroups[t.txn_type] = { count: 0, total: 0 }; typeGroups[t.txn_type].count++; typeGroups[t.txn_type].total += parseFloat(t.amount || 0); });
+                              const multi = Object.entries(typeGroups).filter(([, g]) => g.count > 1);
+                              if (!multi.length) return null;
+                              return (
+                                <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-1.5">
+                                  {multi.map(([type, group]) => {
+                                    const isOut2 = OUTFLOW_TYPES.includes(type) || LEGACY_OUTFLOW.includes(type);
+                                    return <div key={type} className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 ${isOut2 ? "bg-rose-50 text-rose-700 border border-rose-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}><span className="font-medium">{TXN_TYPE_LABELS[type] || type.replace(/_/g, " ")}</span><span className="opacity-50">×{group.count}</span><span className="font-bold font-mono">{isOut2 ? "−" : "+"}{formatCurrency(scale(group.total))}</span></div>;
                                   })}
                                 </div>
-                                {/* Type subtotals — shown when 2+ txns of same type exist on this day */}
-                                {(() => {
-                                  const typeGroups = {};
-                                  dayTxns.forEach(t => {
-                                    if (!typeGroups[t.txn_type]) typeGroups[t.txn_type] = { count: 0, total: 0 };
-                                    typeGroups[t.txn_type].count++;
-                                    typeGroups[t.txn_type].total += parseFloat(t.amount || 0);
-                                  });
-                                  const multi = Object.entries(typeGroups).filter(([, g]) => g.count > 1);
-                                  if (!multi.length) return null;
-                                  return (
-                                    <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-1.5">
-                                      {multi.map(([type, group]) => {
-                                        const isOut = OUTFLOW_TYPES.includes(type) || LEGACY_OUTFLOW.includes(type);
-                                        return (
-                                          <div key={type} className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 ${isOut ? "bg-rose-50 text-rose-700 border border-rose-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"}`}>
-                                            <span className="font-medium">{TXN_TYPE_LABELS[type] || type.replace(/_/g, " ")}</span>
-                                            <span className="opacity-50">×{group.count}</span>
-                                            <span className="font-bold">{isOut ? "−" : "+"}{formatCurrency(group.total)}</span>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  );
-                                })()}
-                                </>
-                              )}
-                            </div>
-                          );
-                        })}
+                              );
+                            })()}
+                          </>
+                        )}
                       </div>
                     );
-                  })()
-                ) : (
-                  <p className="text-sm text-slate-400 text-center py-4">No transactions yet.</p>
+                  });
+                })() : (
+                  <p className="text-sm text-slate-400 text-center py-6">No transactions yet.</p>
                 )}
               </div>
             </div>
 
-            {/* Sidebar */}
+            {/* ── SIDEBAR ── */}
             <div className="space-y-5">
+
+              {/* Financial Summary */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                 <h2 className="text-base font-bold text-slate-800 mb-4">Financial Summary</h2>
-                <InfoRow label="Advance to Seller" value={formatCurrency(summary.advance_to_seller || 0)} />
-                <InfoRow label="Remaining to Seller" value={formatCurrency(summary.remaining_to_seller || 0)} />
-                <InfoRow label="Broker Commission" value={formatCurrency(summary.broker_commission || 0)} />
-                <InfoRow label="Expenses" value={formatCurrency(summary.expense_total || 0)} />
-                <div className="border-t border-slate-200 mt-2 pt-2">
-                  <InfoRow label="Total Outflow" value={formatCurrency(summary.total_outflow || 0)} />
-                </div>
-                <InfoRow label="Buyer Payments" value={formatCurrency(summary.buyer_inflow || 0)} />
-                <InfoRow label="Profit Received" value={formatCurrency(summary.profit_received || 0)} />
-                <div className="border-t border-slate-200 mt-2 pt-2">
-                  <InfoRow label="Total Inflow" value={formatCurrency(summary.total_inflow || 0)} />
-                </div>
-                <div className="border-t-2 border-slate-300 mt-2 pt-2">
-                  <div className="flex justify-between py-1">
-                    <span className="text-sm font-bold text-slate-700">Net P&L</span>
-                    <span className={`text-sm font-bold ${netPnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{formatCurrency(netPnl)}</span>
+                <div className="space-y-1">
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="text-sm text-purple-600 font-medium">Advance to Seller</span>
+                    <span className="text-sm font-bold font-mono text-rose-600">−{formatCurrency(scale(parseFloat(summary.advance_to_seller || 0)))}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="text-sm text-purple-600 font-medium">Remaining to Seller</span>
+                    <span className="text-sm font-bold font-mono text-rose-600">−{formatCurrency(scale(parseFloat(summary.remaining_to_seller || 0)))}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="text-sm text-orange-600 font-medium">Broker Commission</span>
+                    <span className="text-sm font-mono text-rose-500">−{formatCurrency(scale(parseFloat(summary.broker_commission || 0)))}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-200">
+                    <span className="text-sm text-blue-600 font-medium">Expenses</span>
+                    <span className="text-sm font-mono text-rose-500">−{formatCurrency(scale(parseFloat(summary.expense_total || 0)))}</span>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <span className="text-sm font-bold text-slate-700">Total Outflow</span>
+                    <span className="text-sm font-bold font-mono text-rose-600">−{formatCurrency(scale(totalOutflow))}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-50">
+                    <span className="text-sm text-emerald-600 font-medium">Buyer Payments</span>
+                    <span className="text-sm font-mono text-emerald-600">+{formatCurrency(scale(parseFloat(summary.buyer_inflow || 0)))}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-slate-200">
+                    <span className="text-sm text-teal-600 font-medium">Profit Received</span>
+                    <span className="text-sm font-mono text-emerald-600">+{formatCurrency(scale(parseFloat(summary.profit_received || 0)))}</span>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <span className="text-sm font-bold text-slate-700">Total Inflow</span>
+                    <span className="text-sm font-bold font-mono text-emerald-600">+{formatCurrency(scale(totalInflow))}</span>
+                  </div>
+                  <div className={`flex justify-between py-2 border-t-2 ${netPnl >= 0 ? "border-emerald-200" : "border-rose-200"}`}>
+                    <span className="text-sm font-bold text-slate-800">Net P&L</span>
+                    <span className={`text-base font-bold font-mono ${netPnl >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{formatCurrency(scale(netPnl))}</span>
                   </div>
                 </div>
+                {myViewMode && <p className="text-[10px] text-indigo-400 mt-2 text-center">Showing your {selfShare}% share</p>}
               </div>
 
+              {/* Details */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                <h2 className="text-base font-bold text-slate-800 mb-4">Details</h2>
-                <InfoRow label="Start Date" value={partnership.start_date ? formatDate(partnership.start_date) : null} />
-                <InfoRow label="Expected End" value={partnership.expected_end_date ? formatDate(partnership.expected_end_date) : null} />
-                {isSettled && <InfoRow label="Actual End" value={partnership.actual_end_date ? formatDate(partnership.actual_end_date) : null} />}
-                <InfoRow label="Created" value={formatDate(partnership.created_at)} />
+                <h2 className="text-base font-bold text-slate-800 mb-3">Details</h2>
+                <div className="space-y-2 text-sm">
+                  {partnership.start_date && <div className="flex justify-between"><span className="text-slate-500">Start Date</span><span className="font-medium">{formatDate(partnership.start_date)}</span></div>}
+                  {partnership.expected_end_date && <div className="flex justify-between"><span className="text-slate-500">Expected End</span><span className={`font-medium ${new Date(partnership.expected_end_date) < new Date() && isActive ? "text-amber-600 font-bold" : ""}`}>{formatDate(partnership.expected_end_date)}</span></div>}
+                  {isSettled && partnership.actual_end_date && <div className="flex justify-between"><span className="text-slate-500">Settled</span><span className="font-medium text-emerald-600">{formatDate(partnership.actual_end_date)}</span></div>}
+                  <div className="flex justify-between"><span className="text-slate-500">Created</span><span className="font-medium text-slate-400">{formatDate(partnership.created_at)}</span></div>
+                </div>
               </div>
 
-              {/* Seller Payment Quick-Action Card */}
-              {isActive && isLinkedToProperty && linkedProperty && (() => {
-                const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
-                if (!sellerTotal) return null;
-                const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
-                const paidPct = Math.min(100, sellerTotal > 0 ? (alreadyPaid / sellerTotal) * 100 : 0);
-                const outstanding = Math.max(0, sellerTotal - alreadyPaid);
-                return (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <h2 className="text-base font-bold text-slate-800 mb-3">💸 Pay Seller</h2>
-                    <div className="space-y-1.5 mb-3">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-500">Total to Seller</span>
-                        <span className="font-semibold text-slate-700">{formatCurrency(sellerTotal)}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-500">Paid so far</span>
-                        <span className="font-semibold text-emerald-600">{formatCurrency(alreadyPaid)}</span>
-                      </div>
-                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full" style={{ width: `${paidPct}%` }} />
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-400">{paidPct.toFixed(0)}% paid</span>
-                        <span className={`font-bold ${outstanding > 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                          {outstanding > 0 ? `${formatCurrency(outstanding)} due` : "Fully paid ✓"}
-                        </span>
-                      </div>
-                    </div>
-                    {outstanding > 0 && (
-                      <button
-                        onClick={() => {
-                          setTxnForm(p => ({
-                            ...p,
-                            txn_type: "remaining_to_seller",
-                            amount: String(outstanding),
-                            profit_source: "",
-                            plot_buyer_id: "",
-                            site_plot_id: "",
-                            member_id: "",
-                          }));
-                          setShowTxnForm(true);
-                        }}
-                        className="w-full py-2 bg-gradient-to-r from-rose-500 to-rose-600 text-white rounded-xl font-medium hover:from-rose-600 hover:to-rose-700 shadow-sm shadow-rose-500/20 active:scale-[0.98] text-sm"
-                      >
-                        Record Payment to Seller
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
-
+              {/* Settlement Action */}
               {isActive && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                   <h2 className="text-base font-bold text-slate-800 mb-3">Actions</h2>
@@ -1828,6 +1622,7 @@ export default function PartnershipDetail() {
                 </div>
               )}
 
+              {/* Notes */}
               {partnership.notes && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
                   <h2 className="text-base font-bold text-slate-800 mb-2">Notes</h2>
