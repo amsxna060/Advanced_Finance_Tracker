@@ -199,7 +199,12 @@ def portfolio_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Aggregate portfolio stats with accurate share % resolution."""
+    """Portfolio stats using PartnershipMember as source of truth.
+
+    Capital  = sum of self_member.advance_contributed (actual cash personally paid).
+    Liability = sum of (remaining_seller_amount × self_member.share_percentage).
+    Properties without a linked partnership or self member are excluded.
+    """
     from app.models.partnership import Partnership
 
     properties = db.query(PropertyDeal).filter(
@@ -211,50 +216,57 @@ def portfolio_stats(
     my_liability = Decimal("0")
     settled_profit = Decimal("0")
     active_count = 0
+    included_count = 0
 
     for prop in properties:
-        share_pct = _decimal(prop.my_share_percentage) if prop.my_share_percentage is not None else None
+        # Require a linked partnership with a self-member — otherwise exclude
+        partnership = db.query(Partnership).filter(
+            Partnership.linked_property_deal_id == prop.id,
+            Partnership.is_deleted == False,
+        ).first()
+        if not partnership:
+            continue
 
-        if share_pct is None:
-            # Resolve share from linked partnership if available
-            partnership = db.query(Partnership).filter(
-                Partnership.linked_property_deal_id == prop.id,
-                Partnership.is_deleted == False,
-            ).first()
-            if partnership:
-                sm = db.query(PartnershipMember).filter(
-                    PartnershipMember.partnership_id == partnership.id,
-                    PartnershipMember.is_self == True,
-                ).first()
-                if sm:
-                    total_contrib = _decimal(
-                        db.query(func.coalesce(func.sum(PartnershipMember.advance_contributed), 0))
-                        .filter(PartnershipMember.partnership_id == partnership.id)
-                        .scalar()
-                    )
-                    if total_contrib > 0:
-                        share_pct = _decimal(sm.advance_contributed) / total_contrib * Decimal("100")
+        self_m = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id == partnership.id,
+            PartnershipMember.is_self == True,
+        ).first()
+        if not self_m:
+            continue
 
-        share_pct = share_pct if share_pct is not None else Decimal("100")
-        share_ratio = share_pct / Decimal("100")
+        included_count += 1
+        share_pct = _decimal(self_m.share_percentage) if self_m.share_percentage else Decimal("0")
+        adv_contributed = _decimal(self_m.advance_contributed) if self_m.advance_contributed else Decimal("0")
 
-        advance = _decimal(prop.advance_paid)
+        # Personal expense contributions from PartnershipTransaction
+        personal_expenses = _decimal(
+            db.query(func.coalesce(func.sum(PartnershipTransaction.amount), 0))
+            .filter(
+                PartnershipTransaction.partnership_id == partnership.id,
+                PartnershipTransaction.member_id == self_m.id,
+                PartnershipTransaction.txn_type.in_(["expense", "other_expense", "kharcha"]),
+            )
+            .scalar()
+        )
+
         total_seller = _decimal(prop.total_seller_value) if prop.total_seller_value else Decimal("0")
+        advance_paid = _decimal(prop.advance_paid)
+        remaining = max(Decimal("0"), total_seller - advance_paid)
 
         if prop.status in _ACTIVE_STATUSES:
             active_count += 1
-            my_capital += advance * share_ratio
-            my_liability += max(Decimal("0"), total_seller - advance) * share_ratio
+            my_capital += adv_contributed + personal_expenses
+            my_liability += remaining * share_pct / Decimal("100")
         elif prop.status == "settled":
             net_profit = _decimal(prop.net_profit) if prop.net_profit else Decimal("0")
-            settled_profit += net_profit * share_ratio
+            settled_profit += net_profit * share_pct / Decimal("100")
 
     return {
         "my_capital": float(my_capital),
         "my_liability": float(my_liability),
         "settled_profit": float(settled_profit),
         "active_count": active_count,
-        "total_count": len(properties),
+        "total_count": included_count,
     }
 
 

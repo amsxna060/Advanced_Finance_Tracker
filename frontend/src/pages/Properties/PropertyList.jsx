@@ -211,7 +211,7 @@ export default function PropertyList() {
           <PortfolioStat
             label="My Active Capital"
             value={stats.my_capital != null ? formatCurrency(stats.my_capital) : "—"}
-            sub={`advance paid × my share% · ${stats.active_count ?? 0} active deals`}
+            sub={`my advance + expenses · ${stats.active_count ?? 0} active deals`}
             accent="sky"
           />
           <PortfolioStat
