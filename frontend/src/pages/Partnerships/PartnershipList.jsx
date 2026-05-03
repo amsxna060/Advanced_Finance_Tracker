@@ -4,6 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function isPastDue(p) {
+  if (!p.expected_end_date || p.status === "settled") return false;
+  return new Date(p.expected_end_date) < new Date();
+}
+
 // ─── Card ─────────────────────────────────────────────────────────────────────
 function PotCard({ p, onClick, myView }) {
   const pastDue = isPastDue(p);
