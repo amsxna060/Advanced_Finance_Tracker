@@ -558,6 +558,11 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
     Generate EMI schedule with actual payment status using carry-forward logic.
     Returns list of {emi_number, due_date, due_amount, status, paid_amount, outstanding}
     Status: 'paid' | 'partial' | 'unpaid' | 'future'
+
+    Penalty logic:
+    - PAID but late: penalty = (effective_coverage_date - due_date).days × penalty_per_day
+    - UNPAID/PARTIAL: penalty = max(0, (today - due_date).days - 1) × penalty_per_day
+      (yesterday is the last accrual day; today is excluded since they can still pay today)
     """
     schedule = generate_emi_schedule(loan)
     if not schedule:
@@ -565,25 +570,45 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
 
     today = date.today()
     emi_amount = Decimal(str(loan.emi_amount))
+    penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
 
     # Get all payments ordered by date asc
     payments = db.query(LoanPayment).filter(
         LoanPayment.loan_id == loan.id
     ).order_by(LoanPayment.payment_date.asc()).all()
 
-    # Total cumulative payment so far
+    # Build cumulative payment timeline to find per-EMI effective coverage dates
+    # cum_timeline[i] = (payment_date, cumulative_amount_paid_up_to_and_including_this_payment)
+    cum_timeline: List[tuple] = []
+    running = Decimal("0")
+    for p in payments:
+        running += Decimal(str(p.amount_paid))
+        cum_timeline.append((p.payment_date, running))
+
+    # Also build a map: for each EMI slot (1-indexed), find the date cumulative first >= slot * emi_amount
+    def effective_coverage_date(emi_n: int):
+        threshold = emi_n * emi_amount
+        for pdate, cum in cum_timeline:
+            if cum >= threshold:
+                return pdate
+        return None
+
+    # Penalty actually collected per EMI (from penalty_paid on payments)
+    # We attribute penalty_paid proportionally by chronological order — simply sum all penalty_paid
+    # and track remaining to distribute to the EMI rows in order (same carry-forward approach)
+    total_penalty_collected = sum(Decimal(str(p.penalty_paid or 0)) for p in payments)
+    penalty_collected_remaining = total_penalty_collected
+
     total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
 
-    # Assign payments to EMI slots using carry-forward credit balance
     result = []
     credit_balance = total_paid
 
-    for entry in schedule:
+    for i, entry in enumerate(schedule, 1):
         due_date = entry["due_date"]
         is_future = due_date > today
 
         if is_future:
-            # Apply carry-forward to future EMIs too (pre-paid)
             if credit_balance >= emi_amount:
                 status = "paid"
                 paid_amount = emi_amount
@@ -614,12 +639,29 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
                 paid_amount = Decimal("0")
                 outstanding = emi_amount
 
-        penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
-        days_overdue = 0
+        # ── Penalty calculation ──
+        days_late = 0
         penalty_accrued = 0.0
-        if status in ("unpaid", "partial") and due_date < today and penalty_per_day > 0:
-            days_overdue = (today - due_date).days
-            penalty_accrued = float((penalty_per_day * days_overdue).quantize(Decimal("0.01")))
+        if penalty_per_day > 0:
+            if status == "paid":
+                # Find when cumulative payments first covered this slot
+                eff_date = effective_coverage_date(i)
+                if eff_date and eff_date > due_date:
+                    days_late = (eff_date - due_date).days
+                    penalty_accrued = float((penalty_per_day * days_late).quantize(Decimal("0.01")))
+            elif status in ("unpaid", "partial") and due_date < today:
+                # Count from day-after-due to yesterday (exclude today — can still pay today)
+                days_late = max(0, (today - due_date).days - 1)
+                penalty_accrued = float((penalty_per_day * days_late).quantize(Decimal("0.01")))
+
+        # Attribute collected penalty to this EMI (carry-forward, same as EMI amounts)
+        this_penalty_collected = Decimal("0")
+        if penalty_accrued > 0 and penalty_collected_remaining > 0:
+            this_penalty_collected = min(
+                penalty_collected_remaining,
+                Decimal(str(penalty_accrued)),
+            )
+            penalty_collected_remaining -= this_penalty_collected
 
         result.append({
             "emi_number": entry["emi_number"],
@@ -629,8 +671,9 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
             "outstanding": float(outstanding),
             "status": status,
             "is_current_month": (due_date.year == today.year and due_date.month == today.month),
-            "days_overdue": days_overdue,
+            "days_overdue": days_late,
             "penalty_accrued": penalty_accrued,
+            "penalty_collected": float(this_penalty_collected),
         })
 
     return result

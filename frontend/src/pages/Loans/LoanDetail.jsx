@@ -1668,7 +1668,9 @@ function EmiSummarySection({ emiInterestSummary: s, loan }) {
 
 function EmiScheduleSection({ emiSchedule, loan }) {
   const hasPenalty = loan.penalty_per_day && parseFloat(loan.penalty_per_day) > 0;
-  const totalPenalty = emiSchedule.reduce((s, e) => s + (e.penalty_accrued || 0), 0);
+  const totalPenaltyAccrued = emiSchedule.reduce((s, e) => s + (e.penalty_accrued || 0), 0);
+  const totalPenaltyCollected = emiSchedule.reduce((s, e) => s + (e.penalty_collected || 0), 0);
+  const totalPenaltyPending = Math.max(0, totalPenaltyAccrued - totalPenaltyCollected);
   const paidCount = emiSchedule.filter((e) => e.status === "paid").length;
 
   return (
@@ -1680,10 +1682,19 @@ function EmiScheduleSection({ emiSchedule, loan }) {
             {paidCount}/{emiSchedule.length} paid
           </span>
         </h2>
-        {hasPenalty && totalPenalty > 0 && (
-          <span className="text-xs font-semibold bg-rose-100 text-rose-700 px-2 py-1 rounded-full">
-            Penalty: {formatCurrency(totalPenalty)}
-          </span>
+        {hasPenalty && totalPenaltyAccrued > 0 && (
+          <div className="flex items-center gap-2">
+            {totalPenaltyPending > 0 && (
+              <span className="text-xs font-semibold bg-rose-100 text-rose-700 px-2 py-1 rounded-full">
+                ⚠ Pending: {formatCurrency(totalPenaltyPending)}
+              </span>
+            )}
+            {totalPenaltyCollected > 0 && (
+              <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">
+                ✓ Collected: {formatCurrency(totalPenaltyCollected)}
+              </span>
+            )}
+          </div>
         )}
       </div>
       <div className="overflow-x-auto">
@@ -1717,9 +1728,6 @@ function EmiScheduleSection({ emiSchedule, loan }) {
                 </td>
                 <td className={`px-4 py-3 text-sm ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-900"}`}>
                   {formatDate(entry.due_date)}
-                  {entry.days_overdue > 0 && (
-                    <span className="ml-1.5 text-[10px] text-rose-500 font-medium">{entry.days_overdue}d late</span>
-                  )}
                 </td>
                 <td className={`px-4 py-3 text-sm font-semibold ${entry.status === "paid" ? "line-through text-slate-400" : "text-slate-900"}`}>
                   {formatCurrency(entry.due_amount)}
@@ -1730,7 +1738,19 @@ function EmiScheduleSection({ emiSchedule, loan }) {
                 {hasPenalty && (
                   <td className="px-4 py-3 text-sm">
                     {entry.penalty_accrued > 0 ? (
-                      <span className="text-rose-600 font-medium">{formatCurrency(entry.penalty_accrued)}</span>
+                      <div>
+                        <span className={`font-medium ${entry.penalty_accrued > (entry.penalty_collected || 0) ? "text-rose-600" : "text-slate-400 line-through"}`}>
+                          {formatCurrency(entry.penalty_accrued)}
+                        </span>
+                        {entry.penalty_collected > 0 && (
+                          <span className="ml-1.5 text-[10px] text-emerald-600 font-medium">
+                            ✓{formatCurrency(entry.penalty_collected)} paid
+                          </span>
+                        )}
+                        {entry.days_overdue > 0 && (
+                          <span className="block text-[10px] text-slate-400">{entry.days_overdue}d late</span>
+                        )}
+                      </div>
                     ) : "—"}
                   </td>
                 )}
