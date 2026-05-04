@@ -335,8 +335,6 @@ def record_payment(
         Decimal(str(payment_data.amount_paid)),
         payment_data.payment_date,
         db,
-        principal_repayment=Decimal(str(payment_data.principal_repayment)) if payment_data.principal_repayment else None,
-        auto_split=payment_data.auto_split,
     )
     
     # Create payment record
