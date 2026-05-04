@@ -76,6 +76,8 @@ function LoanDetail() {
     0,
   );
   const outstandingAmount = outstanding?.total_outstanding || 0;
+  const principalDue = outstanding?.principal_outstanding || 0;
+  const interestDue = outstanding?.interest_outstanding || 0;
 
   // Monthly interest schedule (lazy-loaded)
   const [showMonthlySchedule, setShowMonthlySchedule] = useState(false);
@@ -350,16 +352,21 @@ function LoanDetail() {
           </>
         }
       >
-        <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="mt-5 grid grid-cols-2 lg:grid-cols-5 gap-3">
           <HeroStat
             label="Principal"
             value={formatCurrency(loan.principal_amount)}
             accent="indigo"
           />
           <HeroStat
-            label="Outstanding"
-            value={formatCurrency(outstandingAmount)}
-            accent={outstandingAmount > 0 ? "rose" : "emerald"}
+            label="Principal Due"
+            value={formatCurrency(principalDue)}
+            accent={principalDue > 0 ? "rose" : "emerald"}
+          />
+          <HeroStat
+            label="Interest Due"
+            value={formatCurrency(interestDue)}
+            accent={interestDue > 0 ? "amber" : "emerald"}
           />
           <HeroStat
             label="Interest Earned"
