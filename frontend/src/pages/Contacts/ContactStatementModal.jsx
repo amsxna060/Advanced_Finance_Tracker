@@ -183,8 +183,105 @@ function generatePDF(data, contact) {
         theme: "striped",
         alternateRowStyles: { fillColor: [252, 253, 254] },
       });
+    } else if (loan.interest_segments?.length > 0) {
+      // ── Segmented interest breakdown (capitalized loans) ─────────────────
+      const segs = loan.interest_segments;
+      for (const seg of segs) {
+        if (seg.type === "period" || seg.type === "current_period") {
+          const isCurrent = seg.type === "current_period";
+          const segDur = dur(seg.duration_years, seg.duration_months, seg.duration_days);
+          // Mini sub-header for this period
+          doc.setFillColor(...(isCurrent ? [224, 242, 254] : [240, 253, 244]));
+          doc.rect(ML, y, CW, 6, "F");
+          doc.setTextColor(...(isCurrent ? [3, 105, 161] : [5, 150, 105]));
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "bold");
+          const segTitle = isCurrent
+            ? `Period ${seg.segment_no}: After Capitalisation  (${fmtDate(seg.from_date)} to ${fmtDate(seg.to_date)})`
+            : `Period ${seg.segment_no}: ${fmtDate(seg.from_date)} to ${fmtDate(seg.to_date)}`;
+          doc.text(segTitle, ML + 3, y + 4);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7);
+          doc.text(`${segDur}  |  Principal ${pdfFmt(seg.principal)}  |  ${pdfFmt(seg.monthly_interest)}/mo`, PW - MR - 2, y + 4, { align: "right" });
+          y += 7;
+
+          const rows = [];
+          rows.push([`Interest (${seg.annual_rate}% p.a.)`, pdfFmt(seg.gross_interest), "", ""]);
+          if (!isCurrent && seg.interest_paid > 0.01) {
+            rows.push(["Interest Paid in this period", "", pdfFmt(seg.interest_paid), ""]);
+          }
+          if (!isCurrent && seg.interest_capitalized > 0.01) {
+            rows.push(["Interest Capitalised (added to principal)", "", "", pdfFmt(seg.interest_capitalized)]);
+          }
+          if (isCurrent && loan.interest_outstanding > 0.01) {
+            rows.push(["Interest Outstanding (unpaid)", "", "", pdfFmt(loan.interest_outstanding)]);
+          }
+
+          autoTable(doc, {
+            startY: y, margin: { left: ML, right: MR }, tableWidth: CW,
+            body: rows,
+            bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+            columnStyles: {
+              0: { cellWidth: CW - 126 },
+              1: { cellWidth: 42, halign: "right" },
+              2: { cellWidth: 42, halign: "right", textColor: EMERALD },
+              3: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+            },
+            theme: "plain",
+            alternateRowStyles: { fillColor: [252, 253, 254] },
+          });
+          y = doc.lastAutoTable.finalY + 2;
+
+        } else if (seg.type === "cap_event") {
+          // Capitalisation event banner
+          doc.setFillColor(254, 243, 199);
+          doc.rect(ML, y, CW, 12, "F");
+          doc.setDrawColor(...AMBER);
+          doc.setLineWidth(0.5);
+          doc.line(ML, y, ML, y + 12);
+          doc.setLineWidth(0.2);
+          doc.setTextColor(...AMBER);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.text(`CAPITALISATION  -  ${fmtDate(seg.event_date)}`, ML + 4, y + 4.5);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7.5);
+          doc.setTextColor(...DARK);
+          doc.text(
+            `Outstanding interest of ${pdfFmt(seg.interest_capitalized)} added to principal.  New principal: ${pdfFmt(seg.new_principal)}`,
+            ML + 4, y + 9.5,
+          );
+          y += 14;
+        }
+      }
+
+      // Summary row for segmented loan
+      autoTable(doc, {
+        startY: y, margin: { left: ML, right: MR }, tableWidth: CW,
+        body: [
+          ["Original Principal", pdfFmt(loan.principal_amount), "", ""],
+          ["Total Interest Accrued (all periods)", pdfFmt(loan.interest_accrued), "", ""],
+          ["", "", "", ""],
+          ["Already Paid - Interest", "", pdfFmt(loan.already_paid_interest || 0), ""],
+          ["", "", "", ""],
+          ["Original Principal Outstanding", "", "", pdfFmt(loan.principal_outstanding)],
+          ["Interest Outstanding (unpaid)", "", "", pdfFmt(loan.interest_outstanding)],
+        ],
+        headStyles: { fillColor: INDIGO_LIGHT, textColor: ACCENT, fontStyle: "bold", fontSize: 7, cellPadding: 2 },
+        bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: CW - 126 },
+          1: { cellWidth: 42, halign: "right" },
+          2: { cellWidth: 42, halign: "right", textColor: EMERALD },
+          3: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+        },
+        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 0.5; },
+        theme: "striped",
+        alternateRowStyles: { fillColor: [252, 253, 254] },
+      });
+
     } else {
-      // ── Interest-only / short-term table ──────────────────────────────────
+      // ── Simple interest-only / short-term table ───────────────────────────
       const rows = [
         ["Original Principal", pdfFmt(loan.principal_amount), "", ""],
       ];
@@ -432,7 +529,99 @@ function EmiForeclosureCard({ loan }) {
   );
 }
 
+function SegmentedLoanCard({ loan }) {
+  const isGiven = loan.direction === "given";
+  const segs = loan.interest_segments;
+  return (
+    <div className="border border-slate-200 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className={`px-4 py-2.5 flex items-center justify-between ${isGiven ? "bg-emerald-600" : "bg-rose-600"}`}>
+        <span className="text-white font-bold text-sm">{loan.label}</span>
+        <span className="text-white/70 text-xs capitalize">{loan.status}</span>
+      </div>
+      {/* Overall period */}
+      <div className="bg-slate-50 px-4 py-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-600 border-b border-slate-100">
+        <span><b className="text-slate-500">Full Period:</b> {fmtDate(loan.disbursed_date)} → {fmtDate(loan.as_of_date)}</span>
+        <span><b className="text-slate-500">Original Principal:</b> {fmt(loan.principal_amount)}</span>
+      </div>
+
+      {/* Segments */}
+      <div className="divide-y divide-slate-100">
+        {segs.map((seg, i) => {
+          if (seg.type === "cap_event") {
+            return (
+              <div key={i} className="px-4 py-3 bg-amber-50 border-l-4 border-amber-400">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Capitalisation — {fmtDate(seg.event_date)}</span>
+                </div>
+                <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-amber-800">
+                  <span>Outstanding interest <b>{fmt(seg.interest_capitalized)}</b> added to principal</span>
+                  <span>New principal: <b>{fmt(seg.new_principal)}</b></span>
+                  {seg.notes && <span className="text-amber-600 italic">{seg.notes}</span>}
+                </div>
+              </div>
+            );
+          }
+          const isCurrent = seg.type === "current_period";
+          const segDur = dur(seg.duration_years, seg.duration_months, seg.duration_days);
+          return (
+            <div key={i} className={`${isCurrent ? "bg-sky-50/40" : "bg-emerald-50/20"}`}>
+              {/* Period sub-header */}
+              <div className={`px-4 py-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs border-b ${isCurrent ? "border-sky-100 text-sky-700" : "border-emerald-100 text-emerald-700"}`}>
+                <span className="font-bold">Period {seg.segment_no}: {fmtDate(seg.from_date)} → {fmtDate(seg.to_date)}</span>
+                <span className="text-slate-500">{segDur}</span>
+                <span>Principal <b>{fmt(seg.principal)}</b></span>
+                <span className="font-medium">{fmt(seg.monthly_interest)}/mo × {seg.annual_rate}% p.a.</span>
+              </div>
+              {/* Period rows */}
+              <div className="divide-y divide-slate-100/60">
+                <Row label={`Gross Interest (${seg.annual_rate}% p.a. for ${segDur})`} col1={fmt(seg.gross_interest)} />
+                {!isCurrent && seg.interest_paid > 0.01 && (
+                  <Row label="Interest Paid in this period" col2={fmt(seg.interest_paid)} />
+                )}
+                {!isCurrent && seg.interest_capitalized > 0.01 && (
+                  <div className="px-4 py-2 flex justify-between items-center text-sm">
+                    <span className="text-amber-600">Interest Capitalised → added to principal</span>
+                    <span className="font-bold text-amber-700 w-32 text-right">{fmt(seg.interest_capitalized)}</span>
+                  </div>
+                )}
+                {isCurrent && loan.interest_outstanding > 0.01 && (
+                  <Row label="Interest Outstanding (unpaid)" col3={fmt(loan.interest_outstanding)} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Payment & outstanding summary */}
+      <div className="border-t-2 border-slate-200 divide-y divide-slate-100 bg-white">
+        <Row label="Total Interest Accrued (all periods)" col1={fmt(loan.interest_accrued)} bold />
+        <div className="h-1 bg-slate-50" />
+        <Row label="Already Paid – Interest" col2={fmt(loan.already_paid_interest || 0)} />
+        <div className="h-1 bg-slate-50" />
+        <Row label="Original Principal Outstanding" col3={fmt(loan.principal_outstanding)} />
+        <Row label="Interest Outstanding" col3={fmt(loan.interest_outstanding)} />
+      </div>
+
+      <div className={`px-4 py-2.5 flex justify-between items-center ${isGiven ? "bg-emerald-50" : "bg-rose-50"}`}>
+        <span className={`text-xs font-semibold ${isGiven ? "text-emerald-700" : "text-rose-700"}`}>
+          Net Outstanding · {isGiven ? "Receivable" : "Payable"}
+        </span>
+        <span className={`font-bold text-base ${isGiven ? "text-emerald-800" : "text-rose-800"}`}>
+          {fmt(loan.total_outstanding)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function InterestLoanCard({ loan }) {
+  // Delegate to segmented view if cap events exist
+  if (loan.interest_segments?.length > 0) {
+    return <SegmentedLoanCard loan={loan} />;
+  }
+
   const isGiven = loan.direction === "given";
   const hasInterest = loan.interest_accrued > 0;
   return (

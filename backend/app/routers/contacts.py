@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import or_, func
 from typing import List, Optional
 from decimal import Decimal
-from datetime import date
+from datetime import date, timedelta
+import calendar as _cal
 
 from pydantic import BaseModel
 from dateutil.relativedelta import relativedelta
@@ -25,6 +26,115 @@ from app.services.interest import (
     _solve_emi_monthly_rate,
     _generate_emi_amortization,
 )
+
+
+def _segment_interest(principal: Decimal, annual_rate: Decimal,
+                       from_date: date, to_date_inclusive: date,
+                       banking: bool = False) -> Decimal:
+    """Gross interest from from_date to to_date_inclusive (both inclusive)."""
+    if to_date_inclusive < from_date or annual_rate <= 0 or principal <= 0:
+        return Decimal("0")
+    if banking:
+        days = (to_date_inclusive - from_date).days + 1
+        yr = from_date.year
+        days_in_year = 366 if _cal.isleap(yr) else 365
+        return (principal * annual_rate / Decimal("100") * Decimal(str(days)) / Decimal(str(days_in_year))).quantize(Decimal("0.01"))
+    # Commercial: flat monthly, prorated by days for partial months
+    monthly_rate = annual_rate / Decimal("1200")
+    total = Decimal("0")
+    cur = from_date
+    while cur <= to_date_inclusive:
+        month_last = date(cur.year, cur.month, _cal.monthrange(cur.year, cur.month)[1])
+        period_end = min(to_date_inclusive, month_last)
+        full_days = _cal.monthrange(cur.year, cur.month)[1]
+        actual_days = (period_end - cur).days + 1
+        if actual_days < full_days:
+            total += principal * monthly_rate * Decimal(str(actual_days)) / Decimal(str(full_days))
+        else:
+            total += principal * monthly_rate
+        if period_end >= to_date_inclusive:
+            break
+        cur = date(cur.year, cur.month, 1) + relativedelta(months=1)
+    return total.quantize(Decimal("0.01"))
+
+
+def _build_interest_segments(loan, as_of_date: date) -> Optional[list]:
+    """
+    For interest_only loans with capitalization events, return a list of
+    segments showing: [interest_period, cap_event, ...repeat..., current_period].
+    Returns None if no cap events exist (use simple display instead).
+    """
+    cap_events = sorted(
+        [e for e in loan.capitalization_events if e.event_date <= as_of_date],
+        key=lambda e: e.event_date,
+    )
+    if not cap_events:
+        return None
+
+    banking = getattr(loan, "interest_calc_method", "commercial") == "banking_365"
+    start = loan.interest_start_date or loan.disbursed_date
+    principal = Decimal(str(loan.principal_amount))
+    rate = Decimal(str(loan.interest_rate or 0))
+    segments = []
+    seg_no = 1
+
+    for cap in cap_events:
+        end_inclusive = cap.event_date - timedelta(days=1)
+        gross = _segment_interest(principal, rate, start, end_inclusive, banking)
+        cap_interest = Decimal(str(cap.outstanding_interest_before))
+        interest_paid_in_seg = max(gross - cap_interest, Decimal("0"))
+        delta = relativedelta(cap.event_date, start)
+
+        segments.append({
+            "type": "period",
+            "segment_no": seg_no,
+            "from_date": start.isoformat(),
+            "to_date": end_inclusive.isoformat(),
+            "duration_years": delta.years,
+            "duration_months": delta.months,
+            "duration_days": delta.days,
+            "principal": float(principal),
+            "annual_rate": float(rate),
+            "monthly_interest": float((principal * rate / Decimal("1200")).quantize(Decimal("0.01"))),
+            "gross_interest": float(gross),
+            "interest_paid": float(interest_paid_in_seg),
+            "interest_capitalized": float(cap_interest),
+        })
+        segments.append({
+            "type": "cap_event",
+            "event_date": cap.event_date.isoformat(),
+            "principal_before": float(cap.principal_before),
+            "interest_capitalized": float(cap.outstanding_interest_before),
+            "new_principal": float(cap.new_principal),
+            "interest_rate_after": float(cap.interest_rate_after) if cap.interest_rate_after else float(rate),
+            "notes": cap.notes,
+        })
+
+        start = cap.event_date
+        principal = Decimal(str(cap.new_principal))
+        if cap.interest_rate_after:
+            rate = Decimal(str(cap.interest_rate_after))
+        seg_no += 1
+
+    # Final segment: from last cap event date to as_of_date
+    if start <= as_of_date:
+        gross_final = _segment_interest(principal, rate, start, as_of_date, banking)
+        delta = relativedelta(as_of_date, start)
+        segments.append({
+            "type": "current_period",
+            "segment_no": seg_no,
+            "from_date": start.isoformat(),
+            "to_date": as_of_date.isoformat(),
+            "duration_years": delta.years,
+            "duration_months": delta.months,
+            "duration_days": delta.days,
+            "principal": float(principal),
+            "annual_rate": float(rate),
+            "monthly_interest": float((principal * rate / Decimal("1200")).quantize(Decimal("0.01"))),
+            "gross_interest": float(gross_final),
+        })
+
+    return segments
 
 
 class StatementRequest(BaseModel):
@@ -331,6 +441,13 @@ def generate_statement(
             "principal_outstanding": float(principal_outstanding),
             "emi_foreclosure": None,
         }
+
+        # Interest segments (for interest_only with capitalization events)
+        item["interest_segments"] = (
+            _build_interest_segments(loan, as_of)
+            if loan.loan_type == "interest_only"
+            else None
+        )
 
         if loan.loan_type == "emi":
             # EMI foreclosure as of as_of_date
