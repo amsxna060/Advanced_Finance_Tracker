@@ -25,6 +25,8 @@ from app.services.interest import (
     calculate_outstanding_from_loan,
     _solve_emi_monthly_rate,
     _generate_emi_amortization,
+    _build_monthly_periods,
+    _calc_period_interest,
 )
 
 
@@ -60,25 +62,132 @@ def _segment_interest(principal: Decimal, annual_rate: Decimal,
 
 def _build_interest_segments(loan, as_of_date: date) -> Optional[list]:
     """
-    For interest_only loans with capitalization events, return a list of
-    segments showing: [interest_period, cap_event, ...repeat..., current_period].
-    Returns None if no cap events exist (use simple display instead).
+    For interest_only loans that have capitalisation (auto or manual DB events),
+    return a list of period/cap_event segments for the statement breakdown.
+    Returns None if there is no capitalisation at all.
     """
-    cap_events = sorted(
+    banking = getattr(loan, "interest_calc_method", "commercial") == "banking_365"
+    interest_start = loan.interest_start_date or loan.disbursed_date
+
+    cap_enabled = bool(loan.capitalization_enabled) and (loan.capitalization_after_months or 0) > 0
+    db_cap_events = sorted(
         [e for e in loan.capitalization_events if e.event_date <= as_of_date],
         key=lambda e: e.event_date,
     )
-    if not cap_events:
+
+    # ── If neither auto-cap nor any DB cap events exist → simple loan, no segments ──
+    if not cap_enabled and not db_cap_events:
         return None
 
-    banking = getattr(loan, "interest_calc_method", "commercial") == "banking_365"
-    start = loan.interest_start_date or loan.disbursed_date
+    # ── Auto-capitalisation: compute segments mathematically ──────────────────
+    if cap_enabled:
+        cap_every = loan.capitalization_after_months
+        calc_principal = Decimal(str(loan.principal_amount))
+        calc_rate = Decimal(str(loan.interest_rate or 0))
+
+        # Total interest already paid (across all payments on this loan)
+        interest_paid_total = sum(
+            Decimal(str(p.allocated_to_current_interest or 0)) +
+            Decimal(str(p.allocated_to_overdue_interest or 0))
+            for p in loan.payments
+        )
+        interest_paid_remaining = interest_paid_total
+
+        segments = []
+        seg_no = 1
+        month_count = 0
+        unpaid_carried = Decimal("0")
+        seg_start = interest_start
+        seg_months: list = []  # (p_start, p_end_excl, mi) per monthly period in this segment
+
+        for p_start, p_end_excl, full_days in _build_monthly_periods(interest_start, as_of_date):
+            days = (p_end_excl - p_start).days
+            mi = _calc_period_interest(calc_principal, calc_rate, p_start, days, full_days, banking=banking)
+            month_count += 1
+            seg_months.append((p_start, p_end_excl, mi))
+
+            if interest_paid_remaining >= mi:
+                interest_paid_remaining -= mi
+                unpaid_carried = Decimal("0")
+            elif interest_paid_remaining > 0:
+                unpaid_carried += (mi - interest_paid_remaining)
+                interest_paid_remaining = Decimal("0")
+            else:
+                unpaid_carried += mi
+
+            is_cap_month = (month_count % cap_every == 0)
+            is_past = (p_end_excl - timedelta(days=1)) < as_of_date
+
+            if is_cap_month and unpaid_carried > Decimal("0") and is_past:
+                # Close this pre-cap segment
+                gross_seg = sum(m[2] for m in seg_months)
+                paid_seg = max(gross_seg - unpaid_carried, Decimal("0"))
+                seg_end_inclusive = p_end_excl - timedelta(days=1)
+                dur = relativedelta(seg_end_inclusive + timedelta(days=1), seg_start)
+                segments.append({
+                    "type": "period",
+                    "segment_no": seg_no,
+                    "from_date": seg_start.isoformat(),
+                    "to_date": seg_end_inclusive.isoformat(),
+                    "duration_years": dur.years,
+                    "duration_months": dur.months,
+                    "duration_days": dur.days,
+                    "principal": float(calc_principal),
+                    "annual_rate": float(calc_rate),
+                    "monthly_interest": float((calc_principal * calc_rate / Decimal("1200")).quantize(Decimal("0.01"))),
+                    "gross_interest": float(gross_seg),
+                    "interest_paid": float(paid_seg),
+                    "interest_capitalized": float(unpaid_carried),
+                })
+                new_principal = calc_principal + unpaid_carried
+                segments.append({
+                    "type": "cap_event",
+                    "event_date": p_end_excl.isoformat(),
+                    "principal_before": float(calc_principal),
+                    "interest_capitalized": float(unpaid_carried),
+                    "new_principal": float(new_principal),
+                    "interest_rate_after": float(calc_rate),
+                    "notes": None,
+                })
+                calc_principal = new_principal
+                unpaid_carried = Decimal("0")
+                month_count = 0
+                seg_no += 1
+                seg_start = p_end_excl
+                seg_months = []
+
+        # Final (current) segment
+        if seg_months:
+            gross_final = sum(m[2] for m in seg_months)
+            dur = relativedelta(as_of_date, seg_start)
+            segments.append({
+                "type": "current_period",
+                "segment_no": seg_no,
+                "from_date": seg_start.isoformat(),
+                "to_date": as_of_date.isoformat(),
+                "duration_years": dur.years,
+                "duration_months": dur.months,
+                "duration_days": dur.days,
+                "principal": float(calc_principal),
+                "annual_rate": float(calc_rate),
+                "monthly_interest": float((calc_principal * calc_rate / Decimal("1200")).quantize(Decimal("0.01"))),
+                "gross_interest": float(gross_final),
+            })
+
+        # If no cap events actually fired yet (loan < cap_every months old) → no segments needed
+        if not any(s["type"] == "cap_event" for s in segments):
+            return None
+
+        return segments
+
+    # ── Manual DB cap events (legacy path) ────────────────────────────────────
+    start = interest_start
     principal = Decimal(str(loan.principal_amount))
     rate = Decimal(str(loan.interest_rate or 0))
     segments = []
     seg_no = 1
 
-    for cap in cap_events:
+    for cap in db_cap_events:
         end_inclusive = cap.event_date - timedelta(days=1)
         gross = _segment_interest(principal, rate, start, end_inclusive, banking)
         cap_interest = Decimal(str(cap.outstanding_interest_before))
@@ -109,14 +218,12 @@ def _build_interest_segments(loan, as_of_date: date) -> Optional[list]:
             "interest_rate_after": float(cap.interest_rate_after) if cap.interest_rate_after else float(rate),
             "notes": cap.notes,
         })
-
         start = cap.event_date
         principal = Decimal(str(cap.new_principal))
         if cap.interest_rate_after:
             rate = Decimal(str(cap.interest_rate_after))
         seg_no += 1
 
-    # Final segment: from last cap event date to as_of_date
     if start <= as_of_date:
         gross_final = _segment_interest(principal, rate, start, as_of_date, banking)
         delta = relativedelta(as_of_date, start)

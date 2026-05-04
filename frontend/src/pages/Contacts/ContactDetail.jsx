@@ -134,6 +134,12 @@ export default function ContactDetail() {
   /* helper: net position */
   const netPosition =
     (summary?.total_lent || 0) - (summary?.total_borrowed || 0);
+  // capitalised interest adds to principal in DB, but from the lender's view it's still interest
+  const capitalisedPortion = Math.max(
+    0,
+    (summary?.principal_outstanding || 0) - (summary?.total_lent || 0)
+  );
+  const displayInterest = (summary?.total_interest_due || 0) + capitalisedPortion;
   const totalBorrowedClosed = summary?.total_borrowed_closed || 0;
   const collateralCoverage =
     summary?.principal_outstanding > 0
@@ -199,7 +205,7 @@ export default function ContactDetail() {
           />
           <HeroStat
             label="Interest Outstanding"
-            value={formatCurrency(summary?.total_interest_due || 0)}
+            value={formatCurrency(displayInterest)}
             accent="amber"
           />
           <HeroStat
@@ -394,7 +400,7 @@ export default function ContactDetail() {
                 iconBg="bg-amber-50"
                 iconColor="text-amber-600"
                 label="Interest Outstanding"
-                value={formatCurrency(summary?.total_interest_due || 0)}
+                value={formatCurrency(displayInterest)}
               />
               <MiniStat
                 icon={Shield}
@@ -419,8 +425,7 @@ export default function ContactDetail() {
             </div>
 
             {/* Outstanding Breakdown Bar */}
-            {(summary?.principal_outstanding > 0 ||
-              summary?.total_interest_due > 0) && (
+            {(summary?.total_lent > 0 || displayInterest > 0) && (
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
@@ -431,19 +436,19 @@ export default function ContactDetail() {
                   </span>
                 </div>
                 <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
-                  {summary?.principal_outstanding > 0 && (
+                  {summary?.total_lent > 0 && (
                     <div
                       className="bg-indigo-500 transition-all"
                       style={{
-                        width: `${(summary.principal_outstanding / summary.total_outstanding) * 100}%`,
+                        width: `${(summary.total_lent / summary.total_outstanding) * 100}%`,
                       }}
                     />
                   )}
-                  {summary?.total_interest_due > 0 && (
+                  {displayInterest > 0 && (
                     <div
                       className="bg-amber-400 transition-all"
                       style={{
-                        width: `${(summary.total_interest_due / summary.total_outstanding) * 100}%`,
+                        width: `${(displayInterest / summary.total_outstanding) * 100}%`,
                       }}
                     />
                   )}
@@ -453,14 +458,14 @@ export default function ContactDetail() {
                     <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
                     <span className="text-slate-500">Principal</span>
                     <span className="font-bold text-slate-700">
-                      {formatCurrency(summary?.principal_outstanding || 0)}
+                      {formatCurrency(summary?.total_lent || 0)}
                     </span>
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                     <span className="text-slate-500">Interest</span>
                     <span className="font-bold text-slate-700">
-                      {formatCurrency(summary?.total_interest_due || 0)}
+                      {formatCurrency(displayInterest)}
                     </span>
                   </span>
                 </div>
