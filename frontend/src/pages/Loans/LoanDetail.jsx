@@ -17,6 +17,7 @@ function LoanDetail() {
   // For EMI: single total amount field
   // For interest_only / short_term: auto-split (single field) or manual (two fields)
   const [paymentAmount, setPaymentAmount] = useState(""); // EMI total or auto-split total
+  const [penaltyAmount, setPenaltyAmount] = useState(""); // EMI penalty collected alongside payment
   const [interestPaymentAmount, setInterestPaymentAmount] = useState(""); // non-EMI manual interest portion
   const [principalRepaymentAmount, setPrincipalRepaymentAmount] = useState(""); // non-EMI manual principal portion
   const [autoSplit, setAutoSplit] = useState(true); // auto-split: interest first, rest to principal
@@ -229,7 +230,7 @@ function LoanDetail() {
 
     let total;
     if (isEmi || isInterestOnly) {
-      total = parseFloat(paymentAmount);
+      total = parseFloat(paymentAmount) + (isEmi ? (parseFloat(penaltyAmount) || 0) : 0);
     } else {
       // short_term with manual split
       total = autoSplit ? parseFloat(paymentAmount) : parseFloat(nonEmiTotal());
@@ -238,6 +239,7 @@ function LoanDetail() {
 
     const payload = {
       amount_paid: total,
+      penalty_paid: isEmi ? (parseFloat(penaltyAmount) || 0) : 0,
       payment_date: paymentDate,
       payment_mode: paymentMode,
       notes: paymentNotes,
@@ -256,6 +258,7 @@ function LoanDetail() {
   const resetPaymentModal = () => {
     setShowPaymentModal(false);
     setPaymentAmount("");
+    setPenaltyAmount("");
     setInterestPaymentAmount("");
     setPrincipalRepaymentAmount("");
     setPaymentNotes("");
@@ -564,6 +567,11 @@ function LoanDetail() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Interest
                         </th>
+                        {loan.loan_type === "emi" && loan.penalty_per_day > 0 && (
+                          <th className="px-4 py-3 text-left text-xs font-medium text-rose-500 uppercase">
+                            Penalty
+                          </th>
+                        )}
                         <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Mode
                         </th>
@@ -600,6 +608,13 @@ function LoanDetail() {
                                 ),
                             )}
                           </td>
+                          {loan.loan_type === "emi" && loan.penalty_per_day > 0 && (
+                            <td className="px-4 py-3 text-sm">
+                              {parseFloat(payment.penalty_paid || 0) > 0 ? (
+                                <span className="text-rose-600 font-medium">{formatCurrency(payment.penalty_paid)}</span>
+                              ) : "—"}
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-sm text-slate-500 capitalize">
                             {payment.payment_mode || "-"}
                           </td>
@@ -992,18 +1007,55 @@ function LoanDetail() {
             </h2>
             <div className="space-y-4">
               {loan.loan_type === "emi" ? (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Payment Amount *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={paymentAmount}
-                    onChange={(e) => handlePaymentAmountChange(e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-                    placeholder="0.00"
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      EMI Amount *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={paymentAmount}
+                      onChange={(e) => handlePaymentAmountChange(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {loan.penalty_per_day && parseFloat(loan.penalty_per_day) > 0 && (() => {
+                    const totalPending = emiSchedule.reduce((s, e) => s + (e.penalty_accrued || 0), 0);
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-rose-700 mb-1.5">
+                          Penalty Collected
+                          {totalPending > 0 && (
+                            <span className="ml-2 text-[10px] font-normal bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full">
+                              {formatCurrency(totalPending)} pending
+                            </span>
+                          )}
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={penaltyAmount}
+                            onChange={(e) => setPenaltyAmount(e.target.value)}
+                            className="w-full pl-7 pr-4 py-2.5 border border-rose-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-400 transition-all"
+                            placeholder="0.00 (optional)"
+                          />
+                        </div>
+                        {parseFloat(penaltyAmount) > 0 && (
+                          <div className="mt-2 flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2.5">
+                            <span className="text-sm font-semibold text-slate-700">Total Cash Collected</span>
+                            <span className="text-base font-bold text-slate-900">
+                              {formatCurrency((parseFloat(paymentAmount) || 0) + (parseFloat(penaltyAmount) || 0))}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : loan.loan_type === "interest_only" ? (
                 <div className="space-y-3">

@@ -103,6 +103,7 @@ class LoanOut(BaseModel):
 class LoanPaymentCreate(BaseModel):
     payment_date: date
     amount_paid: Decimal
+    penalty_paid: Optional[Decimal] = Decimal("0")
     payment_mode: Optional[str] = None
     collected_by: Optional[str] = None
     reference_number: Optional[str] = None
@@ -115,6 +116,7 @@ class LoanPaymentOut(BaseModel):
     loan_id: int
     payment_date: date
     amount_paid: Decimal
+    penalty_paid: Optional[Decimal] = Decimal("0")
     allocated_to_overdue_interest: Decimal
     allocated_to_current_interest: Decimal
     allocated_to_principal: Decimal

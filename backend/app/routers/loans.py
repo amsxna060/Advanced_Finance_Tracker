@@ -329,10 +329,12 @@ def record_payment(
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     
-    # Allocate payment
+    # Allocate payment — for EMI loans, penalty is tracked separately, not run through allocation
+    penalty_paid = Decimal(str(payment_data.penalty_paid or 0))
+    allocation_amount = Decimal(str(payment_data.amount_paid)) - penalty_paid
     allocation = allocate_payment(
         loan_id,
-        Decimal(str(payment_data.amount_paid)),
+        max(allocation_amount, Decimal("0")),
         payment_data.payment_date,
         db,
     )
@@ -343,6 +345,7 @@ def record_payment(
         loan_id=loan_id,
         payment_date=payment_data.payment_date,
         amount_paid=payment_data.amount_paid,
+        penalty_paid=penalty_paid,
         allocated_to_overdue_interest=allocation["allocated_to_overdue_interest"],
         allocated_to_current_interest=allocation["allocated_to_current_interest"],
         allocated_to_principal=allocation["allocated_to_principal"],

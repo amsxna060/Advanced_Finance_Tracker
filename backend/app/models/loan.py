@@ -88,6 +88,7 @@ class LoanPayment(Base):
     allocated_to_current_interest = Column(Numeric(15, 2), default=0)
     allocated_to_principal = Column(Numeric(15, 2), default=0)
 
+    penalty_paid = Column(Numeric(15, 2), default=0, nullable=True)
     payment_mode = Column(String(30))  # cash | upi | bank_transfer | cheque
     collected_by = Column(String(100))
     reference_number = Column(String(100))
