@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -19,6 +19,7 @@ import {
   ChevronDown,
   PlusCircle,
   ExternalLink,
+  Download,
 } from "lucide-react";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
@@ -35,12 +36,14 @@ import {
   SectionHeader,
   PageSkeleton,
 } from "../../components/ui";
+const ContactStatementModal = lazy(() => import("./ContactStatementModal"));
 
 export default function ContactDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [showStatement, setShowStatement] = useState(false);
 
   const {
     data: contactData,
@@ -153,25 +156,34 @@ export default function ContactDetail() {
         subtitle={`${contact.relationship_type} · ${contact.contact_type}`}
         backTo="/contacts"
         actions={
-          user?.role === "admin" && (
-            <>
-              <Button
-                variant="white"
-                icon={Edit}
-                onClick={() => navigate(`/contacts/${id}/edit`)}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="white"
-                icon={Trash2}
-                onClick={handleDelete}
-                disabled={deleteContactMutation.isPending}
-              >
-                Delete
-              </Button>
-            </>
-          )
+          <>
+            <Button
+              variant="white"
+              icon={Download}
+              onClick={() => setShowStatement(true)}
+            >
+              Export Statement
+            </Button>
+            {user?.role === "admin" && (
+              <>
+                <Button
+                  variant="white"
+                  icon={Edit}
+                  onClick={() => navigate(`/contacts/${id}/edit`)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="white"
+                  icon={Trash2}
+                  onClick={handleDelete}
+                  disabled={deleteContactMutation.isPending}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+          </>
         }
       >
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -657,6 +669,18 @@ export default function ContactDetail() {
           )}
         </div>
       </PageBody>
+
+      {/* Statement Export Modal — lazy loaded so jsPDF doesn't bloat initial bundle */}
+      {showStatement && (
+        <Suspense fallback={null}>
+          <ContactStatementModal
+            contact={contact}
+            loans={loans}
+            obligations={obligations}
+            onClose={() => setShowStatement(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

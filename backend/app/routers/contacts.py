@@ -5,17 +5,28 @@ from typing import List, Optional
 from decimal import Decimal
 from datetime import date
 
+from pydantic import BaseModel
+from dateutil.relativedelta import relativedelta
+
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.models.contact import Contact
-from app.models.loan import Loan
+from app.models.loan import Loan, LoanPayment
 from app.models.collateral import Collateral
 from app.models.property_deal import PropertyDeal
 from app.models.partnership import Partnership, PartnershipMember
 from app.models.beesi import Beesi
+from app.models.obligation import MoneyObligation
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
 from app.services.interest import calculate_outstanding, calculate_outstanding_from_loan
+
+
+class StatementRequest(BaseModel):
+    loan_ids: List[int] = []
+    obligation_ids: List[int] = []
+    as_of_date: date
+    signature_name: Optional[str] = None
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -235,6 +246,157 @@ def get_contact(
                 Beesi.contact_id == contact_id, Beesi.is_deleted == False
             ).all()
         ],
+    }
+
+
+@router.post("/{contact_id}/statement")
+def generate_statement(
+    contact_id: int,
+    body: StatementRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a loan statement for a contact as of a specific date."""
+    contact = db.query(Contact).filter(
+        Contact.id == contact_id, Contact.is_deleted == False
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    as_of = body.as_of_date
+    today = date.today()
+
+    # Fetch requested loans with eager-loaded payments and capitalization events
+    loans = (
+        db.query(Loan)
+        .filter(Loan.id.in_(body.loan_ids), Loan.contact_id == contact_id, Loan.is_deleted == False)
+        .options(selectinload(Loan.payments), selectinload(Loan.capitalization_events))
+        .all()
+    ) if body.loan_ids else []
+
+    loan_items = []
+    for loan in loans:
+        start_date = loan.interest_start_date or loan.disbursed_date
+        delta = relativedelta(as_of, start_date)
+        dur_years = delta.years
+        dur_months = delta.months
+        dur_days = delta.days
+
+        # Compute outstanding as of as_of_date using pre-loaded data
+        out = calculate_outstanding_from_loan(loan, as_of)
+        principal_outstanding = out.get("principal_outstanding", Decimal("0"))
+        interest_outstanding = out.get("interest_outstanding", Decimal("0"))
+        gross_interest = out.get("gross_interest_accrued", interest_outstanding)
+        total_outstanding = principal_outstanding + interest_outstanding
+
+        # Already paid = sum of payments up to as_of_date
+        paid_before = [p for p in loan.payments if p.payment_date <= as_of]
+        already_paid_principal = sum(Decimal(str(p.allocated_to_principal or 0)) for p in paid_before)
+        already_paid_interest = sum(
+            Decimal(str(p.allocated_to_current_interest or 0)) +
+            Decimal(str(p.allocated_to_overdue_interest or 0))
+            for p in paid_before
+        )
+        already_paid_total = already_paid_principal + already_paid_interest
+
+        # For short_term without interest rate, zero out interest fields
+        has_interest = bool(loan.interest_rate and Decimal(str(loan.interest_rate)) > 0) or \
+                       bool(getattr(loan, "post_due_interest_rate", None) and
+                            Decimal(str(loan.post_due_interest_rate)) > 0)
+
+        interest_accrued = float(gross_interest) if has_interest else 0.0
+        interest_out_display = float(interest_outstanding) if has_interest else 0.0
+
+        type_label = {
+            "interest_only": "Interest-Only Loan",
+            "emi": "EMI Loan",
+            "short_term": "Short-Term Loan",
+        }.get(loan.loan_type, loan.loan_type.replace("_", " ").title())
+
+        loan_items.append({
+            "loan_id": loan.id,
+            "label": f"{type_label} – ₹{int(float(loan.principal_amount)):,}",
+            "loan_type": loan.loan_type,
+            "direction": loan.loan_direction,
+            "notes": loan.notes,
+            "status": loan.status,
+            "interest_rate": float(loan.interest_rate) if loan.interest_rate else None,
+            "emi_amount": float(loan.emi_amount) if loan.emi_amount else None,
+            "start_date": start_date.isoformat() if start_date else None,
+            "disbursed_date": loan.disbursed_date.isoformat() if loan.disbursed_date else None,
+            "as_of_date": as_of.isoformat(),
+            "duration_years": dur_years,
+            "duration_months": dur_months,
+            "duration_days": dur_days,
+            "principal_amount": float(loan.principal_amount),
+            "interest_accrued": interest_accrued,
+            "total_amount": float(loan.principal_amount) + interest_accrued,
+            "already_paid_principal": float(already_paid_principal),
+            "already_paid_interest": float(already_paid_interest),
+            "already_paid_total": float(already_paid_total),
+            "principal_outstanding": float(principal_outstanding),
+            "interest_outstanding": interest_out_display,
+            "total_outstanding": float(principal_outstanding) + interest_out_display,
+        })
+
+    # Obligations
+    obligation_items = []
+    if body.obligation_ids:
+        obls = (
+            db.query(MoneyObligation)
+            .filter(
+                MoneyObligation.id.in_(body.obligation_ids),
+                MoneyObligation.is_deleted == False,
+            )
+            .all()
+        )
+        for obl in obls:
+            remaining = float(Decimal(str(obl.amount)) - Decimal(str(obl.amount_settled or 0)))
+            obligation_items.append({
+                "obligation_id": obl.id,
+                "label": obl.reason or obl.obligation_type.capitalize(),
+                "obligation_type": obl.obligation_type,
+                "due_date": obl.due_date.isoformat() if obl.due_date else None,
+                "amount": float(obl.amount),
+                "amount_settled": float(obl.amount_settled or 0),
+                "outstanding": remaining,
+                "status": obl.status,
+            })
+
+    # Totals
+    total_principal = sum(i["principal_amount"] for i in loan_items)
+    total_interest = sum(i["interest_accrued"] for i in loan_items)
+    total_paid = sum(i["already_paid_total"] for i in loan_items)
+    total_p_outstanding = sum(i["principal_outstanding"] for i in loan_items)
+    total_i_outstanding = sum(i["interest_outstanding"] for i in loan_items)
+    total_outstanding = total_p_outstanding + total_i_outstanding
+    obl_outstanding = sum(o["outstanding"] for o in obligation_items)
+    settlement_amount = total_outstanding + obl_outstanding
+
+    return {
+        "contact": {
+            "id": contact.id,
+            "name": contact.name,
+            "phone": contact.phone,
+            "address": contact.address,
+            "city": contact.city,
+        },
+        "generated_on": today.isoformat(),
+        "as_of_date": as_of.isoformat(),
+        "signature_name": body.signature_name,
+        "loan_items": loan_items,
+        "obligation_items": obligation_items,
+        "totals": {
+            "total_principal": total_principal,
+            "total_interest_accrued": total_interest,
+            "total_amount": total_principal + total_interest,
+            "total_paid": total_paid,
+            "total_principal_outstanding": total_p_outstanding,
+            "total_interest_outstanding": total_i_outstanding,
+            "total_outstanding": total_outstanding,
+            "obligations_outstanding": obl_outstanding,
+            "settlement_amount": settlement_amount,
+        },
     }
 
 
