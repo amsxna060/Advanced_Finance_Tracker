@@ -179,6 +179,16 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
 
 def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[str, Decimal]:
     """Core outstanding calculation using pre-fetched cap_events and payments lists."""
+    # Closed loans have no outstanding balance
+    if getattr(loan, "status", None) == "closed":
+        return {
+            "principal_outstanding": Decimal("0"),
+            "interest_outstanding": Decimal("0"),
+            "total_outstanding": Decimal("0"),
+            "gross_interest_accrued": Decimal("0"),
+            "as_of_date": as_of_date,
+        }
+
     # Start with original principal
     principal_outstanding = Decimal(str(loan.principal_amount))
 
