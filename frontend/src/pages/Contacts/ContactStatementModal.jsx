@@ -49,12 +49,18 @@ function filterForStatement(loans, obligations) {
 }
 
 // ── PDF generator ─────────────────────────────────────────────────────────────
+// Column layout helpers — keeps widths consistent everywhere
+const C0 = 70;  // Description (widest)
+const C1 = 38;  // Amount / Loan details
+const C2 = 38;  // Paid / Payment status
+const C3 = 36;  // Outstanding / Foreclosure
+
 function generatePDF(data, contact) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const PW = 210;
-  const ML = 14;
-  const MR = 14;
-  const CW = PW - ML - MR;
+  const ML = 12;
+  const MR = 12;
+  const CW = PW - ML - MR;   // 186 mm
 
   const DARK    = [15, 23, 42];
   const ACCENT  = [79, 70, 229];
@@ -64,41 +70,47 @@ function generatePDF(data, contact) {
   const SLATE   = [100, 116, 139];
   const LIGHT   = [248, 250, 252];
   const INDIGO_LIGHT = [238, 242, 255];
-  const TEAL    = [20, 184, 166];
 
   let y = 0;
 
   // ── Header bar ──────────────────────────────────────────────────────────────
   doc.setFillColor(...ACCENT);
-  doc.rect(0, 0, PW, 28, "F");
+  doc.rect(0, 0, PW, 32, "F");
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
+  doc.setFontSize(15);
   doc.setFont("helvetica", "bold");
-  doc.text("LOAN ACCOUNT STATEMENT", ML, 12);
-  doc.setFontSize(8);
+  doc.text("LOAN ACCOUNT STATEMENT", ML, 11);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");
-  doc.text(`Generated: ${fmtDate(data.generated_on)}`, ML, 19);
-  doc.text(`As of: ${fmtDate(data.as_of_date)}`, ML, 24);
   doc.setTextColor(200, 210, 255);
-  doc.text("CONFIDENTIAL", PW - MR, 24, { align: "right" });
-  y = 36;
+  doc.text("Rinn Khata Vivaran", ML, 16);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(7.5);
+  doc.text(`Taiyar kiya gaya: ${fmtDate(data.generated_on)}`, ML, 22);
+  doc.text(`Tarikh tak: ${fmtDate(data.as_of_date)}`, ML, 27);
+  doc.setTextColor(200, 210, 255);
+  doc.text("CONFIDENTIAL / GOPNIYA", PW - MR, 27, { align: "right" });
+  y = 38;
 
   // ── Contact block ────────────────────────────────────────────────────────────
-  doc.setFillColor(...LIGHT);
-  doc.roundedRect(ML, y, CW, 22, 2, 2, "F");
-  doc.setDrawColor(220, 225, 235);
-  doc.roundedRect(ML, y, CW, 22, 2, 2, "S");
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(ML, y, CW, 24, 2, 2, "F");
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(ML, y, CW, 24, 2, 2, "S");
+  // Left accent stripe
+  doc.setFillColor(...ACCENT);
+  doc.roundedRect(ML, y, 3, 24, 1, 1, "F");
   doc.setTextColor(...DARK);
   doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
-  doc.text(contact.name || "-", ML + 4, y + 7);
-  doc.setFontSize(8);
+  doc.text(contact.name || "-", ML + 6, y + 8);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...SLATE);
-  const line2 = [contact.phone, contact.city].filter(Boolean).join("  |  ");
-  if (line2) doc.text(line2, ML + 4, y + 13);
-  if (contact.address) doc.text(contact.address, ML + 4, y + 18);
-  y += 28;
+  const line2 = [contact.phone, contact.city].filter(Boolean).join("   |   ");
+  if (line2) doc.text(line2, ML + 6, y + 14);
+  if (contact.address) doc.text(contact.address, ML + 6, y + 19);
+  y += 30;
 
   // ── Per-loan sections ────────────────────────────────────────────────────────
   data.loan_items.forEach((loan, idx) => {
@@ -106,46 +118,48 @@ function generatePDF(data, contact) {
     const isEMI    = loan.loan_type === "emi";
     const fc       = loan.emi_foreclosure;
     const hasInterest = !isEMI && loan.interest_accrued > 0;
-
     const headerColor = isGiven ? EMERALD : ROSE;
+    const directionHindi = isGiven ? "Diya gaya (Given)" : "Liya gaya (Taken)";
 
-    // Section header
+    // Section header — taller to fit Hindi subtitle
     doc.setFillColor(...headerColor);
-    doc.rect(ML, y, CW, 8, "F");
+    doc.rect(ML, y, CW, 10, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
-    doc.text(loan.label, ML + 3, y + 5.5);
-    doc.setFontSize(7);
+    doc.text(loan.label, ML + 3, y + 5);
+    doc.setFontSize(6.5);
     doc.setFont("helvetica", "normal");
-    doc.text((loan.status || "").toUpperCase(), PW - MR - 2, y + 5.5, { align: "right" });
-    y += 9;
+    doc.setTextColor(200, 255, 220);
+    doc.text(directionHindi, ML + 3, y + 9);
+    doc.setTextColor(255, 255, 255);
+    doc.text((loan.status || "").toUpperCase(), PW - MR - 2, y + 6, { align: "right" });
+    y += 11;
 
     // Period / rate info row
-    const typeMap  = { interest_only: "Interest-Only", emi: "EMI", short_term: "Short-Term" };
+    const typeMap  = { interest_only: "Interest-Only (Byaj Wala)", emi: "EMI Loan", short_term: "Short-Term" };
     const typeStr  = typeMap[loan.loan_type] || loan.loan_type;
     const periodStr = `${fmtDate(loan.disbursed_date)} to ${fmtDate(loan.as_of_date)}  (${dur(loan.duration_years, loan.duration_months, loan.duration_days)})`;
     let rateStr;
     if (isEMI) {
       rateStr = loan.emi_amount
-        ? `EMI ${pdfFmt(loan.emi_amount)}/mo`
-          + (fc?.effective_rb_rate_pct ? `  |  ${fc.effective_rb_rate_pct}% p.a. (reducing)` : "")
+        ? `EMI ${pdfFmt(loan.emi_amount)}/mo` + (fc?.effective_rb_rate_pct ? ` | ${fc.effective_rb_rate_pct}% p.a.` : "")
         : "EMI details not set";
     } else {
       rateStr = loan.interest_rate
         ? `${loan.interest_rate}% p.a.`
-        : (loan.loan_type === "short_term" ? "No interest" : "No rate set");
+        : (loan.loan_type === "short_term" ? "Koi byaj nahi (No interest)" : "Rate not set");
     }
 
     autoTable(doc, {
       startY: y,
       margin: { left: ML, right: MR },
       tableWidth: CW,
-      head: [["Type", "Period", "Rate / EMI"]],
+      head: [["Type / Prakar", "Period / Avadhi", "Rate / Dar"]],
       body: [[typeStr, periodStr, rateStr]],
-      headStyles: { fillColor: LIGHT, textColor: SLATE, fontStyle: "bold", fontSize: 7, cellPadding: 2 },
-      bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2.5 },
-      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: CW - 80 }, 2: { cellWidth: 52 } },
+      headStyles: { fillColor: [241,245,249], textColor: SLATE, fontStyle: "bold", fontSize: 6.5, cellPadding: 2 },
+      bodyStyles: { fontSize: 7.5, textColor: DARK, cellPadding: 3 },
+      columnStyles: { 0: { cellWidth: 36 }, 1: { cellWidth: CW - 84 }, 2: { cellWidth: 48 } },
       theme: "plain",
     });
     y = doc.lastAutoTable.finalY + 2;
@@ -153,36 +167,37 @@ function generatePDF(data, contact) {
     // ── EMI foreclosure table ────────────────────────────────────────────────
     if (isEMI && fc) {
       const rows = [
-        ["Original Principal", pdfFmt(loan.principal_amount), "", ""],
-        ["EMI Amount", pdfFmt(loan.emi_amount), "", ""],
-        ["Total Tenure", `${fc.emis_total} EMIs`, "", ""],
+        ["Mool rashi (Original Principal)", pdfFmt(loan.principal_amount), "", ""],
+        ["EMI rashi (EMI Amount)", pdfFmt(loan.emi_amount), "", ""],
+        ["Kul kirsten (Total Tenure)", `${fc.emis_total} EMIs`, "", ""],
         ["", "", "", ""],
-        ["EMIs Paid", "", `${fc.emis_paid} of ${fc.emis_total}`, ""],
-        ["Total Paid (cash received)", "", pdfFmt(loan.already_paid_total), ""],
-        ["EMIs Remaining", "", `${fc.emis_remaining}`, ""],
+        ["Kirsten bhari (EMIs Paid)", "", `${fc.emis_paid} / ${fc.emis_total}`, ""],
+        ["Kul jama (Total Paid)", "", pdfFmt(loan.already_paid_total), ""],
+        ["Baqi kirsten (EMIs Remaining)", "", `${fc.emis_remaining}`, ""],
         ["", "", "", ""],
-        ["Remaining Principal", "", "", pdfFmt(fc.foreclosure_principal)],
-        ["Accrued Interest (since last EMI)", "", "", pdfFmt(fc.foreclosure_accrued_interest)],
-        ["Foreclosure Processing Fee (2%)", "", "", pdfFmt(fc.foreclosure_processing_fee)],
+        ["Baqi mool (Remaining Principal)", "", "", pdfFmt(fc.foreclosure_principal)],
+        ["Baqi byaj (Accrued Interest)", "", "", pdfFmt(fc.foreclosure_accrued_interest)],
+        ["Processing shulk 2% (Fee)", "", "", pdfFmt(fc.foreclosure_processing_fee)],
       ];
       autoTable(doc, {
         startY: y,
         margin: { left: ML, right: MR },
         tableWidth: CW,
-        head: [["Description", "Loan Details", "Payment Status", "Foreclosure Amount"]],
+        head: [["Description / Vivaran", "Loan Details / Vivran", "Paid / Jama", "Foreclosure / Purv Bandi"]],
         body: rows,
-        headStyles: { fillColor: INDIGO_LIGHT, textColor: ACCENT, fontStyle: "bold", fontSize: 7, cellPadding: 2 },
-        bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+        headStyles: { fillColor: INDIGO_LIGHT, textColor: ACCENT, fontStyle: "bold", fontSize: 6.5, cellPadding: 2.5 },
+        bodyStyles: { fontSize: 7.5, textColor: DARK, cellPadding: 2.5 },
         columnStyles: {
-          0: { cellWidth: CW - 126 },
-          1: { cellWidth: 42, halign: "right" },
-          2: { cellWidth: 42, halign: "right" },
-          3: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+          0: { cellWidth: C0 },
+          1: { cellWidth: C1, halign: "right" },
+          2: { cellWidth: C2, halign: "right" },
+          3: { cellWidth: C3, halign: "right", fontStyle: "bold" },
         },
-        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 0.5; },
+        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1; },
         theme: "striped",
-        alternateRowStyles: { fillColor: [252, 253, 254] },
+        alternateRowStyles: { fillColor: [250, 251, 255] },
       });
+
     } else if (loan.interest_segments?.length > 0) {
       // ── Segmented interest breakdown (capitalized loans) ─────────────────
       const segs = loan.interest_segments;
@@ -190,146 +205,158 @@ function generatePDF(data, contact) {
         if (seg.type === "period" || seg.type === "current_period") {
           const isCurrent = seg.type === "current_period";
           const segDur = dur(seg.duration_years, seg.duration_months, seg.duration_days);
-          // Mini sub-header for this period
-          doc.setFillColor(...(isCurrent ? [224, 242, 254] : [240, 253, 244]));
-          doc.rect(ML, y, CW, 6, "F");
-          doc.setTextColor(...(isCurrent ? [3, 105, 161] : [5, 150, 105]));
+
+          // Period sub-header bar
+          doc.setFillColor(...(isCurrent ? [219, 234, 254] : [220, 252, 231]));
+          doc.rect(ML, y, CW, 8, "F");
+          doc.setTextColor(...(isCurrent ? [29, 78, 216] : [5, 150, 105]));
           doc.setFontSize(7.5);
           doc.setFont("helvetica", "bold");
           const segTitle = isCurrent
-            ? `Period ${seg.segment_no}: After Capitalisation  (${fmtDate(seg.from_date)} to ${fmtDate(seg.to_date)})`
+            ? `Period ${seg.segment_no}: Punji vriddhi ke baad (After Capitalisation)`
             : `Period ${seg.segment_no}: ${fmtDate(seg.from_date)} to ${fmtDate(seg.to_date)}`;
-          doc.text(segTitle, ML + 3, y + 4);
+          doc.text(segTitle, ML + 3, y + 5);
           doc.setFont("helvetica", "normal");
-          doc.setFontSize(7);
-          doc.text(`${segDur}  |  Principal ${pdfFmt(seg.principal)}  |  ${pdfFmt(seg.monthly_interest)}/mo`, PW - MR - 2, y + 4, { align: "right" });
-          y += 7;
+          doc.setFontSize(6.5);
+          if (isCurrent) {
+            doc.text(`${fmtDate(seg.from_date)} to ${fmtDate(seg.to_date)}  |  ${segDur}`, PW - MR - 2, y + 5, { align: "right" });
+          } else {
+            doc.text(`${segDur}  |  Mool: ${pdfFmt(seg.principal)}  |  ${pdfFmt(seg.monthly_interest)}/mo`, PW - MR - 2, y + 5, { align: "right" });
+          }
+          y += 9;
 
           const rows = [];
-          rows.push([`Interest (${seg.annual_rate}% p.a.)`, pdfFmt(seg.gross_interest), "", ""]);
+          rows.push([
+            isCurrent
+              ? `Byaj / Interest (${seg.annual_rate}% p.a.)  |  Mool: ${pdfFmt(seg.principal)}  |  ${pdfFmt(seg.monthly_interest)}/mo`
+              : `Byaj / Interest (${seg.annual_rate}% p.a.)`,
+            pdfFmt(seg.gross_interest), "", ""
+          ]);
           if (!isCurrent && seg.interest_paid > 0.01) {
-            rows.push(["Interest Paid in this period", "", pdfFmt(seg.interest_paid), ""]);
+            rows.push(["Byaj jama / Interest Paid", "", pdfFmt(seg.interest_paid), ""]);
           }
           if (!isCurrent && seg.interest_capitalized > 0.01) {
-            rows.push(["Interest Capitalised (added to principal)", "", "", pdfFmt(seg.interest_capitalized)]);
+            rows.push(["Punji mein joda / Capitalised", "", "", pdfFmt(seg.interest_capitalized)]);
           }
           if (isCurrent && loan.interest_outstanding > 0.01) {
-            rows.push(["Interest Outstanding (unpaid)", "", "", pdfFmt(loan.interest_outstanding)]);
+            rows.push(["Baqi byaj / Interest Outstanding", "", "", pdfFmt(loan.interest_outstanding)]);
           }
 
           autoTable(doc, {
             startY: y, margin: { left: ML, right: MR }, tableWidth: CW,
             body: rows,
-            bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+            bodyStyles: { fontSize: 7.5, textColor: DARK, cellPadding: 2.5 },
             columnStyles: {
-              0: { cellWidth: CW - 126 },
-              1: { cellWidth: 42, halign: "right" },
-              2: { cellWidth: 42, halign: "right", textColor: EMERALD },
-              3: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+              0: { cellWidth: C0 },
+              1: { cellWidth: C1, halign: "right" },
+              2: { cellWidth: C2, halign: "right", textColor: EMERALD },
+              3: { cellWidth: C3, halign: "right", fontStyle: "bold" },
             },
             theme: "plain",
-            alternateRowStyles: { fillColor: [252, 253, 254] },
+            alternateRowStyles: { fillColor: [250, 251, 255] },
           });
           y = doc.lastAutoTable.finalY + 2;
 
         } else if (seg.type === "cap_event") {
-          // Capitalisation event banner
-          doc.setFillColor(254, 243, 199);
-          doc.rect(ML, y, CW, 12, "F");
+          // Capitalisation event banner — amber, prominent
+          doc.setFillColor(255, 251, 235);
+          doc.rect(ML, y, CW, 14, "F");
           doc.setDrawColor(...AMBER);
-          doc.setLineWidth(0.5);
-          doc.line(ML, y, ML, y + 12);
+          doc.setLineWidth(0.8);
+          doc.line(ML, y, ML, y + 14);
           doc.setLineWidth(0.2);
-          doc.setTextColor(...AMBER);
-          doc.setFontSize(8);
+          doc.setFillColor(...AMBER);
+          doc.rect(ML, y, CW, 5.5, "F");
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(7.5);
           doc.setFont("helvetica", "bold");
-          doc.text(`CAPITALISATION  -  ${fmtDate(seg.event_date)}`, ML + 4, y + 4.5);
+          doc.text(`CAPITALISATION (Punji Vriddhi)  -  ${fmtDate(seg.event_date)}`, ML + 4, y + 3.8);
           doc.setFont("helvetica", "normal");
           doc.setFontSize(7.5);
-          doc.setTextColor(...DARK);
+          doc.setTextColor(120, 60, 0);
           doc.text(
-            `Outstanding interest of ${pdfFmt(seg.interest_capitalized)} added to principal.  New principal: ${pdfFmt(seg.new_principal)}`,
-            ML + 4, y + 9.5,
+            `Baqi byaj ${pdfFmt(seg.interest_capitalized)} mool mein joda gaya.  Naya mool / New principal: ${pdfFmt(seg.new_principal)}`,
+            ML + 4, y + 10.5,
           );
-          y += 14;
+          y += 16;
         }
       }
 
-      // Summary row for segmented loan
+      // Summary for segmented loan
       autoTable(doc, {
         startY: y, margin: { left: ML, right: MR }, tableWidth: CW,
         body: [
-          ["Original Principal", pdfFmt(loan.principal_amount), "", ""],
-          ["Total Interest Accrued (all periods)", pdfFmt(loan.interest_accrued), "", ""],
+          ["Mool rashi / Original Principal", pdfFmt(loan.principal_amount), "", ""],
+          ["Kul byaj / Total Interest (all periods)", pdfFmt(loan.interest_accrued), "", ""],
           ["", "", "", ""],
-          ["Already Paid - Interest", "", pdfFmt(loan.already_paid_interest || 0), ""],
+          ["Byaj jama / Interest Paid", "", pdfFmt(loan.already_paid_interest || 0), ""],
           ["", "", "", ""],
-          ["Original Principal Outstanding", "", "", pdfFmt(loan.principal_outstanding)],
-          ["Interest Outstanding (unpaid)", "", "", pdfFmt(loan.interest_outstanding)],
+          ["Vartaman mool / Current Principal", "", "", pdfFmt(loan.principal_outstanding)],
+          ["Baqi byaj / Interest Outstanding", "", "", pdfFmt(loan.interest_outstanding)],
         ],
-        headStyles: { fillColor: INDIGO_LIGHT, textColor: ACCENT, fontStyle: "bold", fontSize: 7, cellPadding: 2 },
-        bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+        bodyStyles: { fontSize: 7.5, textColor: DARK, cellPadding: 2.5 },
         columnStyles: {
-          0: { cellWidth: CW - 126 },
-          1: { cellWidth: 42, halign: "right" },
-          2: { cellWidth: 42, halign: "right", textColor: EMERALD },
-          3: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+          0: { cellWidth: C0 },
+          1: { cellWidth: C1, halign: "right" },
+          2: { cellWidth: C2, halign: "right", textColor: EMERALD },
+          3: { cellWidth: C3, halign: "right", fontStyle: "bold" },
         },
-        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 0.5; },
+        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1; },
         theme: "striped",
-        alternateRowStyles: { fillColor: [252, 253, 254] },
+        alternateRowStyles: { fillColor: [250, 251, 255] },
       });
 
     } else {
       // ── Simple interest-only / short-term table ───────────────────────────
       const rows = [
-        ["Original Principal", pdfFmt(loan.principal_amount), "", ""],
+        ["Mool rashi / Original Principal", pdfFmt(loan.principal_amount), "", ""],
       ];
       if (hasInterest) {
-        rows.push(["Interest Accrued", pdfFmt(loan.interest_accrued), "", ""]);
-        rows.push(["Total Amount", pdfFmt(loan.total_amount), "", ""]);
+        rows.push(["Byaj / Interest Accrued", pdfFmt(loan.interest_accrued), "", ""]);
+        rows.push(["Kul rashi / Total Amount", pdfFmt(loan.total_amount), "", ""]);
       }
       rows.push(["", "", "", ""]);
-      rows.push(["Already Paid - Principal", "", pdfFmt(loan.already_paid_principal || 0), ""]);
-      if (hasInterest) rows.push(["Already Paid - Interest", "", pdfFmt(loan.already_paid_interest || 0), ""]);
-      rows.push(["Total Paid", "", pdfFmt(loan.already_paid_total), ""]);
+      rows.push(["Mool jama / Principal Paid", "", pdfFmt(loan.already_paid_principal || 0), ""]);
+      if (hasInterest) rows.push(["Byaj jama / Interest Paid", "", pdfFmt(loan.already_paid_interest || 0), ""]);
+      rows.push(["Kul jama / Total Paid", "", pdfFmt(loan.already_paid_total), ""]);
       rows.push(["", "", "", ""]);
-      rows.push(["Principal Outstanding", "", "", pdfFmt(loan.principal_outstanding)]);
-      if (hasInterest) rows.push(["Interest Outstanding", "", "", pdfFmt(loan.interest_outstanding)]);
+      rows.push(["Baqi mool / Principal Outstanding", "", "", pdfFmt(loan.principal_outstanding)]);
+      if (hasInterest) rows.push(["Baqi byaj / Interest Outstanding", "", "", pdfFmt(loan.interest_outstanding)]);
 
       autoTable(doc, {
         startY: y,
         margin: { left: ML, right: MR },
         tableWidth: CW,
-        head: [["Description", "Amount (Total)", "Paid", "Outstanding"]],
+        head: [["Description / Vivaran", "Kul Rashi / Total", "Jama / Paid", "Bakaya / Outstanding"]],
         body: rows,
-        headStyles: { fillColor: INDIGO_LIGHT, textColor: ACCENT, fontStyle: "bold", fontSize: 7, cellPadding: 2 },
-        bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+        headStyles: { fillColor: INDIGO_LIGHT, textColor: ACCENT, fontStyle: "bold", fontSize: 6.5, cellPadding: 2.5 },
+        bodyStyles: { fontSize: 7.5, textColor: DARK, cellPadding: 2.5 },
         columnStyles: {
-          0: { cellWidth: CW - 126 },
-          1: { cellWidth: 42, halign: "right" },
-          2: { cellWidth: 42, halign: "right" },
-          3: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+          0: { cellWidth: C0 },
+          1: { cellWidth: C1, halign: "right" },
+          2: { cellWidth: C2, halign: "right" },
+          3: { cellWidth: C3, halign: "right", fontStyle: "bold" },
         },
-        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 0.5; },
+        didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1; },
         theme: "striped",
-        alternateRowStyles: { fillColor: [252, 253, 254] },
+        alternateRowStyles: { fillColor: [250, 251, 255] },
       });
     }
 
     // Outstanding chip
     y = doc.lastAutoTable.finalY + 1;
     doc.setFillColor(...headerColor);
-    doc.roundedRect(ML, y, CW, 7, 1, 1, "F");
+    doc.roundedRect(ML, y, CW, 8, 1, 1, "F");
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(8);
+    doc.setFontSize(8.5);
     doc.setFont("helvetica", "bold");
-    const chipLabel = isEMI ? "FORECLOSURE AMOUNT" : "NET OUTSTANDING";
-    doc.text(`${chipLabel}: ${pdfFmt(loan.total_outstanding)}`, ML + 3, y + 4.8);
+    const chipLabel = isEMI ? "FORECLOSURE AMOUNT (Purv Bandi Rashi)" : "NET OUTSTANDING (Kul Bakaya)";
+    doc.text(`${chipLabel}: ${pdfFmt(loan.total_outstanding)}`, ML + 3, y + 5.5);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
-    doc.text(isGiven ? "Receivable from contact" : "Payable to contact", PW - MR - 2, y + 4.8, { align: "right" });
-    y += 11;
+    const dirLabel = isGiven ? "Receivable (Lena baaki hai)" : "Payable (Dena baaki hai)";
+    doc.text(dirLabel, PW - MR - 2, y + 5.5, { align: "right" });
+    y += 12;
 
     if (loan.notes) {
       doc.setTextColor(...SLATE);
@@ -338,7 +365,7 @@ function generatePDF(data, contact) {
       doc.text(`Note: ${loan.notes}`, ML + 2, y);
       y += 5;
     }
-    y += 3;
+    y += 4;
 
     if (y > 255 && idx < data.loan_items.length - 1) {
       doc.addPage();
@@ -350,29 +377,30 @@ function generatePDF(data, contact) {
   if (data.obligation_items?.length > 0) {
     if (y > 220) { doc.addPage(); y = 14; }
     doc.setFillColor(...AMBER);
-    doc.rect(ML, y, CW, 7, "F");
+    doc.rect(ML, y, CW, 8, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
-    doc.text("OBLIGATIONS", ML + 3, y + 5);
-    y += 9;
+    doc.text("OBLIGATIONS / DAAYTA", ML + 3, y + 5.5);
+    y += 10;
     autoTable(doc, {
       startY: y,
       margin: { left: ML, right: MR },
       tableWidth: CW,
-      head: [["Description", "Type", "Due Date", "Total", "Settled", "Remaining"]],
+      head: [["Vivaran / Description", "Prakar / Type", "Tithi / Due Date", "Kul / Total", "Jama / Settled", "Bakaya / Remaining"]],
       body: data.obligation_items.map((o) => [
         o.label,
-        o.obligation_type === "receivable" ? "Receivable" : "Payable",
+        o.obligation_type === "receivable" ? "Lena (Receivable)" : "Dena (Payable)",
         fmtDate(o.due_date),
         pdfFmt(o.amount),
         pdfFmt(o.amount_settled),
         pdfFmt(o.outstanding),
       ]),
-      headStyles: { fillColor: [255, 251, 235], textColor: AMBER, fontStyle: "bold", fontSize: 7, cellPadding: 2 },
-      bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 2 },
+      headStyles: { fillColor: [255, 251, 235], textColor: AMBER, fontStyle: "bold", fontSize: 6.5, cellPadding: 2.5 },
+      bodyStyles: { fontSize: 7.5, textColor: DARK, cellPadding: 2.5 },
       columnStyles: { 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right", fontStyle: "bold" } },
       theme: "striped",
+      alternateRowStyles: { fillColor: [255, 253, 240] },
     });
     y = doc.lastAutoTable.finalY + 4;
   }
@@ -380,26 +408,30 @@ function generatePDF(data, contact) {
   // ── Grand totals ─────────────────────────────────────────────────────────────
   if (y > 210) { doc.addPage(); y = 14; }
   doc.setFillColor(...DARK);
-  doc.rect(ML, y, CW, 8, "F");
+  doc.rect(ML, y, CW, 10, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
-  doc.text("SUMMARY & SETTLEMENT", ML + 3, y + 5.5);
-  y += 10;
+  doc.text("SUMMARY & SETTLEMENT", ML + 3, y + 6);
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(150, 170, 210);
+  doc.text("Saar evam Nipataan / Final Account", ML + 3, y + 9.5);
+  y += 12;
 
   const t = data.totals;
   const summaryRows = [
-    ["Total Principal (all loans)", pdfFmt(t.total_principal), ""],
-    ["Total Interest / Charges Accrued", pdfFmt(t.total_interest_accrued), ""],
-    ["Total Amount", pdfFmt(t.total_amount), ""],
+    ["Kul mool / Total Principal (all loans)", pdfFmt(t.total_principal), ""],
+    ["Kul byaj / Total Interest & Charges", pdfFmt(t.total_interest_accrued), ""],
+    ["Kul rashi / Total Amount", pdfFmt(t.total_amount), ""],
     ["", "", ""],
-    ["Total Already Paid", "", pdfFmt(t.total_paid)],
+    ["Kul jama / Total Already Paid", "", pdfFmt(t.total_paid)],
     ["", "", ""],
-    ["Principal Outstanding", "", pdfFmt(t.total_principal_outstanding)],
-    ["Interest / Foreclosure Charges", "", pdfFmt(t.total_interest_outstanding)],
+    ["Baqi mool / Principal Outstanding", "", pdfFmt(t.total_principal_outstanding)],
+    ["Baqi byaj / Interest & Charges", "", pdfFmt(t.total_interest_outstanding)],
   ];
   if (data.obligation_items?.length > 0) {
-    summaryRows.push(["Obligations Remaining", "", pdfFmt(t.obligations_outstanding)]);
+    summaryRows.push(["Daayta bakaya / Obligations Remaining", "", pdfFmt(t.obligations_outstanding)]);
   }
 
   autoTable(doc, {
@@ -407,32 +439,33 @@ function generatePDF(data, contact) {
     margin: { left: ML, right: MR },
     tableWidth: CW,
     body: summaryRows,
-    bodyStyles: { fontSize: 8.5, textColor: DARK, cellPadding: 2.5 },
+    bodyStyles: { fontSize: 8, textColor: DARK, cellPadding: 3 },
     columnStyles: {
-      0: { cellWidth: CW - 84 },
-      1: { cellWidth: 42, halign: "right" },
-      2: { cellWidth: 42, halign: "right" },
+      0: { cellWidth: CW - 88 },
+      1: { cellWidth: 44, halign: "right" },
+      2: { cellWidth: 44, halign: "right" },
     },
-    didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1; },
+    didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1.5; },
     theme: "plain",
     alternateRowStyles: { fillColor: LIGHT },
   });
-  y = doc.lastAutoTable.finalY + 2;
+  y = doc.lastAutoTable.finalY + 3;
 
   // Final settlement chip
   doc.setFillColor(...ACCENT);
-  doc.rect(ML, y, CW, 11, "F");
+  doc.rect(ML, y, CW, 14, "F");
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11);
+  doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
-  doc.text("FINAL SETTLEMENT AMOUNT", ML + 4, y + 5);
-  doc.setFontSize(12);
-  doc.text(pdfFmt(t.settlement_amount), PW - MR - 4, y + 5, { align: "right" });
+  doc.text("FINAL SETTLEMENT AMOUNT", ML + 4, y + 6);
+  doc.setFontSize(13);
+  doc.text(pdfFmt(t.settlement_amount), PW - MR - 4, y + 7, { align: "right" });
   doc.setFontSize(7);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(200, 210, 255);
-  doc.text(`Amount to close all outstanding as of ${fmtDate(data.as_of_date)}`, ML + 4, y + 9);
-  y += 17;
+  doc.setTextColor(180, 195, 255);
+  doc.text("Nipataan ke liye kul rashi / Amount to close all dues", ML + 4, y + 10.5);
+  doc.text(`As of: ${fmtDate(data.as_of_date)}`, PW - MR - 4, y + 10.5, { align: "right" });
+  y += 20;
 
   // ── Signature ─────────────────────────────────────────────────────────────────
   if (y > 248) { doc.addPage(); y = 14; }

@@ -350,23 +350,20 @@ def get_contact(
         Loan.is_deleted == False
     ).options(selectinload(Loan.payments), selectinload(Loan.capitalization_events)).all()
     
-    # total_lent = active given loans only (original principal, not capitalised)
-    total_lent = sum(
-        Decimal(str(loan.principal_amount)) for loan in loans_given if loan.status == "active"
-    )
     total_lent_historical = sum(Decimal(str(loan.principal_amount)) for loan in loans_given)
-    total_borrowed = sum(
-        Decimal(str(loan.principal_amount)) for loan in loans_taken if loan.status == "active"
-    )
     total_borrowed_closed = sum(
         Decimal(str(loan.principal_amount)) for loan in loans_taken if loan.status == "closed"
     )
-
     active_loans_count = len([l for l in loans_given + loans_taken if l.status == "active"])
 
-    # Calculate outstanding + interest across all active loans for this contact
+    # Calculate outstanding + interest across all active loans for this contact.
+    # total_lent / total_borrowed: for EMI loans use actual principal_outstanding (repayments
+    # reduce principal); for interest-only/short-term use original principal_amount (capitalized
+    # interest is tracked separately as displayInterest on the frontend).
     today = date.today()
-    total_interest_outstanding = Decimal("0")  # unpaid, uncapitalised interest only
+    total_lent = Decimal("0")
+    total_borrowed = Decimal("0")
+    total_interest_outstanding = Decimal("0")
     total_overdue = Decimal("0")
     total_principal_outstanding = Decimal("0")
     outstanding_map = {}
@@ -381,6 +378,17 @@ def get_contact(
             total_principal_outstanding += pout
             total_interest_outstanding += iout
             total_overdue += pout + iout
+            # For principal display: EMI loans show remaining amortized principal;
+            # interest-only / short-term show original disbursed amount (capitalised
+            # interest is not principal growth from lender's perspective).
+            if loan.loan_type == "emi":
+                principal_for_display = pout
+            else:
+                principal_for_display = Decimal(str(loan.principal_amount))
+            if loan.loan_direction == "given":
+                total_lent += principal_for_display
+            else:
+                total_borrowed += principal_for_display
         except Exception:
             pass
 
