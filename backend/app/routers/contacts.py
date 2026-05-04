@@ -257,9 +257,9 @@ def get_contact(
 
     active_loans_count = len([l for l in loans_given + loans_taken if l.status == "active"])
 
-    # Calculate outstanding + gross interest across all active loans for this contact
+    # Calculate outstanding + interest across all active loans for this contact
     today = date.today()
-    total_interest_accrued_gross = Decimal("0")  # total interest generated (incl. capitalised)
+    total_interest_outstanding = Decimal("0")  # unpaid, uncapitalised interest only
     total_overdue = Decimal("0")
     total_principal_outstanding = Decimal("0")
     outstanding_map = {}
@@ -271,9 +271,8 @@ def get_contact(
             outstanding_map[loan.id] = out
             pout = Decimal(str(out.get("principal_outstanding", 0)))
             iout = Decimal(str(out.get("interest_outstanding", 0)))
-            gross = Decimal(str(out.get("gross_interest_accrued", iout)))
             total_principal_outstanding += pout
-            total_interest_accrued_gross += gross
+            total_interest_outstanding += iout
             total_overdue += pout + iout
         except Exception:
             pass
@@ -299,7 +298,7 @@ def get_contact(
             "principal_outstanding": float(total_principal_outstanding),
             "active_loans_count": active_loans_count,
             "total_loans_count": len(loans_given) + len(loans_taken),
-            "total_interest_due": float(total_interest_accrued_gross),
+            "total_interest_due": float(total_interest_outstanding),
             "total_outstanding": float(total_overdue),
             "total_collateral_value": float(total_collateral),
         },

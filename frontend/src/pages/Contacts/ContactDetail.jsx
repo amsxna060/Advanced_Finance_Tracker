@@ -198,7 +198,7 @@ export default function ContactDetail() {
             accent="rose"
           />
           <HeroStat
-            label="Interest Accrued (Gross)"
+            label="Interest Outstanding"
             value={formatCurrency(summary?.total_interest_due || 0)}
             accent="amber"
           />
@@ -393,7 +393,7 @@ export default function ContactDetail() {
                 icon={TrendingUp}
                 iconBg="bg-amber-50"
                 iconColor="text-amber-600"
-                label="Interest Accrued"
+                label="Interest Outstanding"
                 value={formatCurrency(summary?.total_interest_due || 0)}
               />
               <MiniStat
