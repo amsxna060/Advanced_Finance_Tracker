@@ -122,7 +122,12 @@ def get_contact(
         Decimal(str(loan.principal_amount)) for loan in loans_given if loan.status == "active"
     )
     total_lent_historical = sum(Decimal(str(loan.principal_amount)) for loan in loans_given)
-    total_borrowed = sum(Decimal(str(loan.principal_amount)) for loan in loans_taken)
+    total_borrowed = sum(
+        Decimal(str(loan.principal_amount)) for loan in loans_taken if loan.status == "active"
+    )
+    total_borrowed_closed = sum(
+        Decimal(str(loan.principal_amount)) for loan in loans_taken if loan.status == "closed"
+    )
 
     active_loans_count = len([l for l in loans_given + loans_taken if l.status == "active"])
 
@@ -164,6 +169,7 @@ def get_contact(
             "total_lent": float(total_lent),
             "total_lent_historical": float(total_lent_historical),
             "total_borrowed": float(total_borrowed),
+            "total_borrowed_closed": float(total_borrowed_closed),
             "principal_outstanding": float(total_principal_outstanding),
             "active_loans_count": active_loans_count,
             "total_loans_count": len(loans_given) + len(loans_taken),

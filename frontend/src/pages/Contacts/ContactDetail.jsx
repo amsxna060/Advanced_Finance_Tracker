@@ -131,6 +131,7 @@ export default function ContactDetail() {
   /* helper: net position */
   const netPosition =
     (summary?.total_lent || 0) - (summary?.total_borrowed || 0);
+  const totalBorrowedClosed = summary?.total_borrowed_closed || 0;
   const collateralCoverage =
     summary?.principal_outstanding > 0
       ? (
@@ -363,6 +364,8 @@ export default function ContactDetail() {
                 iconColor="text-rose-600"
                 label="Total Borrowed"
                 value={formatCurrency(summary?.total_borrowed || 0)}
+                sub={totalBorrowedClosed > 0 ? `+ ${formatCurrency(totalBorrowedClosed)} settled` : undefined}
+                subMuted
               />
               <MiniStat
                 icon={Wallet}
@@ -753,7 +756,7 @@ function ObligationsSection({ obligations, navigate }) {
   );
 }
 
-function MiniStat({ icon: Icon, iconBg, iconColor, label, value, sub }) {
+function MiniStat({ icon: Icon, iconBg, iconColor, label, value, sub, subMuted }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4 flex items-center gap-3">
       <div
@@ -768,7 +771,7 @@ function MiniStat({ icon: Icon, iconBg, iconColor, label, value, sub }) {
         <p className="text-base font-extrabold text-slate-800 truncate">
           {value}
         </p>
-        {sub && <p className="text-[10px] text-slate-400">{sub}</p>}
+        {sub && <p className={`text-[10px] ${subMuted ? "text-slate-400 italic" : "text-slate-400"}`}>{sub}</p>}
       </div>
     </div>
   );
