@@ -1,13 +1,13 @@
 """Add interest_calc_method to loans table
 
-Revision ID: 024_loan_interest_calc_method
-Revises: 023_all_tables_raw_sql
+Revision ID: 031_loan_interest_calc_method
+Revises: 030_add_penalty_per_day
 Create Date: 2026-05-04
 """
 from alembic import op
 
-revision = "024_loan_interest_calc_method"
-down_revision = "023_all_tables_raw_sql"
+revision = "031_loan_interest_calc_method"
+down_revision = "030_add_penalty_per_day"
 branch_labels = None
 depends_on = None
 
