@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
@@ -200,7 +200,12 @@ def list_beesis(
     q = db.query(Beesi).filter(Beesi.is_deleted == False)
     if status:
         q = q.filter(Beesi.status == status)
-    beesis = q.order_by(Beesi.start_date.desc()).all()
+    beesis = (q.options(
+        selectinload(Beesi.installments),
+        selectinload(Beesi.withdrawals),
+        joinedload(Beesi.contact),
+        joinedload(Beesi.account),
+    ).order_by(Beesi.start_date.desc()).all())
     return [_beesi_dict(b) for b in beesis]
 
 
@@ -241,7 +246,13 @@ def create_beesi(
 
 
 def _get_or_404(beesi_id: int, db: Session) -> Beesi:
-    beesi = db.query(Beesi).filter(Beesi.id == beesi_id, Beesi.is_deleted == False).first()
+    beesi = (db.query(Beesi).filter(Beesi.id == beesi_id, Beesi.is_deleted == False)
+             .options(
+                 selectinload(Beesi.installments),
+                 selectinload(Beesi.withdrawals),
+                 joinedload(Beesi.contact),
+                 joinedload(Beesi.account),
+             ).first())
     if not beesi:
         raise HTTPException(status_code=404, detail="Beesi not found")
     return beesi

@@ -292,15 +292,19 @@ def get_partnerships(
 
     partnerships = query.order_by(Partnership.created_at.desc()).offset(skip).limit(limit).all()
 
-    # Populate our_share_percentage from self-member when not explicitly set on the partnership
-    for p in partnerships:
-        if not p.our_share_percentage:
-            self_member = db.query(PartnershipMember).filter(
-                PartnershipMember.partnership_id == p.id,
-                PartnershipMember.is_self == True,
-            ).first()
-            if self_member and self_member.share_percentage:
-                p.our_share_percentage = self_member.share_percentage
+    # Populate our_share_percentage from self-member — bulk-fetch to avoid N+1
+    needs_share = [p for p in partnerships if not p.our_share_percentage]
+    if needs_share:
+        ids = [p.id for p in needs_share]
+        self_members = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id.in_(ids),
+            PartnershipMember.is_self == True,
+        ).all()
+        self_member_map = {sm.partnership_id: sm for sm in self_members}
+        for p in needs_share:
+            sm = self_member_map.get(p.id)
+            if sm and sm.share_percentage:
+                p.our_share_percentage = sm.share_percentage
 
     return partnerships
 

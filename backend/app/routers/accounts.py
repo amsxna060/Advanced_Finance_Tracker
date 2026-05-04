@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
@@ -89,7 +89,9 @@ def list_accounts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).order_by(CashAccount.name).all()
+    accounts = (db.query(CashAccount).filter(CashAccount.is_deleted == False)
+                .options(selectinload(CashAccount.transactions))
+                .order_by(CashAccount.name).all())
     return [_account_dict(a) for a in accounts]
 
 

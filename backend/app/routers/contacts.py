@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import or_, func
 from typing import List, Optional
 from decimal import Decimal
@@ -15,7 +15,7 @@ from app.models.property_deal import PropertyDeal
 from app.models.partnership import Partnership, PartnershipMember
 from app.models.beesi import Beesi
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
-from app.services.interest import calculate_outstanding
+from app.services.interest import calculate_outstanding, calculate_outstanding_from_loan
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 
@@ -104,18 +104,18 @@ def get_contact(
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
     
-    # Calculate summary statistics
+    # Calculate summary statistics — eager-load payment history to avoid N+1
     loans_given = db.query(Loan).filter(
         Loan.contact_id == contact_id,
         Loan.loan_direction == "given",
         Loan.is_deleted == False
-    ).all()
-    
+    ).options(selectinload(Loan.payments), selectinload(Loan.capitalization_events)).all()
+
     loans_taken = db.query(Loan).filter(
         Loan.contact_id == contact_id,
         Loan.loan_direction == "taken",
         Loan.is_deleted == False
-    ).all()
+    ).options(selectinload(Loan.payments), selectinload(Loan.capitalization_events)).all()
     
     total_lent = sum(Decimal(str(loan.principal_amount)) for loan in loans_given)
     total_borrowed = sum(Decimal(str(loan.principal_amount)) for loan in loans_taken)
@@ -132,7 +132,7 @@ def get_contact(
         if loan.status != "active":
             continue
         try:
-            out = calculate_outstanding(loan.id, today, db)
+            out = calculate_outstanding_from_loan(loan, today)
             outstanding_map[loan.id] = out
             pout = Decimal(str(out.get("principal_outstanding", 0)))
             iout = Decimal(str(out.get("interest_outstanding", 0)))
@@ -203,7 +203,7 @@ def get_contact(
                 ),
             ).order_by(PropertyDeal.created_at.desc()).all()
         ],
-        # Partnerships where contact is a member
+        # Partnerships where contact is a member — joinedload avoids lazy per-member query
         "partnerships": [
             {
                 "id": pm.partnership.id,
@@ -213,7 +213,7 @@ def get_contact(
             }
             for pm in db.query(PartnershipMember).filter(
                 PartnershipMember.contact_id == contact_id
-            ).all()
+            ).options(joinedload(PartnershipMember.partnership)).all()
             if pm.partnership and not pm.partnership.is_deleted
         ],
         # Beesis linked to this contact
