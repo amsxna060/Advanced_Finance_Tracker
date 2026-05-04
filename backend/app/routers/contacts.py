@@ -117,16 +117,20 @@ def get_contact(
         Loan.is_deleted == False
     ).options(selectinload(Loan.payments), selectinload(Loan.capitalization_events)).all()
     
-    total_lent = sum(Decimal(str(loan.principal_amount)) for loan in loans_given)
+    # total_lent = active given loans only (original principal, not capitalised)
+    total_lent = sum(
+        Decimal(str(loan.principal_amount)) for loan in loans_given if loan.status == "active"
+    )
+    total_lent_historical = sum(Decimal(str(loan.principal_amount)) for loan in loans_given)
     total_borrowed = sum(Decimal(str(loan.principal_amount)) for loan in loans_taken)
 
     active_loans_count = len([l for l in loans_given + loans_taken if l.status == "active"])
 
-    # Calculate outstanding interest due and overdue across all active loans for this contact
+    # Calculate outstanding + gross interest across all active loans for this contact
     today = date.today()
-    total_interest_due = Decimal("0")
+    total_interest_accrued_gross = Decimal("0")  # total interest generated (incl. capitalised)
     total_overdue = Decimal("0")
-    total_principal_outstanding = Decimal("0")  # sum of current outstanding principals
+    total_principal_outstanding = Decimal("0")
     outstanding_map = {}
     for loan in loans_given + loans_taken:
         if loan.status != "active":
@@ -136,8 +140,9 @@ def get_contact(
             outstanding_map[loan.id] = out
             pout = Decimal(str(out.get("principal_outstanding", 0)))
             iout = Decimal(str(out.get("interest_outstanding", 0)))
+            gross = Decimal(str(out.get("gross_interest_accrued", iout)))
             total_principal_outstanding += pout
-            total_interest_due += iout
+            total_interest_accrued_gross += gross
             total_overdue += pout + iout
         except Exception:
             pass
@@ -157,11 +162,12 @@ def get_contact(
         "contact": ContactOut.model_validate(contact),
         "summary": {
             "total_lent": float(total_lent),
+            "total_lent_historical": float(total_lent_historical),
             "total_borrowed": float(total_borrowed),
             "principal_outstanding": float(total_principal_outstanding),
             "active_loans_count": active_loans_count,
             "total_loans_count": len(loans_given) + len(loans_taken),
-            "total_interest_due": float(total_interest_due),
+            "total_interest_due": float(total_interest_accrued_gross),
             "total_outstanding": float(total_overdue),
             "total_collateral_value": float(total_collateral),
         },

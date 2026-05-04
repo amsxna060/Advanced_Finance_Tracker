@@ -197,17 +197,19 @@ def get_loan(
     emi_interest_summary = None
     if loan.loan_type == "emi":
         schedule = get_emi_schedule_with_payments(loan, db)
-        # Calculate EMI interest summary
+        # Calculate EMI interest summary with reducing-balance rate + amortization
         if loan.principal_amount and loan.emi_amount and loan.tenure_months:
             from decimal import Decimal as D
-            emi_interest_summary = calculate_emi_interest_summary(
+            raw = calculate_emi_interest_summary(
                 D(str(loan.principal_amount)),
                 D(str(loan.emi_amount)),
                 loan.tenure_months,
+                disbursed_date=loan.disbursed_date,
+                include_amortization=True,
             )
-            # Convert Decimal values to float for JSON serialization
             emi_interest_summary = {
-                k: float(v) for k, v in emi_interest_summary.items()
+                k: (float(v) if isinstance(v, Decimal) else v)
+                for k, v in raw.items()
             }
 
     return {
@@ -391,6 +393,11 @@ def record_payment(
         # Close the loan when principal is fully recovered.
         # Use a tolerance of ₹1 to handle minor rounding / calculation differences.
         if outstanding["principal_outstanding"] <= Decimal("1.00"):
+            profit = allocation.get("unallocated", Decimal("0"))
+            if profit > Decimal("0.50"):
+                profit_note = f" [Extra received as profit: ₹{float(profit):.2f}]"
+                new_payment.notes = (new_payment.notes or "") + profit_note
+                db.flush()
             loan.status = "closed"
             loan.actual_end_date = payment_date
             db.commit()

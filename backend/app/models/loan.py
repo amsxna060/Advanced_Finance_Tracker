@@ -36,6 +36,7 @@ class Loan(Base):
     emi_amount = Column(Numeric(15, 2))
     tenure_months = Column(Integer)
     emi_day_of_month = Column(Integer)
+    penalty_per_day = Column(Numeric(10, 2), nullable=True)  # ₹/day for late EMI
 
     # Interest capitalization
     capitalization_enabled = Column(Boolean, default=False)

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -16,6 +16,7 @@ import {
   FileText,
   Handshake,
   ChevronRight,
+  ChevronDown,
   PlusCircle,
   ExternalLink,
 } from "lucide-react";
@@ -174,7 +175,7 @@ export default function ContactDetail() {
       >
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
           <HeroStat
-            label="Total Given Out"
+            label="Active Principal Lent"
             value={formatCurrency(summary?.total_lent || 0)}
             accent="emerald"
           />
@@ -184,7 +185,7 @@ export default function ContactDetail() {
             accent="rose"
           />
           <HeroStat
-            label="Interest Accrued"
+            label="Interest Accrued (Gross)"
             value={formatCurrency(summary?.total_interest_due || 0)}
             accent="amber"
           />
@@ -352,8 +353,9 @@ export default function ContactDetail() {
                 icon={ArrowUpRight}
                 iconBg="bg-emerald-50"
                 iconColor="text-emerald-600"
-                label="Total Lent"
+                label="Active Lent"
                 value={formatCurrency(summary?.total_lent || 0)}
+                sub={summary?.total_lent_historical > summary?.total_lent ? `₹${(summary.total_lent_historical/100000).toFixed(1)}L total ever` : undefined}
               />
               <MiniStat
                 icon={ArrowDownLeft}
@@ -643,69 +645,12 @@ export default function ContactDetail() {
             </div>
           )}
 
-          {/* Obligations */}
+          {/* Obligations / Money Flow */}
           {obligations.length > 0 && (
-            <div>
-              <SectionHeader title="Money Flow" count={obligations.length}>
-                <button
-                  onClick={() => navigate("/obligations")}
-                  className="text-xs text-indigo-600 hover:underline"
-                >
-                  View all →
-                </button>
-              </SectionHeader>
-              <Card>
-                <CardBody className="space-y-2 !py-3">
-                  {obligations.map((item) => {
-                    const ob = item.obligation || item;
-                    const remaining =
-                      Number(ob.amount) - Number(ob.amount_settled || 0);
-                    const isReceivable = ob.obligation_type === "receivable";
-                    return (
-                      <div
-                        key={ob.id}
-                        className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 ${
-                          isReceivable
-                            ? "border-emerald-200 bg-emerald-50/50"
-                            : "border-rose-200 bg-rose-50/50"
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge
-                              variant={isReceivable ? "success" : "danger"}
-                            >
-                              {isReceivable ? "To Receive" : "To Pay"}
-                            </Badge>
-                            <StatusBadge status={ob.status} />
-                          </div>
-                          {ob.reason && (
-                            <p className="text-sm text-slate-600 mt-1 truncate">
-                              {ob.reason}
-                            </p>
-                          )}
-                          {ob.due_date && (
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              Due: {formatDate(ob.due_date)}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-right shrink-0">
-                          <div className="text-sm font-bold text-slate-800">
-                            {formatCurrency(ob.amount)}
-                          </div>
-                          {ob.status !== "settled" && remaining > 0 && (
-                            <div className="text-xs text-amber-600">
-                              {formatCurrency(remaining)} pending
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </CardBody>
-              </Card>
-            </div>
+            <ObligationsSection
+              obligations={obligations}
+              navigate={navigate}
+            />
           )}
         </div>
       </PageBody>
@@ -714,6 +659,99 @@ export default function ContactDetail() {
 }
 
 /* ── Sub-components ─────────────────────────────────── */
+
+function ObligationsSection({ obligations, navigate }) {
+  const [showSettled, setShowSettled] = useState(false);
+
+  const active = obligations.filter((item) => {
+    const ob = item.obligation || item;
+    return ob.status !== "settled";
+  });
+  const settled = obligations.filter((item) => {
+    const ob = item.obligation || item;
+    return ob.status === "settled";
+  });
+
+  const renderOb = (item, greyed = false) => {
+    const ob = item.obligation || item;
+    const remaining = Number(ob.amount) - Number(ob.amount_settled || 0);
+    const isReceivable = ob.obligation_type === "receivable";
+    return (
+      <div
+        key={ob.id}
+        className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 ${
+          greyed
+            ? "border-slate-200 bg-slate-50/60"
+            : isReceivable
+              ? "border-emerald-200 bg-emerald-50/50"
+              : "border-rose-200 bg-rose-50/50"
+        }`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={greyed ? "default" : isReceivable ? "success" : "danger"}>
+              {isReceivable ? "To Receive" : "To Pay"}
+            </Badge>
+            <StatusBadge status={ob.status} />
+          </div>
+          {ob.reason && (
+            <p className={`text-sm mt-1 truncate ${greyed ? "text-slate-400" : "text-slate-600"}`}>
+              {ob.reason}
+            </p>
+          )}
+          {ob.due_date && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              Due: {formatDate(ob.due_date)}
+            </p>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <div className={`text-sm font-bold ${greyed ? "text-slate-400" : "text-slate-800"}`}>
+            {formatCurrency(ob.amount)}
+          </div>
+          {!greyed && ob.status !== "settled" && remaining > 0 && (
+            <div className="text-xs text-amber-600">
+              {formatCurrency(remaining)} pending
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Money Flow" count={active.length}>
+        <button
+          onClick={() => navigate("/obligations")}
+          className="text-xs text-indigo-600 hover:underline"
+        >
+          View all →
+        </button>
+      </SectionHeader>
+      <Card>
+        <CardBody className="space-y-2 !py-3">
+          {active.length === 0 && (
+            <p className="text-sm text-slate-400 text-center py-2">No active money flow</p>
+          )}
+          {active.map((item) => renderOb(item, false))}
+          {settled.length > 0 && (
+            <button
+              onClick={() => setShowSettled((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors mt-1 w-full"
+            >
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform ${showSettled ? "rotate-180" : ""}`}
+              />
+              {showSettled ? "Hide" : "Show"} {settled.length} settled
+            </button>
+          )}
+          {showSettled && settled.map((item) => renderOb(item, true))}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
 
 function MiniStat({ icon: Icon, iconBg, iconColor, label, value, sub }) {
   return (

@@ -48,6 +48,46 @@ def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start
     return principal * monthly_rate
 
 
+def _solve_emi_monthly_rate(principal: Decimal, emi: Decimal, tenure: int) -> Decimal:
+    """Solve for monthly rate r in EMI = P*r*(1+r)^n / ((1+r)^n-1) via binary search."""
+    if emi * tenure <= principal or principal <= Decimal("0") or emi <= Decimal("0"):
+        return Decimal("0")
+    lo, hi = Decimal("0.00001"), Decimal("10.0")
+    for _ in range(80):
+        mid = (lo + hi) / Decimal("2")
+        factor = (Decimal("1") + mid) ** tenure
+        denom = factor - Decimal("1")
+        if denom <= Decimal("0"):
+            lo = mid
+            continue
+        computed_emi = principal * mid * factor / denom
+        if computed_emi < emi:
+            lo = mid
+        else:
+            hi = mid
+    return ((lo + hi) / Decimal("2")).quantize(Decimal("0.0000001"))
+
+
+def _generate_emi_amortization(principal: Decimal, emi: Decimal, tenure: int, monthly_r: Decimal) -> List[Dict]:
+    """Reducing-balance amortization: per-EMI breakdown of interest vs principal."""
+    outstanding = principal
+    result = []
+    for i in range(1, tenure + 1):
+        if monthly_r > Decimal("0"):
+            interest_comp = (outstanding * monthly_r).quantize(Decimal("0.01"))
+        else:
+            interest_comp = Decimal("0")
+        principal_comp = min((emi - interest_comp).quantize(Decimal("0.01")), outstanding)
+        outstanding = max(outstanding - principal_comp, Decimal("0"))
+        result.append({
+            "emi_number": i,
+            "interest_component": float(interest_comp),
+            "principal_component": float(principal_comp),
+            "outstanding_after": float(outstanding.quantize(Decimal("0.01"))),
+        })
+    return result
+
+
 def calculate_outstanding_from_loan(loan: "Loan", as_of_date: date) -> Dict[str, Decimal]:
     """Like calculate_outstanding but uses pre-loaded loan.payments and loan.capitalization_events.
 
@@ -90,6 +130,13 @@ def get_emi_schedule_preloaded(loan: "Loan") -> List[Dict[str, Any]]:
             status = "future" if is_future else "unpaid"
             paid_amount = Decimal("0")
             outstanding = emi_amount
+        penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
+        days_overdue = 0
+        penalty_accrued = 0.0
+        if status in ("unpaid", "partial") and due_date < today and penalty_per_day > 0:
+            days_overdue = (today - due_date).days
+            penalty_accrued = float((penalty_per_day * days_overdue).quantize(Decimal("0.01")))
+
         result.append({
             "emi_number": entry["emi_number"],
             "due_date": due_date,
@@ -98,6 +145,8 @@ def get_emi_schedule_preloaded(loan: "Loan") -> List[Dict[str, Any]]:
             "outstanding": float(outstanding),
             "status": status,
             "is_current_month": (due_date.year == today.year and due_date.month == today.month),
+            "days_overdue": days_overdue,
+            "penalty_accrued": penalty_accrued,
         })
     return result
 
@@ -173,6 +222,7 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
             "principal_outstanding": principal_outstanding,
             "interest_outstanding": interest_outstanding,
             "total_outstanding": total_remaining,
+            "gross_interest_accrued": max(total_interest, Decimal("0")),
             "as_of_date": as_of_date,
         }
 
@@ -211,6 +261,7 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
         }
 
     interest_accrued = Decimal("0")
+    gross_accrued = Decimal("0")  # total interest generated (regardless of capitalization)
 
     # Auto-capitalization: every cap_every months, unpaid interest rolls into principal
     cap_enabled = loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0
@@ -250,6 +301,7 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
 
         interest_accrued += mi
+        gross_accrued += mi
 
         if interest_paid_remaining >= mi:
             interest_paid_remaining -= mi
@@ -288,6 +340,7 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
         "principal_outstanding": principal_outstanding,
         "interest_outstanding": interest_outstanding,
         "total_outstanding": (principal_outstanding + interest_outstanding).quantize(Decimal("0.01")),
+        "gross_interest_accrued": gross_accrued.quantize(Decimal("0.01")),
         "as_of_date": as_of_date,
     }
 
@@ -368,22 +421,47 @@ def check_capitalization_due(loan: Loan, db: Session) -> Dict[str, Any]:
     }
 
 
-def calculate_emi_interest_summary(principal: Decimal, emi_amount: Decimal, tenure_months: int) -> dict:
+def calculate_emi_interest_summary(
+    principal: Decimal,
+    emi_amount: Decimal,
+    tenure_months: int,
+    disbursed_date: date = None,
+    include_amortization: bool = True,
+) -> dict:
     """
-    For EMI loans, calculate embedded interest and effective flat annual rate.
-    Returns: {total_repayment, total_interest_embedded, effective_annual_rate_pct}
+    For EMI loans: embedded interest, flat rate, reducing-balance (banking) rate,
+    per-EMI amortization schedule, and foreclose amount as of today.
     """
     total_repayment = emi_amount * tenure_months
-    total_interest = total_repayment - principal
+    total_interest = max(total_repayment - principal, Decimal("0"))
+
     if principal > 0 and tenure_months > 0:
         flat_monthly_rate = (total_interest / principal) / tenure_months
         flat_annual_rate = flat_monthly_rate * 12 * 100
     else:
         flat_annual_rate = Decimal("0")
+
+    monthly_r = _solve_emi_monthly_rate(principal, emi_amount, tenure_months)
+    effective_rb_rate = (monthly_r * 12 * 100).quantize(Decimal("0.01"))
+
+    amortization = []
+    foreclose_amount = float(principal)
+    if include_amortization and tenure_months <= 360:
+        amortization = _generate_emi_amortization(principal, emi_amount, tenure_months, monthly_r)
+        if disbursed_date:
+            today = date.today()
+            months_elapsed = max(0, (today.year - disbursed_date.year) * 12 + (today.month - disbursed_date.month))
+            idx = min(months_elapsed, len(amortization) - 1)
+            foreclose_amount = amortization[idx]["outstanding_after"] if amortization else float(principal)
+
     return {
         "total_repayment": total_repayment,
         "total_interest_embedded": total_interest,
-        "effective_annual_rate_pct": flat_annual_rate.quantize(Decimal("0.01"))
+        "effective_annual_rate_pct": flat_annual_rate.quantize(Decimal("0.01")),
+        "effective_rb_rate_pct": effective_rb_rate,
+        "monthly_rate_pct": (monthly_r * 100).quantize(Decimal("0.0001")),
+        "foreclose_amount": foreclose_amount,
+        "amortization": amortization,
     }
 
 
@@ -448,6 +526,13 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
                 paid_amount = Decimal("0")
                 outstanding = emi_amount
 
+        penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
+        days_overdue = 0
+        penalty_accrued = 0.0
+        if status in ("unpaid", "partial") and due_date < today and penalty_per_day > 0:
+            days_overdue = (today - due_date).days
+            penalty_accrued = float((penalty_per_day * days_overdue).quantize(Decimal("0.01")))
+
         result.append({
             "emi_number": entry["emi_number"],
             "due_date": due_date,
@@ -456,6 +541,8 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
             "outstanding": float(outstanding),
             "status": status,
             "is_current_month": (due_date.year == today.year and due_date.month == today.month),
+            "days_overdue": days_overdue,
+            "penalty_accrued": penalty_accrued,
         })
 
     return result
@@ -545,7 +632,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 break
 
             days = (p_end - p_start).days
-            monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
+            is_current = days < full_days
+            if is_current:
+                monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days)
+            else:
+                monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
 
             if interest_paid_remaining >= monthly_interest:
                 paid = monthly_interest
@@ -560,9 +651,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
                 status = "unpaid"
 
             outstanding = monthly_interest - paid
-            is_current = days < full_days
             full_end_incl = p_start + relativedelta(months=1) - timedelta(days=1)
-            month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
+            if is_current:
+                month_label = f"{p_start.strftime('%d %b')} – {today.strftime('%d %b %Y')} (in progress)"
+            else:
+                month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
 
             entries.append({
                 "month": p_start.strftime("%Y-%m-%d"),
@@ -622,7 +715,12 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
 
         month_count += 1
         days = (p_end - p_start).days
-        monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
+        is_current = days < full_days
+        # Prorate interest to actual days elapsed for the ongoing period
+        if is_current:
+            monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days)
+        else:
+            monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
 
         if interest_paid_remaining >= monthly_interest:
@@ -641,9 +739,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             unpaid_interest_carried += monthly_interest
 
         outstanding = monthly_interest - paid
-        is_current = days < full_days
         full_end_incl = p_start + relativedelta(months=1) - timedelta(days=1)
-        month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
+        if is_current:
+            month_label = f"{p_start.strftime('%d %b')} – {today.strftime('%d %b %Y')} (in progress)"
+        else:
+            month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
 
         entry = {
             "month": p_start.strftime("%Y-%m-%d"),

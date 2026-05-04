@@ -27,6 +27,7 @@ class LoanCreate(BaseModel):
     emi_amount: Optional[Decimal] = None
     tenure_months: Optional[int] = None
     emi_day_of_month: Optional[int] = None
+    penalty_per_day: Optional[Decimal] = None
     capitalization_enabled: bool = False
     capitalization_after_months: Optional[int] = None
     institution_name: Optional[str] = None
@@ -49,6 +50,7 @@ class LoanUpdate(BaseModel):
     emi_amount: Optional[Decimal] = None
     tenure_months: Optional[int] = None
     emi_day_of_month: Optional[int] = None
+    penalty_per_day: Optional[Decimal] = None
     capitalization_enabled: Optional[bool] = None
     capitalization_after_months: Optional[int] = None
     institution_name: Optional[str] = None
@@ -75,6 +77,7 @@ class LoanOut(BaseModel):
     emi_amount: Optional[Decimal]
     tenure_months: Optional[int]
     emi_day_of_month: Optional[int]
+    penalty_per_day: Optional[Decimal] = None
     capitalization_enabled: bool
     capitalization_after_months: Optional[int]
     last_capitalization_date: Optional[date]
