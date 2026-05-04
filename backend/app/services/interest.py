@@ -36,6 +36,48 @@ def _build_monthly_periods(start_date: date, end_date: date) -> List[Tuple[date,
     return periods
 
 
+def _build_banking_periods(disburse_date: date, today: date) -> List[Tuple[date, date, int, date]]:
+    """
+    Calendar-month periods for banking-mode (actual/365) loans.
+    - Period 0 : disburse_date  → last day of disbursement month  (partial first month)
+    - Period 1+: 1st of month   → last day of each calendar month
+    - Current incomplete month  : 1st → today
+    Returns: (p_start, p_end_excl_actual, full_period_days, payment_due_date)
+    payment_due_date = last day of the calendar month the period belongs to.
+    """
+    periods: List[Tuple[date, date, int, date]] = []
+
+    # ── Period 0: disbursement date → end of that calendar month ──
+    disburse_month_last = date(
+        disburse_date.year, disburse_date.month,
+        calendar.monthrange(disburse_date.year, disburse_date.month)[1],
+    )
+    p_end_full_excl = disburse_month_last + timedelta(days=1)
+    full_days_0 = (p_end_full_excl - disburse_date).days
+    actual_end_excl_0 = min(p_end_full_excl, today + timedelta(days=1))
+    if (actual_end_excl_0 - disburse_date).days > 0:
+        periods.append((disburse_date, actual_end_excl_0, full_days_0, disburse_month_last))
+
+    if today <= disburse_month_last:
+        return periods
+
+    # ── Subsequent calendar months: 1st → last ──
+    cur_1st = date(disburse_date.year, disburse_date.month, 1) + relativedelta(months=1)
+    while cur_1st <= today:
+        month_last = date(
+            cur_1st.year, cur_1st.month,
+            calendar.monthrange(cur_1st.year, cur_1st.month)[1],
+        )
+        p_end_full_excl = month_last + timedelta(days=1)
+        full_days = (p_end_full_excl - cur_1st).days
+        actual_end_excl = min(p_end_full_excl, today + timedelta(days=1))
+        if (actual_end_excl - cur_1st).days > 0:
+            periods.append((cur_1st, actual_end_excl, full_days, month_last))
+        cur_1st += relativedelta(months=1)
+
+    return periods
+
+
 def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start: date, days: int, full_period_days: int = 0, banking: bool = False) -> Decimal:
     """
     Calculate interest for a period.
@@ -693,6 +735,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
 
     principal = Decimal(str(loan.principal_amount))
     rate = Decimal(str(loan.interest_rate or 0))
+    banking_mode = getattr(loan, 'interest_calc_method', 'commercial') == 'banking_365'
     cap_enabled = loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0
     cap_every = loan.capitalization_after_months or 0
 
@@ -718,71 +761,140 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     )
     pr_idx = 0
 
-    # Build disbursement-date-anchored monthly periods
-    periods = _build_monthly_periods(interest_start, today)
-    for p_start, p_end, full_days in periods:
-        # Apply principal reductions that took effect by or before this period start
-        while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
-            principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
-            pr_idx += 1
+    if banking_mode:
+        # ── Banking mode: calendar-month aligned periods ──
+        raw_periods = _build_banking_periods(interest_start, today)
+        for p_start, p_end_excl_actual, full_days, pay_due in raw_periods:
+            while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
+                principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
+                pr_idx += 1
 
-        # If principal is fully repaid, stop generating future interest rows/caps.
-        if principal <= Decimal("0"):
-            break
+            if principal <= Decimal("0"):
+                break
 
-        month_count += 1
-        days = (p_end - p_start).days
-        is_current = days < full_days
-        # Prorate interest to actual days elapsed for the ongoing period
-        if is_current:
-            monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days)
-        else:
-            monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
-        is_cap_month = cap_enabled and (month_count % cap_every == 0)
+            month_count += 1
+            days = (p_end_excl_actual - p_start).days
+            is_current = days < full_days
 
-        if interest_paid_remaining >= monthly_interest:
-            paid = monthly_interest
-            interest_paid_remaining -= monthly_interest
-            status = "paid"
-            unpaid_interest_carried = Decimal("0")
-        elif interest_paid_remaining > 0:
-            paid = interest_paid_remaining
-            interest_paid_remaining = Decimal("0")
-            status = "partial"
-            unpaid_interest_carried += (monthly_interest - paid)
-        else:
-            paid = Decimal("0")
-            status = "unpaid"
-            unpaid_interest_carried += monthly_interest
+            monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days, banking=True)
+            is_cap_month = cap_enabled and (month_count % cap_every == 0)
 
-        outstanding = monthly_interest - paid
-        full_end_incl = p_start + relativedelta(months=1) - timedelta(days=1)
-        if is_current:
-            month_label = f"{p_start.strftime('%d %b')} – {today.strftime('%d %b %Y')} (in progress)"
-        else:
-            month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
+            if interest_paid_remaining >= monthly_interest:
+                paid = monthly_interest
+                interest_paid_remaining -= monthly_interest
+                status = "paid"
+                unpaid_interest_carried = Decimal("0")
+            elif interest_paid_remaining > 0:
+                paid = interest_paid_remaining
+                interest_paid_remaining = Decimal("0")
+                status = "partial"
+                unpaid_interest_carried += (monthly_interest - paid)
+            else:
+                paid = Decimal("0")
+                status = "unpaid"
+                unpaid_interest_carried += monthly_interest
 
-        entry = {
-            "month": p_start.strftime("%Y-%m-%d"),
-            "month_label": month_label,
-            "interest_due": float(monthly_interest),
-            "interest_paid": float(paid),
-            "interest_outstanding": float(outstanding),
-            "status": status,
-            "is_current_month": is_current,
-            "capitalized": False,
-        }
+            outstanding = monthly_interest - paid
 
-        # At end of cap cycle: unpaid interest rolls into principal for next cycle
-        if is_cap_month and unpaid_interest_carried > Decimal("0") and not is_current:
-            capitalized_amount = unpaid_interest_carried
-            entry["capitalized"] = True
-            entry["capitalized_amount"] = float(capitalized_amount)
-            entry["new_principal_after"] = float(principal + capitalized_amount)
-            principal = principal + capitalized_amount
-            unpaid_interest_carried = Decimal("0")
-            month_count = 0  # reset cycle counter
+            # Labels: first partial period uses actual dates; full months use "MMM YYYY"
+            period_end_incl = p_end_excl_actual - timedelta(days=1)
+            if is_current:
+                month_label = f"{p_start.strftime('%d %b')} – {today.strftime('%d %b %Y')} (in progress)"
+            elif p_start.day != 1:
+                # first partial month
+                month_label = f"{p_start.strftime('%d %b')} – {period_end_incl.strftime('%d %b %Y')}"
+            else:
+                month_label = period_end_incl.strftime("%B %Y")
 
-        entries.append(entry)
+            entry = {
+                "month": p_start.strftime("%Y-%m-%d"),
+                "month_label": month_label,
+                "payment_due_date": pay_due.strftime("%d %b %Y"),
+                "interest_due": float(monthly_interest),
+                "interest_paid": float(paid),
+                "interest_outstanding": float(outstanding),
+                "status": status,
+                "is_current_month": is_current,
+                "capitalized": False,
+            }
+
+            if is_cap_month and unpaid_interest_carried > Decimal("0") and not is_current:
+                entry["capitalized"] = True
+                entry["capitalized_amount"] = float(unpaid_interest_carried)
+                entry["new_principal_after"] = float(principal + unpaid_interest_carried)
+                principal += unpaid_interest_carried
+                unpaid_interest_carried = Decimal("0")
+                month_count = 0
+
+            entries.append(entry)
+
+    else:
+        # ── Commercial mode: disbursement-date-anchored monthly periods ──
+        raw_periods = _build_monthly_periods(interest_start, today)
+        for p_start, p_end_excl_actual, full_days in raw_periods:
+            while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
+                principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
+                pr_idx += 1
+
+            if principal <= Decimal("0"):
+                break
+
+            month_count += 1
+            days = (p_end_excl_actual - p_start).days
+            is_current = days < full_days
+
+            if is_current:
+                monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days)
+            else:
+                monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
+
+            is_cap_month = cap_enabled and (month_count % cap_every == 0)
+
+            if interest_paid_remaining >= monthly_interest:
+                paid = monthly_interest
+                interest_paid_remaining -= monthly_interest
+                status = "paid"
+                unpaid_interest_carried = Decimal("0")
+            elif interest_paid_remaining > 0:
+                paid = interest_paid_remaining
+                interest_paid_remaining = Decimal("0")
+                status = "partial"
+                unpaid_interest_carried += (monthly_interest - paid)
+            else:
+                paid = Decimal("0")
+                status = "unpaid"
+                unpaid_interest_carried += monthly_interest
+
+            outstanding = monthly_interest - paid
+            full_end_incl = p_start + relativedelta(months=1) - timedelta(days=1)
+            # Payment is due on the same day as disbursement, the month after the period ends
+            pay_due_commercial = p_start + relativedelta(months=1)
+
+            if is_current:
+                month_label = f"{p_start.strftime('%d %b')} – {today.strftime('%d %b %Y')} (in progress)"
+            else:
+                month_label = f"{p_start.strftime('%d %b')} – {full_end_incl.strftime('%d %b %Y')}"
+
+            entry = {
+                "month": p_start.strftime("%Y-%m-%d"),
+                "month_label": month_label,
+                "payment_due_date": pay_due_commercial.strftime("%d %b %Y"),
+                "interest_due": float(monthly_interest),
+                "interest_paid": float(paid),
+                "interest_outstanding": float(outstanding),
+                "status": status,
+                "is_current_month": is_current,
+                "capitalized": False,
+            }
+
+            if is_cap_month and unpaid_interest_carried > Decimal("0") and not is_current:
+                entry["capitalized"] = True
+                entry["capitalized_amount"] = float(unpaid_interest_carried)
+                entry["new_principal_after"] = float(principal + unpaid_interest_carried)
+                principal += unpaid_interest_carried
+                unpaid_interest_carried = Decimal("0")
+                month_count = 0
+
+            entries.append(entry)
 
     return entries

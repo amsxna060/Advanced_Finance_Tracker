@@ -758,6 +758,11 @@ function LoanDetail() {
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 uppercase">
                             Status
                           </th>
+                          {loan.loan_type === "interest_only" && (
+                            <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 uppercase">
+                              Pay By
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -814,6 +819,11 @@ function LoanDetail() {
                                   </span>
                                 )}
                               </td>
+                              {loan.loan_type === "interest_only" && (
+                                <td className="px-4 py-2.5 text-xs text-slate-400 whitespace-nowrap">
+                                  {entry.payment_due_date || "—"}
+                                </td>
+                              )}
                             </tr>
                             {entry.capitalized && (
                               <tr
