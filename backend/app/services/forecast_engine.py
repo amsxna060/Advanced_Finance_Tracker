@@ -43,7 +43,7 @@ from decimal import Decimal
 from collections import defaultdict
 from typing import Optional, Dict, List, Tuple
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.models.loan import Loan
 from app.models.obligation import MoneyObligation
@@ -52,8 +52,8 @@ from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.forecast_override import ForecastOverride
 from app.models.recurring_transaction import RecurringTransaction, RecurringFrequency
 from app.services.interest import (
-    calculate_outstanding,
-    get_emi_schedule_with_payments,
+    calculate_outstanding_from_loan,
+    get_emi_schedule_preloaded,
     _calc_period_interest,
 )
 
@@ -166,7 +166,7 @@ def _entity_for_loan(loan: Loan) -> Tuple[str, str, Optional[str]]:
 
 def _loan_inflow_items(
     loan: Loan, today: date, from_dt: date, to_dt: date,
-    last_pay: Dict[int, date], db: Session,
+    last_pay: Dict[int, date],
 ) -> List[dict]:
     items: List[dict] = []
     entity_key, entity_name, entity_url = _entity_for_loan(loan)
@@ -188,7 +188,7 @@ def _loan_inflow_items(
     }
 
     if loan.loan_type == "emi":
-        schedule = get_emi_schedule_with_payments(loan, db)
+        schedule = get_emi_schedule_preloaded(loan)
         for entry in schedule:
             dd: date = entry["due_date"]
             if entry["status"] == "paid":
@@ -222,7 +222,7 @@ def _loan_inflow_items(
             return items
 
         # 1) overdue interest (always shown, single row)
-        outstanding = calculate_outstanding(loan.id, today, db)
+        outstanding = calculate_outstanding_from_loan(loan, today)
         overdue = outstanding["interest_outstanding"]
         if overdue > _ZERO:
             items.append({**base,
@@ -312,7 +312,7 @@ def _loan_inflow_items(
     return items
 
 
-def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db: Session) -> List[dict]:
+def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date) -> List[dict]:
     """Loans we have *taken* — strict obligations, always 'high' confidence."""
     items: List[dict] = []
     entity_key, entity_name, entity_url = _entity_for_loan(loan)
@@ -333,7 +333,7 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
     }
 
     if loan.loan_type == "emi":
-        schedule = get_emi_schedule_with_payments(loan, db)
+        schedule = get_emi_schedule_preloaded(loan)
         for entry in schedule:
             dd: date = entry["due_date"]
             if entry["status"] == "paid":
@@ -362,7 +362,7 @@ def _loan_outflow_items(loan: Loan, today: date, from_dt: date, to_dt: date, db:
             return items
         principal = _D(loan.principal_amount)
 
-        outstanding = calculate_outstanding(loan.id, today, db)
+        outstanding = calculate_outstanding_from_loan(loan, today)
         overdue = outstanding["interest_outstanding"]
         if overdue > _ZERO:
             items.append({**base,
@@ -761,7 +761,9 @@ def _compute_totals(items: List[dict]) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _compute_balances(db: Session, account_ids: Optional[List[int]] = None) -> dict:
-    query = db.query(CashAccount).filter(CashAccount.is_deleted == False)
+    query = db.query(CashAccount).filter(CashAccount.is_deleted == False).options(
+        selectinload(CashAccount.transactions)
+    )
     if account_ids:
         query = query.filter(CashAccount.id.in_(account_ids))
     accounts = query.all()
@@ -887,9 +889,16 @@ def build_forecast(
     period_key = current_period_key(today)
     selected_accounts = account_ids if account_ids else None
 
-    active_loans = db.query(Loan).filter(
-        Loan.is_deleted == False, Loan.status == "active",
-    ).all()
+    active_loans = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(
+            selectinload(Loan.payments),
+            selectinload(Loan.capitalization_events),
+            joinedload(Loan.contact),
+        )
+        .all()
+    )
 
     # Filter loans by selected accounts (if any): include loans with no account OR matching account
     if selected_accounts:
@@ -904,18 +913,31 @@ def build_forecast(
 
     items: List[dict] = []
     for loan in loans_given:
-        items.extend(_loan_inflow_items(loan, today, from_date, to_date, last_pay, db))
+        items.extend(_loan_inflow_items(loan, today, from_date, to_date, last_pay))
     for loan in loans_taken:
-        items.extend(_loan_outflow_items(loan, today, from_date, to_date, db))
+        items.extend(_loan_outflow_items(loan, today, from_date, to_date))
 
-    obls = db.query(MoneyObligation).filter(
-        MoneyObligation.is_deleted == False,
-        MoneyObligation.status.in_(["pending", "partial"]),
-    ).all()
+    obls = (
+        db.query(MoneyObligation)
+        .filter(
+            MoneyObligation.is_deleted == False,
+            MoneyObligation.status.in_(["pending", "partial"]),
+        )
+        .options(joinedload(MoneyObligation.contact))
+        .all()
+    )
     for obl in obls:
         items.extend(_obligation_items(obl, today, from_date, to_date))
 
-    beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active").all()
+    beesis = (
+        db.query(Beesi)
+        .filter(Beesi.is_deleted == False, Beesi.status == "active")
+        .options(
+            selectinload(Beesi.installments),
+            joinedload(Beesi.contact),
+        )
+        .all()
+    )
     for b in beesis:
         items.extend(_beesi_outflow_items(b, today, from_date, to_date))
 
