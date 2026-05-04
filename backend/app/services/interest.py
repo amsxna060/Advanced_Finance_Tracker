@@ -577,15 +577,17 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
         LoanPayment.loan_id == loan.id
     ).order_by(LoanPayment.payment_date.asc()).all()
 
-    # Build cumulative payment timeline to find per-EMI effective coverage dates
-    # cum_timeline[i] = (payment_date, cumulative_amount_paid_up_to_and_including_this_payment)
+    # Build cumulative payment timeline to find per-EMI effective coverage dates.
+    # IMPORTANT: penalty_paid is a separate charge — it must NOT count toward EMI coverage.
+    # cum_timeline[i] = (payment_date, cumulative_emi_portion_paid_up_to_this_payment)
     cum_timeline: List[tuple] = []
     running = Decimal("0")
     for p in payments:
-        running += Decimal(str(p.amount_paid))
+        emi_portion = Decimal(str(p.amount_paid)) - Decimal(str(p.penalty_paid or 0))
+        running += max(emi_portion, Decimal("0"))
         cum_timeline.append((p.payment_date, running))
 
-    # Also build a map: for each EMI slot (1-indexed), find the date cumulative first >= slot * emi_amount
+    # For each EMI slot (1-indexed), find the date cumulative first >= slot * emi_amount
     def effective_coverage_date(emi_n: int):
         threshold = emi_n * emi_amount
         for pdate, cum in cum_timeline:
@@ -594,12 +596,15 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
         return None
 
     # Penalty actually collected per EMI (from penalty_paid on payments)
-    # We attribute penalty_paid proportionally by chronological order — simply sum all penalty_paid
-    # and track remaining to distribute to the EMI rows in order (same carry-forward approach)
+    # Attribute via carry-forward in chronological order
     total_penalty_collected = sum(Decimal(str(p.penalty_paid or 0)) for p in payments)
     penalty_collected_remaining = total_penalty_collected
 
-    total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
+    # credit_balance = only the EMI portions (penalty excluded)
+    total_paid = sum(
+        max(Decimal(str(p.amount_paid)) - Decimal(str(p.penalty_paid or 0)), Decimal("0"))
+        for p in payments
+    )
 
     result = []
     credit_balance = total_paid
