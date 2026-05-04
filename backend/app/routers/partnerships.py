@@ -290,7 +290,19 @@ def get_partnerships(
             )
         )
 
-    return query.order_by(Partnership.created_at.desc()).offset(skip).limit(limit).all()
+    partnerships = query.order_by(Partnership.created_at.desc()).offset(skip).limit(limit).all()
+
+    # Populate our_share_percentage from self-member when not explicitly set on the partnership
+    for p in partnerships:
+        if not p.our_share_percentage:
+            self_member = db.query(PartnershipMember).filter(
+                PartnershipMember.partnership_id == p.id,
+                PartnershipMember.is_self == True,
+            ).first()
+            if self_member and self_member.share_percentage:
+                p.our_share_percentage = self_member.share_percentage
+
+    return partnerships
 
 
 @router.post("", response_model=PartnershipOut)

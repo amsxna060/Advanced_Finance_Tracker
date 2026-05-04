@@ -12,15 +12,12 @@ function isPastDue(p) {
 }
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
-function PotCard({ p, onClick, myView }) {
+function PotCard({ p, onClick }) {
   const pastDue = isPastDue(p);
   const invested  = parseFloat(p.our_investment || 0);
   const share     = parseFloat(p.our_share_percentage || 0);
   const received  = parseFloat(p.total_received || 0);
   const dealValue = parseFloat(p.total_deal_value || 0);
-  // My View: scale to user's equity portion
-  const myCapital  = share > 0 ? invested * (share / 100) : invested;
-  const myReceived = share > 0 ? received * (share / 100) : received;
 
   const chipCls = p.status === "active"
     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -64,18 +61,17 @@ function PotCard({ p, onClick, myView }) {
         {/* financials grid */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-0.5">{myView ? "My Capital" : "Capital In"}</p>
-            <p className="text-sm font-bold text-indigo-600 font-mono tabular-nums">{formatCurrency(myView ? myCapital : invested)}</p>
-            {myView && share > 0 && <p className="text-[9px] text-slate-500 mt-0.5">{share}% of {formatCurrency(invested)}</p>}
+            <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-0.5">Capital In</p>
+            <p className="text-sm font-bold text-indigo-600 font-mono tabular-nums">{formatCurrency(invested)}</p>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
             <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-0.5">Deal Value</p>
             <p className="text-sm font-bold text-slate-600 font-mono tabular-nums">{dealValue ? formatCurrency(dealValue) : "—"}</p>
           </div>
           <div className={`border rounded-xl p-3 ${received > 0 ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
-            <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-0.5">{myView ? "My Received" : "Received"}</p>
+            <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-0.5">Received</p>
             <p className={`text-sm font-bold font-mono tabular-nums ${received > 0 ? "text-emerald-700" : "text-slate-500"}`}>
-              {formatCurrency(myView ? myReceived : received)}
+              {formatCurrency(received)}
             </p>
           </div>
           <div className={`border rounded-xl p-3 ${share > 0 ? "bg-violet-50 border-violet-200" : "bg-slate-50 border-slate-200"}`}>
@@ -110,7 +106,6 @@ export default function PartnershipList() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const [myView, setMyView] = useState(false);
 
   const { data: partnerships = [], isLoading } = useQuery({
     queryKey: ["partnerships", { search, status }],
@@ -130,13 +125,6 @@ export default function PartnershipList() {
     return { total: partnerships.length, active: active.length, activeInvested, totalReceived, pendingSettlement };
   }, [partnerships]);
 
-  // My-view: scale active capital by equity share
-  const displayInvested = myView
-    ? partnerships
-        .filter((p) => p.status === "active")
-        .reduce((s, p) => s + parseFloat(p.our_investment || 0) * (parseFloat(p.our_share_percentage || 100) / 100), 0)
-    : stats.activeInvested;
-
   if (isLoading) return <PageSkeleton />;
 
   return (
@@ -145,31 +133,13 @@ export default function PartnershipList() {
         title="Partnerships"
         subtitle={`Real estate investment pools · ${stats.total} total`}
         actions={
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setMyView((v) => !v)}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-semibold transition-all ${
-                myView
-                  ? "bg-white/20 text-white border border-white/30"
-                  : "text-indigo-200/80 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-              {myView ? "My View ✓" : "My View"}
-            </button>
-            <Button variant="white" size="sm" onClick={() => navigate("/partnerships/new")}>
-              + New Partnership
-            </Button>
-          </div>
+          <Button variant="white" size="sm" onClick={() => navigate("/partnerships/new")}>
+            + New Partnership
+          </Button>
         }
       >
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <HeroStat
-            label={myView ? "My Active Capital" : "Active Capital"}
-            value={formatCurrency(displayInvested)}
-            accent="indigo"
-            sub={myView ? "scaled to your equity share" : undefined}
-          />
+          <HeroStat label="Active Capital" value={formatCurrency(stats.activeInvested)} accent="indigo" />
           <HeroStat label="Active Pots" value={stats.active} accent="emerald" sub={`${stats.total} total`} />
           <HeroStat label="Total Received" value={formatCurrency(stats.totalReceived)} accent="teal" />
           <HeroStat
@@ -226,7 +196,7 @@ export default function PartnershipList() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {partnerships.map((p) => (
-              <PotCard key={p.id} p={p} myView={myView} onClick={() => navigate(`/partnerships/${p.id}`)} />
+              <PotCard key={p.id} p={p} onClick={() => navigate(`/partnerships/${p.id}`)} />
             ))}
           </div>
         )}
