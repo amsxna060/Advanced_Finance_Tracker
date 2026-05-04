@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
+import { PageHero, HeroStat, PageBody, PageSkeleton, Button } from "../../components/ui";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function isPastDue(p) {
@@ -136,68 +137,51 @@ export default function PartnershipList() {
         .reduce((s, p) => s + parseFloat(p.our_investment || 0) * (parseFloat(p.our_share_percentage || 100) / 100), 0)
     : stats.activeInvested;
 
+  if (isLoading) return <PageSkeleton />;
+
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-200 px-6 pt-7 pb-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <button
-                onClick={() => navigate("/dashboard")}
-                className="text-slate-400 hover:text-slate-700 text-xs flex items-center gap-1 mb-2 transition-colors"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-                Dashboard
-              </button>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Partnerships</h1>
-              <p className="text-slate-500 text-sm mt-0.5">Real estate investment pools · {stats.total} total</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setMyView((v) => !v)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${myView ? "bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                My View
-              </button>
-              <button
-                onClick={() => navigate("/partnerships/new")}
-                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-500/20 text-sm"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                New Partnership
-              </button>
-            </div>
+      <PageHero
+        title="Partnerships"
+        subtitle={`Real estate investment pools · ${stats.total} total`}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMyView((v) => !v)}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-semibold transition-all ${
+                myView
+                  ? "bg-white/20 text-white border border-white/30"
+                  : "text-indigo-200/80 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+              {myView ? "My View ✓" : "My View"}
+            </button>
+            <Button variant="white" size="sm" onClick={() => navigate("/partnerships/new")}>
+              + New Partnership
+            </Button>
           </div>
-
-          {/* Stat tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">{myView ? "My Active Capital" : "Active Capital"}</p>
-              <p className="text-indigo-600 text-xl font-bold mt-1 font-mono tabular-nums">{formatCurrency(displayInvested)}</p>
-              {myView && <p className="text-slate-500 text-[10px] mt-0.5">scaled to your equity share</p>}
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Active Pots</p>
-              <p className="text-slate-900 text-xl font-bold mt-1">{stats.active}</p>
-              <p className="text-slate-500 text-[10px] mt-0.5">{stats.total} total</p>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Total Received</p>
-              <p className="text-emerald-700 text-xl font-bold mt-1 font-mono tabular-nums">{formatCurrency(stats.totalReceived)}</p>
-            </div>
-            <div className={`rounded-2xl p-4 border ${stats.pendingSettlement > 0 ? "bg-amber-50 border-amber-200" : "bg-white border-slate-200"}`}>
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Pending Settlement</p>
-              <p className={`text-xl font-bold mt-1 ${stats.pendingSettlement > 0 ? "text-amber-700" : "text-slate-900"}`}>{stats.pendingSettlement}</p>
-              <p className="text-slate-500 text-[10px] mt-0.5">past expected end date</p>
-            </div>
-          </div>
+        }
+      >
+        <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <HeroStat
+            label={myView ? "My Active Capital" : "Active Capital"}
+            value={formatCurrency(displayInvested)}
+            accent="indigo"
+            sub={myView ? "scaled to your equity share" : undefined}
+          />
+          <HeroStat label="Active Pots" value={stats.active} accent="emerald" sub={`${stats.total} total`} />
+          <HeroStat label="Total Received" value={formatCurrency(stats.totalReceived)} accent="teal" />
+          <HeroStat
+            label="Pending Settlement"
+            value={stats.pendingSettlement}
+            accent={stats.pendingSettlement > 0 ? "amber" : "slate"}
+            sub="past expected end date"
+          />
         </div>
-      </div>
+      </PageHero>
 
-      {/* ── Body ── */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <PageBody className="space-y-5">
         {/* Filters */}
         <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[180px]">
@@ -228,11 +212,7 @@ export default function PartnershipList() {
         </div>
 
         {/* List */}
-        {isLoading ? (
-          <div className="flex justify-center py-16">
-            <div className="animate-spin rounded-full h-10 w-10 border-2 border-slate-200 border-t-indigo-500" />
-          </div>
-        ) : partnerships.length === 0 ? (
+        {partnerships.length === 0 ? (
           <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-16 text-center">
             <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-200 flex items-center justify-center mx-auto mb-4">
               <svg className="w-7 h-7 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
@@ -250,7 +230,7 @@ export default function PartnershipList() {
             ))}
           </div>
         )}
-      </div>
+      </PageBody>
     </div>
   );
 }

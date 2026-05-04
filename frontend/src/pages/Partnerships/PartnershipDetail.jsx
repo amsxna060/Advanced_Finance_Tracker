@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
-import { PageBody } from "../../components/ui";
+import { PageHero, HeroStat, PageBody, PageSkeleton, Button } from "../../components/ui";
 
 const TXN_TYPE_LABELS = {
   advance_to_seller: "Advance to Seller",
@@ -507,21 +507,18 @@ export default function PartnershipDetail() {
     return events;
   }, [_transactions, _partnership, _isSettled]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-slate-200 border-t-indigo-500"></div>
-      </div>
-    );
-  }
+  if (isLoading) return <PageSkeleton />;
 
   if (isError || !data?.partnership) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-slate-500 mb-4">Partnership not found.</p>
-          <button onClick={() => navigate("/partnerships")} className="text-indigo-600 hover:underline">← Back to Partnerships</button>
-        </div>
+      <div className="min-h-screen bg-slate-50">
+        <PageHero title="Partnership not found" backTo="/partnerships" compact />
+        <PageBody>
+          <div className="flex flex-col items-center justify-center py-24">
+            <p className="text-slate-500 mb-4">Partnership not found or failed to load.</p>
+            <Button variant="ghost" onClick={() => navigate("/partnerships")}>← Back to Partnerships</Button>
+          </div>
+        </PageBody>
       </div>
     );
   }
@@ -593,75 +590,53 @@ export default function PartnershipDetail() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-
-      {/* ── Hero ── */}
-      <div className="bg-white border-b border-slate-200 px-6 pt-8 pb-6">
-        <div className="max-w-5xl mx-auto">
-          {/* Top row */}
-          <div className="flex items-start justify-between gap-3 mb-6">
-            <div>
-              <button onClick={() => navigate("/partnerships")} className="text-slate-400 hover:text-slate-700 text-xs flex items-center gap-1 mb-2 transition-colors">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-                Partnerships
-              </button>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl font-bold text-slate-900">{partnership.title}</h1>
-                <span className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border ${partnership.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
-                  {partnership.status}
-                </span>
-                {(() => {
-                  const isPastDue = partnership.expected_end_date && partnership.status === "active" && new Date(partnership.expected_end_date) < new Date();
-                  return isPastDue && <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">⏰ Pending Settlement</span>;
-                })()}
-              </div>
-              <p className="text-slate-400 text-sm mt-1">{members.length} partner{members.length !== 1 ? "s" : ""} · {transactions.length} transaction{transactions.length !== 1 ? "s" : ""}</p>
+      <PageHero
+        title={partnership.title}
+        subtitle={`${partnership.status.charAt(0).toUpperCase() + partnership.status.slice(1)} · ${members.length} partner${members.length !== 1 ? "s" : ""} · ${transactions.length} transaction${transactions.length !== 1 ? "s" : ""}`}
+        backTo="/partnerships"
+        actions={
+          <>
+            <button
+              onClick={() => setMyViewMode(v => !v)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-semibold transition-all ${myViewMode ? "bg-white/20 text-white border border-white/30" : "text-indigo-200/80 hover:bg-white/10 hover:text-white"}`}
+              title={`Toggle to see your ${selfShare}% share`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+              {myViewMode ? `My ${selfShare}%` : "My View"}
+            </button>
+            <button onClick={handleWhatsAppShare} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors" title="Share WhatsApp Status Report">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+              Share
+            </button>
+            <Button variant="white" size="sm" onClick={() => navigate(`/partnerships/${id}/edit`)}>Edit</Button>
+            <Button variant="white" size="sm" onClick={() => { if (window.confirm("Delete this partnership and all its data?")) deletePartnershipMutation.mutate(); }}>Delete</Button>
+          </>
+        }
+      >
+        {(() => {
+          const isPastDue = partnership.expected_end_date && partnership.status === "active" && new Date(partnership.expected_end_date) < new Date();
+          return isPastDue ? (
+            <div className="mt-3 mb-1">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 animate-pulse">⏰ Pending Settlement</span>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-              {/* My View toggle */}
-              <button
-                onClick={() => setMyViewMode(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${myViewMode ? "bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
-                title={`Toggle to see your ${selfShare}% share`}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                {myViewMode ? `My ${selfShare}%` : "My View"}
-              </button>
-              {/* WhatsApp */}
-              <button onClick={handleWhatsAppShare} className="flex items-center gap-1.5 px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-green-500/20" title="Share WhatsApp Status Report">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
-                Share
-              </button>
-              <button onClick={() => navigate(`/partnerships/${id}/edit`)} className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-sm font-medium border border-slate-200 transition-colors">
-                Edit
-              </button>
-              <button onClick={() => { if (window.confirm("Delete this partnership and all its data?")) deletePartnershipMutation.mutate(); }} className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-sm font-medium border border-rose-200 transition-colors">
-                Delete
-              </button>
-            </div>
-          </div>
-
-          {/* KPI tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Total Invested</p>
-              <p className="text-slate-900 text-xl font-bold mt-1 font-mono tabular-nums">{formatCurrency(myViewMode ? myActualInvestment : totalOutflow)}</p>
-              {myViewMode && <p className="text-slate-500 text-[10px]">your direct contribution</p>}
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Total Inflow</p>
-              <p className="text-emerald-700 text-xl font-bold mt-1 font-mono tabular-nums">{formatCurrency(scale(totalInflow))}</p>
-            </div>
-            <div className={`rounded-2xl p-4 border ${netPnl >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200"}`}>
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Net P&L</p>
-              <p className={`text-xl font-bold mt-1 font-mono tabular-nums ${netPnl >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(myViewMode ? myNetPnl : netPnl)}</p>
-            </div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Your Share</p>
-              <p className="text-violet-700 text-xl font-bold mt-1 font-mono">{selfShare > 0 ? `${selfShare}%` : "—"}</p>
-            </div>
-          </div>
+          ) : null;
+        })()}
+        <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <HeroStat
+            label={myViewMode ? "My Investment" : "Total Invested"}
+            value={formatCurrency(myViewMode ? myActualInvestment : totalOutflow)}
+            accent="indigo"
+            sub={myViewMode ? "your direct contribution" : undefined}
+          />
+          <HeroStat label="Total Inflow" value={formatCurrency(scale(totalInflow))} accent="emerald" />
+          <HeroStat
+            label="Net P&L"
+            value={formatCurrency(myViewMode ? myNetPnl : netPnl)}
+            accent={netPnl >= 0 ? "emerald" : "rose"}
+          />
+          <HeroStat label="Your Share" value={selfShare > 0 ? `${selfShare}%` : "—"} accent="violet" />
         </div>
-      </div>
+      </PageHero>
 
       <PageBody>
         <div className="space-y-5">
@@ -701,7 +676,7 @@ export default function PartnershipDetail() {
                         setTxnForm(p => ({ ...p, txn_type: "remaining_to_seller", amount: String(outstanding) }));
                         setShowTxnForm(true);
                       }}
-                      className="px-3 py-1.5 bg-purple-600 text-slate-900 rounded-xl text-xs font-semibold hover:bg-purple-700 transition-colors shadow-sm"
+                      className="px-3 py-1.5 bg-violet-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700 transition-colors shadow-sm"
                     >
                       + Record Payment
                     </button>
@@ -789,7 +764,7 @@ export default function PartnershipDetail() {
                           <div className="flex items-start justify-between mb-3">
                             <div>
                               <span className="text-sm font-bold text-slate-900">{name}</span>
-                              {m.member?.is_self && <span className="ml-1.5 text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold border border-indigo-200">YOU</span>}
+                              {m.member?.is_self && <span className="ml-1.5 text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full font-semibold border border-indigo-200">YOU</span>}
                               {m.contact?.phone && <p className="text-xs text-slate-400 mt-0.5">{m.contact.phone}</p>}
                             </div>
                             <div className="text-right">
@@ -803,7 +778,7 @@ export default function PartnershipDetail() {
                             <span className="text-slate-500">advance</span>
                             {expensesPaid > 0 && <>
                               <span className="text-slate-500">+</span>
-                              <span className="font-mono text-blue-400 bg-blue-500/10 rounded px-1.5 py-0.5 border border-blue-500/20">{formatCurrency(expensesPaid)}</span>
+                              <span className="font-mono text-blue-700 bg-blue-50 rounded px-1.5 py-0.5 border border-blue-200">{formatCurrency(expensesPaid)}</span>
                               <span className="text-slate-500">expenses</span>
                             </>}
                             {withdrawals > 0 && <>
@@ -842,15 +817,15 @@ export default function PartnershipDetail() {
                       if (queue.length === 0) return null;
                       return (
                         <div className="mt-3 pt-3 border-t border-slate-200 bg-rose-50 border border-rose-200 rounded-xl p-3">
-                          <p className="text-xs font-semibold text-rose-300 mb-2 flex items-center gap-1.5">
+                          <p className="text-xs font-semibold text-rose-700 mb-2 flex items-center gap-1.5">
                             <svg className="w-3.5 h-3.5 text-rose-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
                             ⚠ Reimbursement Queue <span className="font-normal text-rose-700/60">(out-of-pocket expenses before profit split)</span>
                           </p>
                           <div className="space-y-1.5">
                             {queue.map((r, i) => (
                               <div key={i} className="flex justify-between items-center bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                                <span className="text-sm text-rose-200 font-medium">{r.name}</span>
-                                <span className="text-sm font-bold font-mono text-rose-300">{formatCurrency(r.owed)} to reimburse</span>
+                                <span className="text-sm text-rose-700 font-medium">{r.name}</span>
+                                <span className="text-sm font-bold font-mono text-rose-700">{formatCurrency(r.owed)} to reimburse</span>
                               </div>
                             ))}
                           </div>
@@ -894,7 +869,7 @@ export default function PartnershipDetail() {
                     <h2 className="text-base font-bold text-slate-900">{isPlotDeal ? "Plot Subdivisions & Buyers" : "Site Plots & Buyers"}</h2>
                     {isActive && (
                       <div className="flex gap-2">
-                        <button onClick={() => { setShowAddPlotForm(!showAddPlotForm); setShowBuyerForm(false); }} className="px-3 py-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-xl text-sm hover:bg-blue-500/20">+ Add Plot</button>
+                        <button onClick={() => { setShowAddPlotForm(!showAddPlotForm); setShowBuyerForm(false); }} className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-sm hover:bg-blue-100">+ Add Plot</button>
                         <button onClick={() => { setShowBuyerForm(!showBuyerForm); setShowAddPlotForm(false); }} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm hover:bg-emerald-50">+ Quick Buyer</button>
                       </div>
                     )}
@@ -929,7 +904,7 @@ export default function PartnershipDetail() {
                       </InputField>
                       <div className="flex gap-2 justify-end">
                         <button onClick={() => setShowAddPlotForm(false)} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-                        <button onClick={handleAddPlot} disabled={addPlotMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-slate-900 rounded-xl text-sm font-medium hover:from-blue-600 hover:to-blue-700 shadow-sm active:scale-[0.98] disabled:opacity-50">
+                        <button onClick={handleAddPlot} disabled={addPlotMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl text-sm font-medium hover:from-blue-600 hover:to-blue-700 shadow-sm active:scale-[0.98] disabled:opacity-50">
                           {addPlotMutation.isPending ? "Adding..." : "Add Plot"}
                         </button>
                       </div>
@@ -963,7 +938,7 @@ export default function PartnershipDetail() {
                       </div>
                       <div className="flex gap-2 justify-end">
                         <button onClick={() => setShowBuyerForm(false)} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-                        <button onClick={handleCreateBuyer} disabled={!buyerForm.name.trim() || createBuyerMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-900 rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50">
+                        <button onClick={handleCreateBuyer} disabled={!buyerForm.name.trim() || createBuyerMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50">
                           {createBuyerMutation.isPending ? "Creating..." : "Create Buyer"}
                         </button>
                       </div>
@@ -994,7 +969,7 @@ export default function PartnershipDetail() {
                       )}
                       <div className="flex gap-2 justify-end">
                         <button onClick={() => { setAssigningBuyerTo(null); setAssignBuyerForm({ contact_id: "", name: "", phone: "", city: "" }); }} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-                        <button onClick={handleAssignBuyer} disabled={assignBuyerMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 rounded-xl text-sm font-medium hover:from-amber-600 hover:to-amber-700 shadow-sm active:scale-[0.98] disabled:opacity-50">
+                        <button onClick={handleAssignBuyer} disabled={assignBuyerMutation.isPending} className="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl text-sm font-medium hover:from-amber-600 hover:to-amber-700 shadow-sm active:scale-[0.98] disabled:opacity-50">
                           {assignBuyerMutation.isPending ? "Assigning..." : "Assign Buyer"}
                         </button>
                       </div>
@@ -1316,7 +1291,7 @@ export default function PartnershipDetail() {
 
                     <div className="flex gap-2 justify-end">
                       <button onClick={() => setShowTxnForm(false)} className="px-3 py-1.5 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-                      <button onClick={handleAddTxn} disabled={addTxnMutation.isPending || !txnForm.amount} className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-slate-900 rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                      <button onClick={handleAddTxn} disabled={addTxnMutation.isPending || !txnForm.amount} className="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
                         {addTxnMutation.isPending ? "Adding..." : "Add Transaction"}
                       </button>
                     </div>
@@ -1489,7 +1464,7 @@ export default function PartnershipDetail() {
                                         <div><label className="block text-xs text-slate-500 mb-0.5">Description</label><input type="text" value={editTxnForm.description} onChange={(e) => setEditTxnForm(p => ({ ...p, description: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 text-sm text-slate-700" /></div>
                                         <div className="flex gap-2 justify-end">
                                           <button onClick={() => { setEditingTxnId(null); setEditTxnForm(null); }} className="px-2 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium hover:bg-slate-200">Cancel</button>
-                                          <button onClick={handleUpdateTxn} disabled={updateTxnMutation.isPending} className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-slate-900 rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+                                          <button onClick={handleUpdateTxn} disabled={updateTxnMutation.isPending} className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-xs font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
                                             {updateTxnMutation.isPending ? "Saving..." : "Update"}
                                           </button>
                                         </div>
@@ -1713,7 +1688,7 @@ export default function PartnershipDetail() {
                   editPlotMutation.mutate({ type: editingPlot.type, plotId: editingPlot.id, payload });
                 }}
                 disabled={editPlotMutation.isPending}
-                className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-slate-900 rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
+                className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50"
               >
                 {editPlotMutation.isPending ? "Saving..." : "Save Changes"}
               </button>
@@ -1841,7 +1816,7 @@ export default function PartnershipDetail() {
                   closeDealMutation.mutate({ type: closeDealPlot.type, plotId: closeDealPlot.id, payload });
                 }}
                 disabled={closeDealMutation.isPending}
-                className="px-5 py-2 bg-gradient-to-r from-rose-500 to-rose-600 text-slate-900 rounded-xl text-sm font-medium hover:from-rose-600 hover:to-rose-700 shadow-sm shadow-rose-500/20 active:scale-[0.98] disabled:opacity-50"
+                className="px-5 py-2 bg-gradient-to-r from-rose-500 to-rose-600 text-white rounded-xl text-sm font-medium hover:from-rose-600 hover:to-rose-700 shadow-sm shadow-rose-500/20 active:scale-[0.98] disabled:opacity-50"
               >
                 {closeDealMutation.isPending ? "Closing..." : "Confirm Close Deal"}
               </button>
@@ -1882,7 +1857,7 @@ export default function PartnershipDetail() {
             </div>
             <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button onClick={() => setShowAddMemberModal(false)} className="px-4 py-2 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-              <button onClick={handleAddMember} disabled={addMemberMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-slate-900 rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+              <button onClick={handleAddMember} disabled={addMemberMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
                 {addMemberMutation.isPending ? "Adding..." : "Add Partner"}
               </button>
             </div>
@@ -1907,7 +1882,7 @@ export default function PartnershipDetail() {
             </div>
             <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button onClick={() => { setShowEditMemberModal(false); setEditMemberId(null); }} className="px-4 py-2 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-              <button onClick={handleEditMember} disabled={editMemberMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-slate-900 rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
+              <button onClick={handleEditMember} disabled={editMemberMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/20 active:scale-[0.98] disabled:opacity-50">
                 {editMemberMutation.isPending ? "Saving..." : "Save Changes"}
               </button>
             </div>
@@ -1977,7 +1952,7 @@ export default function PartnershipDetail() {
             </div>
             <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
               <button onClick={() => setShowSettleModal(false)} className="px-4 py-2 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-              <button onClick={handleSettle} disabled={settleMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-900 rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50">
+              <button onClick={handleSettle} disabled={settleMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50">
                 {settleMutation.isPending ? "Settling..." : "Confirm Settlement"}
               </button>
             </div>
