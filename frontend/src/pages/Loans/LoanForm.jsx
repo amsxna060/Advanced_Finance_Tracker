@@ -18,6 +18,7 @@ const normalizeLoanForForm = (loan) => ({
   emi_amount: loan.emi_amount ? String(loan.emi_amount) : "",
   tenure_months: loan.tenure_months ? String(loan.tenure_months) : "",
   emi_day: loan.emi_day_of_month ? String(loan.emi_day_of_month) : "1",
+  penalty_per_day: loan.penalty_per_day ? String(loan.penalty_per_day) : "",
   maturity_date: loan.expected_end_date || loan.maturity_date || "",
   interest_free_till: loan.interest_free_till || "",
   post_due_interest_rate: loan.post_due_interest_rate
@@ -59,6 +60,9 @@ const buildLoanPayload = (formData) => {
     payload.emi_amount = parseFloat(formData.emi_amount);
     payload.tenure_months = parseInt(formData.tenure_months, 10);
     payload.emi_day_of_month = parseInt(formData.emi_day, 10);
+    if (formData.penalty_per_day && parseFloat(formData.penalty_per_day) > 0) {
+      payload.penalty_per_day = parseFloat(formData.penalty_per_day);
+    }
   }
 
   if (formData.type === "short_term") {
@@ -104,6 +108,7 @@ function LoanForm() {
     emi_amount: "",
     tenure_months: "",
     emi_day: 1,
+    penalty_per_day: "",
 
     // Short Term fields
     maturity_date: "",
@@ -747,6 +752,29 @@ function LoanForm() {
                           )}
                         </div>
                       ))}
+                      {/* Penalty per day for late EMI */}
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-medium text-slate-700">
+                          Late Penalty (₹/day)
+                        </label>
+                        <input
+                          type="number"
+                          name="penalty_per_day"
+                          value={formData.penalty_per_day}
+                          onChange={handleChange}
+                          step="0.01"
+                          min="0"
+                          placeholder={
+                            formData.principal_amount
+                              ? `Default: ₹${Math.floor(parseFloat(formData.principal_amount || 0) / 9000) * 50}/day`
+                              : "e.g. 50"
+                          }
+                          className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/40 focus:border-rose-400 transition-all"
+                        />
+                        <p className="text-[10px] text-slate-400">
+                          Default: ₹50/day per ₹9,000 principal
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}
