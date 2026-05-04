@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -175,11 +175,11 @@ def _get_linked_partnership_data(property_id: int, db: Session) -> Optional[dict
         PartnershipMember.partnership_id == partnership.id,
     ).all()
 
+    contact_ids = [m.contact_id for m in members if m.contact_id]
+    contact_map = {c.id: c for c in db.query(Contact).filter(Contact.id.in_(contact_ids)).all()} if contact_ids else {}
     member_list = []
     for member in members:
-        contact = None
-        if member.contact_id:
-            contact = db.query(Contact).filter(Contact.id == member.contact_id).first()
+        contact = contact_map.get(member.contact_id)
         member_list.append({
             "member": PartnershipMemberOut.model_validate(member),
             "contact": ContactBrief.model_validate(contact) if contact else None,
@@ -205,12 +205,34 @@ def portfolio_stats(
     Liability = sum of (remaining_seller_amount × self_member.share_percentage).
     Properties without a linked partnership or self member are excluded.
     """
-    from app.models.partnership import Partnership
-
-    properties = db.query(PropertyDeal).filter(
-        PropertyDeal.is_deleted == False,
-        PropertyDeal.is_legacy == False,
-    ).all()
+    rows = db.execute(text("""
+        SELECT
+            pd.status,
+            pd.total_seller_value,
+            pd.advance_paid,
+            pd.net_profit,
+            pm.id            AS member_id,
+            pm.share_percentage,
+            pm.advance_contributed,
+            COALESCE(
+                SUM(pt.amount) FILTER (
+                    WHERE pt.txn_type IN ('expense', 'other_expense', 'kharcha')
+                    AND   pt.member_id = pm.id
+                ), 0
+            ) AS personal_expenses
+        FROM property_deals pd
+        LEFT JOIN partnerships p
+            ON  p.linked_property_deal_id = pd.id
+            AND p.is_deleted = FALSE
+        LEFT JOIN partnership_members pm
+            ON  pm.partnership_id = p.id
+            AND pm.is_self = TRUE
+        LEFT JOIN partnership_transactions pt
+            ON  pt.partnership_id = p.id
+        WHERE pd.is_deleted = FALSE
+          AND pd.is_legacy  = FALSE
+        GROUP BY pd.id, pm.id
+    """)).fetchall()
 
     my_capital = Decimal("0")
     my_liability = Decimal("0")
@@ -218,48 +240,22 @@ def portfolio_stats(
     active_count = 0
     included_count = 0
 
-    for prop in properties:
-        # Require a linked partnership with a self-member — otherwise exclude
-        partnership = db.query(Partnership).filter(
-            Partnership.linked_property_deal_id == prop.id,
-            Partnership.is_deleted == False,
-        ).first()
-        if not partnership:
+    for row in rows:
+        if row.member_id is None:   # no self-member → skip
             continue
-
-        self_m = db.query(PartnershipMember).filter(
-            PartnershipMember.partnership_id == partnership.id,
-            PartnershipMember.is_self == True,
-        ).first()
-        if not self_m:
-            continue
-
         included_count += 1
-        share_pct = _decimal(self_m.share_percentage) if self_m.share_percentage else Decimal("0")
-        adv_contributed = _decimal(self_m.advance_contributed) if self_m.advance_contributed else Decimal("0")
+        share_pct       = Decimal(str(row.share_percentage or 0))
+        adv_contributed = Decimal(str(row.advance_contributed or 0))
+        expenses        = Decimal(str(row.personal_expenses or 0))
+        total_seller    = Decimal(str(row.total_seller_value or 0))
+        remaining       = max(Decimal("0"), total_seller - Decimal(str(row.advance_paid or 0)))
 
-        # Personal expense contributions from PartnershipTransaction
-        personal_expenses = _decimal(
-            db.query(func.coalesce(func.sum(PartnershipTransaction.amount), 0))
-            .filter(
-                PartnershipTransaction.partnership_id == partnership.id,
-                PartnershipTransaction.member_id == self_m.id,
-                PartnershipTransaction.txn_type.in_(["expense", "other_expense", "kharcha"]),
-            )
-            .scalar()
-        )
-
-        total_seller = _decimal(prop.total_seller_value) if prop.total_seller_value else Decimal("0")
-        advance_paid = _decimal(prop.advance_paid)
-        remaining = max(Decimal("0"), total_seller - advance_paid)
-
-        if prop.status in _ACTIVE_STATUSES:
+        if row.status in _ACTIVE_STATUSES:
             active_count += 1
-            my_capital += adv_contributed + personal_expenses
+            my_capital   += adv_contributed + expenses
             my_liability += remaining * share_pct / Decimal("100")
-        elif prop.status == "settled":
-            net_profit = _decimal(prop.net_profit) if prop.net_profit else Decimal("0")
-            settled_profit += net_profit * share_pct / Decimal("100")
+        elif row.status == "settled":
+            settled_profit += Decimal(str(row.net_profit or 0)) * share_pct / Decimal("100")
 
     return {
         "my_capital": float(my_capital),

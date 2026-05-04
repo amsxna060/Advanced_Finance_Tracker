@@ -9,7 +9,7 @@ class Partnership(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
-    linked_property_deal_id = Column(Integer, ForeignKey("property_deals.id"))
+    linked_property_deal_id = Column(Integer, ForeignKey("property_deals.id"), index=True)
 
     total_deal_value = Column(Numeric(15, 2))
     our_investment = Column(Numeric(15, 2), default=0)
@@ -21,11 +21,11 @@ class Partnership(Base):
     expected_end_date = Column(Date)
     actual_end_date = Column(Date)
 
-    status = Column(String(30), default="active")  # active | settled | cancelled
+    status = Column(String(30), default="active", index=True)  # active | settled | cancelled
 
     notes = Column(Text)
-    is_deleted = Column(Boolean, default=False)
-    is_legacy = Column(Boolean, default=False)
+    is_deleted = Column(Boolean, default=False, index=True)
+    is_legacy = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -40,9 +40,9 @@ class PartnershipMember(Base):
     __tablename__ = "partnership_members"
 
     id = Column(Integer, primary_key=True, index=True)
-    partnership_id = Column(Integer, ForeignKey("partnerships.id"), nullable=False)
-    contact_id = Column(Integer, ForeignKey("contacts.id"))  # NULL if is_self = TRUE
-    is_self = Column(Boolean, default=False)
+    partnership_id = Column(Integer, ForeignKey("partnerships.id"), nullable=False, index=True)
+    contact_id = Column(Integer, ForeignKey("contacts.id"), index=True)  # NULL if is_self = TRUE
+    is_self = Column(Boolean, default=False, index=True)
     share_percentage = Column(Numeric(6, 3), nullable=False)
     advance_contributed = Column(Numeric(15, 2), default=0)
     total_received = Column(Numeric(15, 2), default=0)
@@ -57,9 +57,9 @@ class PartnershipTransaction(Base):
     __tablename__ = "partnership_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    partnership_id = Column(Integer, ForeignKey("partnerships.id"), nullable=False)
-    member_id = Column(Integer, ForeignKey("partnership_members.id"))
-    txn_type = Column(String(50), nullable=False)
+    partnership_id = Column(Integer, ForeignKey("partnerships.id"), nullable=False, index=True)
+    member_id = Column(Integer, ForeignKey("partnership_members.id"), index=True)
+    txn_type = Column(String(50), nullable=False, index=True)
     # advance_to_seller | remaining_to_seller | broker_commission | expense
     # buyer_advance | buyer_payment | profit_received
     # Legacy: invested | received | expense | profit_distributed | advance_given | broker_paid | buyer_payment_received | other_expense

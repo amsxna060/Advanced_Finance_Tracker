@@ -336,14 +336,15 @@ def get_partnership(
         PartnershipTransaction.partnership_id == partnership_id,
     ).order_by(PartnershipTransaction.txn_date.desc(), PartnershipTransaction.id.desc()).all()
 
+    contact_ids = [m.contact_id for m in members if m.contact_id]
+    contact_map = {c.id: c for c in db.query(Contact).filter(Contact.id.in_(contact_ids)).all()} if contact_ids else {}
     members_payload = []
     for member in members:
-        members_payload.append(
-            {
-                "member": PartnershipMemberOut.model_validate(member),
-                "contact": ContactBrief.model_validate(member.contact) if member.contact else None,
-            }
-        )
+        contact = contact_map.get(member.contact_id)
+        members_payload.append({
+            "member": PartnershipMemberOut.model_validate(member),
+            "contact": ContactBrief.model_validate(contact) if contact else None,
+        })
 
     # Get linked property data including buyers and plots
     linked_property = None

@@ -73,12 +73,12 @@ class PropertyDeal(Base):
     site_deal_end_date = Column(Date)
 
     # Status pipeline
-    status = Column(String(30), default="negotiating")
+    status = Column(String(30), default="negotiating", index=True)
     # negotiating | advance_given | buyer_found | registry_done | settled | cancelled
 
     notes = Column(Text)
-    is_deleted = Column(Boolean, default=False)
-    is_legacy = Column(Boolean, default=False)
+    is_deleted = Column(Boolean, default=False, index=True)
+    is_legacy = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -95,8 +95,8 @@ class PropertyTransaction(Base):
     __tablename__ = "property_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    property_deal_id = Column(Integer, ForeignKey("property_deals.id"), nullable=False)
-    txn_type = Column(String(50), nullable=False)
+    property_deal_id = Column(Integer, ForeignKey("property_deals.id"), nullable=False, index=True)
+    txn_type = Column(String(50), nullable=False, index=True)
     # advance_to_seller | payment_to_seller | received_from_buyer
     # commission_paid | expense | refund | sale_proceeds | other
     amount = Column(Numeric(15, 2), nullable=False)
