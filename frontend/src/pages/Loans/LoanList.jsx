@@ -49,7 +49,7 @@ function LoanList() {
   });
 
   const { data: loansData, isLoading } = useQuery({
-    queryKey: ["loans", filters],
+    queryKey: ["loans", { direction: filters.direction, type: filters.type, contact_id: filters.contact_id }],
     queryFn: async () => {
       const params = { limit: 500 };
       if (filters.direction) params.direction = filters.direction;
