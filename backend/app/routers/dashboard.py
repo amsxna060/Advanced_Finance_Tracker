@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -22,7 +22,7 @@ from app.models.property_deal import PropertyDeal, PropertyTransaction
 from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.user import User
 from app.models.obligation import MoneyObligation, ObligationSettlement
-from app.services.interest import calculate_outstanding, check_capitalization_due, _days_in_year, _calc_period_interest, get_emi_schedule_with_payments
+from app.services.interest import calculate_outstanding, check_capitalization_due, _days_in_year, _calc_period_interest, get_emi_schedule_with_payments, calculate_outstanding_from_loan, get_emi_schedule_preloaded
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -610,17 +610,27 @@ def get_dashboard_v2(
 
     _f = float  # shorthand Decimal → float
 
-    # ── All loans ────────────────────────────────────────────────────────
-    all_loans = db.query(Loan).filter(Loan.is_deleted == False).all()
+    # ── All loans — eager-load all relationships to avoid N+1 lazy loads ──
+    all_loans = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False)
+        .options(
+            selectinload(Loan.payments),
+            selectinload(Loan.capitalization_events),
+            selectinload(Loan.collaterals),
+            joinedload(Loan.contact),
+        )
+        .all()
+    )
     loans_given = [l for l in all_loans if l.loan_direction == "given"]
     loans_taken = [l for l in all_loans if l.loan_direction == "taken"]
 
-    # Pre-compute outstanding for every *active* loan (cache to avoid dup work)
+    # Pre-compute outstanding using pre-loaded data — zero extra DB queries
     outstanding_cache: Dict[int, dict] = {}
     for loan in all_loans:
         if loan.status == "active":
             try:
-                outstanding_cache[loan.id] = calculate_outstanding(loan.id, today, db)
+                outstanding_cache[loan.id] = calculate_outstanding_from_loan(loan, today)
             except Exception:
                 pass
 
@@ -724,6 +734,7 @@ def get_dashboard_v2(
     active_obligations = (
         db.query(MoneyObligation)
         .filter(MoneyObligation.is_deleted == False, MoneyObligation.status.in_(["pending", "partial"]))
+        .options(joinedload(MoneyObligation.contact))
         .all()
     )
     recv_total = recv_pending = pay_total = pay_pending = Decimal("0")
@@ -773,7 +784,12 @@ def get_dashboard_v2(
     # ── INVESTMENTS ──────────────────────────────────────────────────────
     properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled").all()
     partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
-    all_beesis = db.query(Beesi).filter(Beesi.is_deleted == False).all()
+    all_beesis = (
+        db.query(Beesi)
+        .filter(Beesi.is_deleted == False)
+        .options(selectinload(Beesi.installments), selectinload(Beesi.withdrawals))
+        .all()
+    )
 
     # Partnership-linked property IDs (advance counted via self_member, not property fields)
     _linked_prop_ids = {
@@ -785,27 +801,58 @@ def get_dashboard_v2(
         if p.linked_property_deal_id and p.status != "cancelled"
     }
 
-    # Property invested: use actual personal outflow transactions (never denormalized fields)
+    # Bulk-fetch all self-members for every partnership in one query
+    all_part_ids = [p.id for p in partnerships]
+    _self_members_all = db.query(PartnershipMember).filter(
+        PartnershipMember.partnership_id.in_(all_part_ids),
+        PartnershipMember.is_self == True,
+    ).all() if all_part_ids else []
+    _self_member_by_part = {sm.partnership_id: sm for sm in _self_members_all}
+
+    # Bulk-fetch personal received amounts for active (non-settled) standalone partnerships
+    _active_standalone_part_ids = [
+        p.id for p in partnerships
+        if p.status not in ("cancelled",) and not p.linked_property_deal_id
+        and p.status != "settled"
+        and _self_member_by_part.get(p.id)
+    ]
+    _self_member_ids = [_self_member_by_part[pid].id for pid in _active_standalone_part_ids if pid in _self_member_by_part]
+    _received_by_member: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    if _self_member_ids:
+        _recv_rows = db.query(
+            PartnershipTransaction.received_by_member_id,
+            func.coalesce(func.sum(PartnershipTransaction.amount), 0)
+        ).filter(
+            PartnershipTransaction.received_by_member_id.in_(_self_member_ids)
+        ).group_by(PartnershipTransaction.received_by_member_id).all()
+        for mid, total in _recv_rows:
+            _received_by_member[mid] = _decimal(total)
+
+    # Bulk-fetch personal outflow transactions for non-linked properties
+    _non_linked_prop_ids = [p.id for p in properties if p.id not in _linked_prop_ids]
+    _prop_outflow_by_id: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    if _non_linked_prop_ids:
+        _outflow_rows = db.query(
+            PropertyTransaction.property_deal_id,
+            func.coalesce(func.sum(PropertyTransaction.amount), 0)
+        ).filter(
+            PropertyTransaction.property_deal_id.in_(_non_linked_prop_ids),
+            PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+        ).group_by(PropertyTransaction.property_deal_id).all()
+        for pid, total in _outflow_rows:
+            _prop_outflow_by_id[pid] = _decimal(total)
+
+    # Property invested
     prop_invested = Decimal("0")
     for p in properties:
         if p.id in _linked_prop_ids:
             part = _prop_to_part.get(p.id)
             if part:
-                sm = db.query(PartnershipMember).filter(
-                    PartnershipMember.partnership_id == part.id,
-                    PartnershipMember.is_self == True,
-                ).first()
+                sm = _self_member_by_part.get(part.id)
                 if sm:
                     prop_invested += _decimal(sm.advance_contributed)
         else:
-            prop_invested += _decimal(
-                db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0))
-                .filter(
-                    PropertyTransaction.property_deal_id == p.id,
-                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
-                )
-                .scalar()
-            )
+            prop_invested += _prop_outflow_by_id[p.id]
     prop_profit = sum(_decimal(p.net_profit) for p in properties if p.net_profit)
 
     # Partnerships: exclude property-linked; use self_member contribution; compute net
@@ -816,25 +863,14 @@ def get_dashboard_v2(
     for p in partnerships:
         if p.status == "cancelled" or p.linked_property_deal_id:
             continue
-        sm = db.query(PartnershipMember).filter(
-            PartnershipMember.partnership_id == p.id,
-            PartnershipMember.is_self == True,
-        ).first()
+        sm = _self_member_by_part.get(p.id)
         if not sm:
-            continue  # no personal contribution record — skip to avoid using deal-level totals
+            continue
         inv = _decimal(sm.advance_contributed)
-        # For active deals use transaction records; settled deals use formal distribution total
         if p.status == "settled":
             rec = _decimal(sm.total_received)
         else:
-            rec = _decimal(
-                db.query(func.coalesce(func.sum(PartnershipTransaction.amount), 0))
-                .filter(
-                    PartnershipTransaction.partnership_id == p.id,
-                    PartnershipTransaction.received_by_member_id == sm.id,
-                )
-                .scalar()
-            )
+            rec = _received_by_member.get(sm.id, Decimal("0"))
         part_invested += inv
         part_received += rec
         net = inv - rec
@@ -856,7 +892,12 @@ def get_dashboard_v2(
     )
 
     # ── NET WORTH ────────────────────────────────────────────────────────
-    cash_accounts = db.query(CashAccount).filter(CashAccount.is_deleted == False).all()
+    cash_accounts = (
+        db.query(CashAccount)
+        .filter(CashAccount.is_deleted == False)
+        .options(selectinload(CashAccount.transactions))
+        .all()
+    )
     total_cash = Decimal("0")
     for acc in cash_accounts:
         bal = _decimal(acc.opening_balance)
@@ -887,7 +928,7 @@ def get_dashboard_v2(
 
         # 1) EMI alerts — check actual schedule, not just interest_due
         if loan.loan_type == "emi":
-            schedule = get_emi_schedule_with_payments(loan, db)
+            schedule = get_emi_schedule_preloaded(loan)
             has_overdue = False
             for entry in schedule:
                 if entry["status"] in ("unpaid", "partial") and entry["due_date"] < today:
@@ -944,8 +985,8 @@ def get_dashboard_v2(
                         "days_until": days_diff,
                     })
 
-        # 3) Collateral risk (>75%)
-        for col in db.query(Collateral).filter(Collateral.loan_id == loan.id).all():
+        # 3) Collateral risk (>75%) — use pre-loaded collaterals
+        for col in loan.collaterals:
             est = _decimal(col.estimated_value)
             if est > 0 and total_out > est * Decimal("0.75"):
                 pct = total_out / est * 100
@@ -1067,23 +1108,34 @@ def get_dashboard_v2(
         closed_profit += total_recv - princ
     closed_profit_pct = float(closed_profit / closed_principal * 100) if closed_principal > 0 else 0
 
-    # ── CASHFLOW (6 months) ──────────────────────────────────────────────
+    # ── CASHFLOW (6 months) — date-filtered to avoid full table scans ────
     month_buckets = _generate_months(6)
+    cashflow_start = month_buckets[0]   # first day of the oldest bucket
     inflow_map: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     outflow_map: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
 
-    for pay in db.query(LoanPayment).all():
-        key = _month_key(pay.payment_date)
-        loan_obj = pay.loan
-        if not loan_obj:
+    # Build direction map from already-loaded loans to avoid joining again
+    _loan_direction = {l.id: l.loan_direction for l in all_loans}
+
+    for pay in (
+        db.query(LoanPayment)
+        .filter(LoanPayment.payment_date >= cashflow_start)
+        .all()
+    ):
+        direction = _loan_direction.get(pay.loan_id)
+        if not direction:
             continue
         amt = _decimal(pay.amount_paid)
-        if loan_obj.loan_direction == "given":
-            inflow_map[key] += amt
+        if direction == "given":
+            inflow_map[_month_key(pay.payment_date)] += amt
         else:
-            outflow_map[key] += amt
+            outflow_map[_month_key(pay.payment_date)] += amt
 
-    for txn in db.query(PropertyTransaction).all():
+    for txn in (
+        db.query(PropertyTransaction)
+        .filter(PropertyTransaction.txn_date >= cashflow_start)
+        .all()
+    ):
         key = _month_key(txn.txn_date)
         amt = _decimal(txn.amount)
         if txn.txn_type in INFLOW_PROPERTY_TXN_TYPES:
@@ -1091,7 +1143,11 @@ def get_dashboard_v2(
         elif txn.txn_type in OUTFLOW_PROPERTY_TXN_TYPES:
             outflow_map[key] += amt
 
-    for txn in db.query(PartnershipTransaction).all():
+    for txn in (
+        db.query(PartnershipTransaction)
+        .filter(PartnershipTransaction.txn_date >= cashflow_start)
+        .all()
+    ):
         key = _month_key(txn.txn_date)
         amt = _decimal(txn.amount)
         if txn.txn_type in INFLOW_PARTNERSHIP_TXN_TYPES:
@@ -1099,7 +1155,11 @@ def get_dashboard_v2(
         elif txn.txn_type in OUTFLOW_PARTNERSHIP_TXN_TYPES:
             outflow_map[key] += amt
 
-    for exp in db.query(Expense).all():
+    for exp in (
+        db.query(Expense)
+        .filter(Expense.expense_date >= cashflow_start)
+        .all()
+    ):
         outflow_map[_month_key(exp.expense_date)] += _decimal(exp.amount)
 
     cashflow = []

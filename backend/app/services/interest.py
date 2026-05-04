@@ -48,6 +48,60 @@ def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start
     return principal * monthly_rate
 
 
+def calculate_outstanding_from_loan(loan: "Loan", as_of_date: date) -> Dict[str, Decimal]:
+    """Like calculate_outstanding but uses pre-loaded loan.payments and loan.capitalization_events.
+
+    Use this when the loan was fetched with selectinload(Loan.payments) and
+    selectinload(Loan.capitalization_events) — avoids all DB calls.
+    """
+    cap_events = [e for e in loan.capitalization_events if e.event_date <= as_of_date]
+    payments   = sorted(
+        [p for p in loan.payments if p.payment_date <= as_of_date],
+        key=lambda p: p.payment_date,
+    )
+    return _compute_outstanding(loan, as_of_date, cap_events, payments)
+
+
+def get_emi_schedule_preloaded(loan: "Loan") -> List[Dict[str, Any]]:
+    """Like get_emi_schedule_with_payments but uses pre-loaded loan.payments — no DB calls."""
+    schedule = generate_emi_schedule(loan)
+    if not schedule:
+        return []
+    today = date.today()
+    emi_amount = Decimal(str(loan.emi_amount))
+    payments = sorted(loan.payments, key=lambda p: p.payment_date)
+    total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
+    result = []
+    credit_balance = total_paid
+    for entry in schedule:
+        due_date = entry["due_date"]
+        is_future = due_date > today
+        if credit_balance >= emi_amount:
+            status = "paid" if not is_future else "paid"
+            paid_amount = emi_amount
+            outstanding = Decimal("0")
+            credit_balance -= emi_amount
+        elif credit_balance > 0:
+            status = "partial"
+            paid_amount = credit_balance
+            outstanding = emi_amount - credit_balance
+            credit_balance = Decimal("0")
+        else:
+            status = "future" if is_future else "unpaid"
+            paid_amount = Decimal("0")
+            outstanding = emi_amount
+        result.append({
+            "emi_number": entry["emi_number"],
+            "due_date": due_date,
+            "due_amount": float(emi_amount),
+            "paid_amount": float(paid_amount),
+            "outstanding": float(outstanding),
+            "status": status,
+            "is_current_month": (due_date.year == today.year and due_date.month == today.month),
+        })
+    return result
+
+
 def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[str, Decimal]:
     """
     Calculate the outstanding principal and interest for a loan as of a specific date.
@@ -57,14 +111,23 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
     if not loan:
         raise ValueError("Loan not found")
 
-    # Start with original principal
-    principal_outstanding = Decimal(str(loan.principal_amount))
-
-    # Apply all capitalization events (increases principal, resets interest calculation)
     cap_events = db.query(LoanCapitalizationEvent).filter(
         LoanCapitalizationEvent.loan_id == loan_id,
         LoanCapitalizationEvent.event_date <= as_of_date
     ).order_by(LoanCapitalizationEvent.event_date).all()
+
+    payments = db.query(LoanPayment).filter(
+        LoanPayment.loan_id == loan_id,
+        LoanPayment.payment_date <= as_of_date
+    ).order_by(LoanPayment.payment_date).all()
+
+    return _compute_outstanding(loan, as_of_date, cap_events, payments)
+
+
+def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[str, Decimal]:
+    """Core outstanding calculation using pre-fetched cap_events and payments lists."""
+    # Start with original principal
+    principal_outstanding = Decimal(str(loan.principal_amount))
 
     last_cap_date = loan.disbursed_date
     current_rate = Decimal(str(loan.interest_rate or 0))
@@ -74,12 +137,6 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
         last_cap_date = event.event_date
         if event.interest_rate_after:
             current_rate = Decimal(str(event.interest_rate_after))
-
-    # Get all payments
-    payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan_id,
-        LoanPayment.payment_date <= as_of_date
-    ).order_by(LoanPayment.payment_date).all()
 
     # Subtract all principal payments
     for payment in payments:
