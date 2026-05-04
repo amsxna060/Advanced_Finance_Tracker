@@ -19,7 +19,12 @@ from app.models.partnership import Partnership, PartnershipMember
 from app.models.beesi import Beesi
 from app.models.obligation import MoneyObligation
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
-from app.services.interest import calculate_outstanding, calculate_outstanding_from_loan
+from app.services.interest import (
+    calculate_outstanding,
+    calculate_outstanding_from_loan,
+    _solve_emi_monthly_rate,
+    _generate_emi_amortization,
+)
 
 
 class StatementRequest(BaseModel):
@@ -282,14 +287,13 @@ def generate_statement(
         dur_months = delta.months
         dur_days = delta.days
 
-        # Compute outstanding as of as_of_date using pre-loaded data
+        # Outstanding as of as_of_date using pre-loaded data
         out = calculate_outstanding_from_loan(loan, as_of)
         principal_outstanding = out.get("principal_outstanding", Decimal("0"))
         interest_outstanding = out.get("interest_outstanding", Decimal("0"))
         gross_interest = out.get("gross_interest_accrued", interest_outstanding)
-        total_outstanding = principal_outstanding + interest_outstanding
 
-        # Already paid = sum of payments up to as_of_date
+        # Payments up to as_of_date
         paid_before = [p for p in loan.payments if p.payment_date <= as_of]
         already_paid_principal = sum(Decimal(str(p.allocated_to_principal or 0)) for p in paid_before)
         already_paid_interest = sum(
@@ -297,15 +301,8 @@ def generate_statement(
             Decimal(str(p.allocated_to_overdue_interest or 0))
             for p in paid_before
         )
-        already_paid_total = already_paid_principal + already_paid_interest
-
-        # For short_term without interest rate, zero out interest fields
-        has_interest = bool(loan.interest_rate and Decimal(str(loan.interest_rate)) > 0) or \
-                       bool(getattr(loan, "post_due_interest_rate", None) and
-                            Decimal(str(loan.post_due_interest_rate)) > 0)
-
-        interest_accrued = float(gross_interest) if has_interest else 0.0
-        interest_out_display = float(interest_outstanding) if has_interest else 0.0
+        # For any loan type, total cash actually received up to as_of
+        total_cash_paid = sum(Decimal(str(p.amount_paid or 0)) for p in paid_before)
 
         type_label = {
             "interest_only": "Interest-Only Loan",
@@ -313,15 +310,16 @@ def generate_statement(
             "short_term": "Short-Term Loan",
         }.get(loan.loan_type, loan.loan_type.replace("_", " ").title())
 
-        loan_items.append({
+        item = {
             "loan_id": loan.id,
-            "label": f"{type_label} – ₹{int(float(loan.principal_amount)):,}",
+            "label": f"{type_label} - Rs.{int(float(loan.principal_amount)):,}",
             "loan_type": loan.loan_type,
             "direction": loan.loan_direction,
             "notes": loan.notes,
             "status": loan.status,
             "interest_rate": float(loan.interest_rate) if loan.interest_rate else None,
             "emi_amount": float(loan.emi_amount) if loan.emi_amount else None,
+            "tenure_months": loan.tenure_months,
             "start_date": start_date.isoformat() if start_date else None,
             "disbursed_date": loan.disbursed_date.isoformat() if loan.disbursed_date else None,
             "as_of_date": as_of.isoformat(),
@@ -329,15 +327,77 @@ def generate_statement(
             "duration_months": dur_months,
             "duration_days": dur_days,
             "principal_amount": float(loan.principal_amount),
-            "interest_accrued": interest_accrued,
-            "total_amount": float(loan.principal_amount) + interest_accrued,
-            "already_paid_principal": float(already_paid_principal),
-            "already_paid_interest": float(already_paid_interest),
-            "already_paid_total": float(already_paid_total),
+            "already_paid_total": float(total_cash_paid),
             "principal_outstanding": float(principal_outstanding),
-            "interest_outstanding": interest_out_display,
-            "total_outstanding": float(principal_outstanding) + interest_out_display,
-        })
+            "emi_foreclosure": None,
+        }
+
+        if loan.loan_type == "emi":
+            # EMI foreclosure as of as_of_date
+            principal = Decimal(str(loan.principal_amount))
+            emi_amount = Decimal(str(loan.emi_amount or 0))
+            tenure = loan.tenure_months or 0
+
+            monthly_r = _solve_emi_monthly_rate(principal, emi_amount, tenure)
+            amort = _generate_emi_amortization(principal, emi_amount, tenure, monthly_r)
+
+            # Count EMIs whose due date falls on or before as_of_date
+            disbursed = loan.disbursed_date
+            emis_due = sum(1 for i in range(1, tenure + 1)
+                           if disbursed and (disbursed + relativedelta(months=i)) <= as_of)
+
+            # Number actually paid = full EMIs covered by cash received
+            emis_paid_count = int(total_cash_paid // emi_amount) if emi_amount > 0 else 0
+            emis_paid_count = min(emis_paid_count, tenure)
+            emis_remaining = max(0, tenure - emis_paid_count)
+
+            # Remaining principal from amortization (after emis_paid_count EMIs)
+            if amort and emis_paid_count > 0:
+                rem_p = Decimal(str(amort[min(emis_paid_count, len(amort)) - 1]["outstanding_after"]))
+            else:
+                rem_p = principal
+
+            # Accrued interest from last EMI due date to as_of_date
+            if disbursed and emis_paid_count > 0:
+                last_due = disbursed + relativedelta(months=emis_paid_count)
+                days_elapsed = max(0, (as_of - last_due).days)
+            else:
+                days_elapsed = 0
+            annual_r = monthly_r * 12
+            accrued = (rem_p * annual_r * Decimal(str(days_elapsed)) / Decimal("365")).quantize(Decimal("0.01"))
+
+            # Processing fee: 2% of remaining principal
+            fee = (rem_p * Decimal("0.02")).quantize(Decimal("0.01"))
+            foreclose_total = rem_p + accrued + fee
+
+            effective_rb_rate = float((monthly_r * 12 * 100).quantize(Decimal("0.01"))) if monthly_r > 0 else None
+
+            item["emi_foreclosure"] = {
+                "emis_total": tenure,
+                "emis_paid": emis_paid_count,
+                "emis_remaining": emis_remaining,
+                "effective_rb_rate_pct": effective_rb_rate,
+                "foreclosure_principal": float(rem_p),
+                "foreclosure_accrued_interest": float(accrued),
+                "foreclosure_processing_fee": float(fee),
+                "foreclosure_amount": float(foreclose_total),
+            }
+            item["total_outstanding"] = float(foreclose_total)
+            item["interest_outstanding"] = float(accrued + fee)
+            item["interest_accrued"] = 0.0
+            item["total_amount"] = float(principal)
+        else:
+            has_interest = bool(loan.interest_rate and Decimal(str(loan.interest_rate)) > 0) or \
+                           bool(getattr(loan, "post_due_interest_rate", None) and
+                                Decimal(str(loan.post_due_interest_rate)) > 0)
+            item["interest_accrued"] = float(gross_interest) if has_interest else 0.0
+            item["interest_outstanding"] = float(interest_outstanding) if has_interest else 0.0
+            item["total_amount"] = float(loan.principal_amount) + (float(gross_interest) if has_interest else 0.0)
+            item["total_outstanding"] = float(principal_outstanding) + (float(interest_outstanding) if has_interest else 0.0)
+            item["already_paid_principal"] = float(already_paid_principal)
+            item["already_paid_interest"] = float(already_paid_interest)
+
+        loan_items.append(item)
 
     # Obligations
     obligation_items = []
