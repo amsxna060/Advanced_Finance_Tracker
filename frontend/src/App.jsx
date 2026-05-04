@@ -33,6 +33,7 @@ const ExpenseAnalytics = lazy(() => import("./pages/Analytics/ExpenseAnalytics")
 const Reconciliation = lazy(() => import("./pages/Analytics/Reconciliation"));
 const NetWorth = lazy(() => import("./pages/Analytics/NetWorth"));
 const PropertyAnalytics = lazy(() => import("./pages/Analytics/PropertyAnalytics"));
+const LoanAnalytics = lazy(() => import("./pages/Analytics/LoanAnalytics"));
 const BeesiList = lazy(() => import("./pages/Beesi/BeesiList"));
 const BeesiForm = lazy(() => import("./pages/Beesi/BeesiForm"));
 const BeesiDetail = lazy(() => import("./pages/Beesi/BeesiDetail"));
@@ -320,6 +321,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <PropertyAnalytics />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analytics/loans"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <LoanAnalytics />
                   </Layout>
                 </ProtectedRoute>
               }

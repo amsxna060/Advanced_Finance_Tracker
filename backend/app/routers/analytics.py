@@ -3475,3 +3475,293 @@ def get_anomalies(
         }
         for r in rows
     ]
+
+
+# ── LOAN PORTFOLIO ANALYTICS (loans given only) ──────────────────────────────
+#
+# Analyzes only loans the user has GIVEN (short_term, interest_only, EMI).
+# Anonymous — no borrower names, only loan IDs and types.
+# Provides: portfolio yield, type-wise breakdown, per-loan performance,
+# and monthly earnings trend for the last 12 months.
+
+@router.get("/loans-given")
+def analytics_loans_given(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Loan portfolio analytics for loans you have given.
+    Returns portfolio-level metrics, type-wise breakdown, per-loan performance,
+    and a 12-month monthly earnings trend.
+    """
+    today = date.today()
+
+    loans = (
+        db.query(Loan)
+        .filter(Loan.loan_direction == "given", Loan.is_deleted == False)
+        .all()
+    )
+
+    empty_response = {
+        "as_of_date": today.isoformat(),
+        "portfolio": {
+            "total_deployed": 0.0,
+            "active_capital": 0.0,
+            "total_interest_earned": 0.0,
+            "total_penalty_collected": 0.0,
+            "total_earnings": 0.0,
+            "portfolio_yield_pa": 0.0,
+            "active_count": 0,
+            "closed_count": 0,
+            "total_count": 0,
+        },
+        "by_type": {},
+        "loans": [],
+        "monthly_trend": [],
+    }
+    if not loans:
+        return empty_response
+
+    def _expected_interest(loan: Loan, as_of: date) -> Decimal:
+        """Compute theoretical interest for a loan up to as_of date."""
+        try:
+            principal = _D(loan.principal_amount)
+            rate = _D(loan.interest_rate or 0)
+            if principal <= 0 or rate <= 0:
+                return Decimal("0")
+
+            if loan.loan_type == "short_term":
+                # For short-term: interest accrues from interest_free_till (due date)
+                # or interest_start_date, or disbursed_date if neither is set.
+                start = loan.interest_free_till or loan.interest_start_date or loan.disbursed_date
+                if not start or as_of <= start:
+                    return Decimal("0")
+                days = (as_of - start).days
+                monthly_rate = rate / Decimal("100") / Decimal("12")
+                months = Decimal(str(days)) / Decimal("30")
+                return (principal * monthly_rate * months).quantize(Decimal("0.01"))
+
+            elif loan.loan_type == "interest_only":
+                start = loan.interest_start_date or loan.disbursed_date
+                if not start or as_of <= start:
+                    return Decimal("0")
+                days = (as_of - start).days
+                monthly_rate = rate / Decimal("100") / Decimal("12")
+                months = Decimal(str(days)) / Decimal("30")
+                return (principal * monthly_rate * months).quantize(Decimal("0.01"))
+
+            elif loan.loan_type == "emi":
+                emi_amt = _D(loan.emi_amount or 0)
+                tenure = int(loan.tenure_months or 0)
+                if emi_amt <= 0 or tenure <= 0:
+                    return Decimal("0")
+                start = loan.disbursed_date
+                if not start:
+                    return Decimal("0")
+                months_elapsed = (as_of.year - start.year) * 12 + (as_of.month - start.month)
+                n_due = max(0, min(months_elapsed, tenure))
+                if n_due <= 0:
+                    return Decimal("0")
+                total_interest = emi_amt * Decimal(str(tenure)) - principal
+                expected = (total_interest * Decimal(str(n_due)) / Decimal(str(tenure))).quantize(Decimal("0.01"))
+                return max(expected, Decimal("0"))
+
+        except Exception:
+            pass
+        return Decimal("0")
+
+    # ── Per-loan metrics ─────────────────────────────────────────────────
+    loan_metrics = []
+    type_groups: dict = {}
+
+    total_deployed = Decimal("0")
+    total_interest_earned = Decimal("0")
+    total_penalty_collected = Decimal("0")
+    active_count = 0
+    closed_count = 0
+    active_principal_total = Decimal("0")
+
+    for loan in loans:
+        principal = _D(loan.principal_amount)
+        as_of = loan.actual_end_date if (loan.status == "closed" and loan.actual_end_date) else today
+        start_date = loan.disbursed_date or loan.interest_start_date
+
+        # Payment aggregates
+        payments = loan.payments or []
+        interest_earned = Decimal("0")
+        penalty_earned = Decimal("0")
+        principal_recovered = Decimal("0")
+        for p in payments:
+            interest_earned += (_D(p.allocated_to_current_interest)
+                                + _D(p.allocated_to_overdue_interest))
+            penalty_earned += _D(p.penalty_paid)
+            principal_recovered += _D(p.allocated_to_principal)
+
+        # Duration
+        days_active = max(0, (as_of - start_date).days) if start_date else 0
+        months_active = round(days_active / 30.44, 1)
+
+        # Expected vs actual
+        expected = _expected_interest(loan, as_of)
+
+        if expected > Decimal("1"):
+            ratio = interest_earned / expected
+            if ratio >= Decimal("1.05"):
+                performance = "over"
+            elif ratio >= Decimal("0.85"):
+                performance = "on_track"
+            else:
+                performance = "under"
+        elif loan.status == "closed":
+            # Closed loan with no interest (e.g. interest-free short-term returned on time)
+            performance = "on_track"
+        else:
+            performance = "open"  # Too early to judge / no expected interest yet
+
+        # Annualized yield (actual earnings)
+        yield_pa = 0.0
+        if principal > 0 and days_active > 30:
+            yield_pa = float(
+                interest_earned / principal
+                / Decimal(str(days_active)) * Decimal("365") * Decimal("100")
+            )
+
+        # Active capital
+        if loan.status == "active":
+            active_count += 1
+            try:
+                outstanding = calculate_outstanding(loan.id, today, db)
+                active_principal = _D(outstanding.get("principal_outstanding", loan.principal_amount))
+            except Exception:
+                active_principal = max(principal - principal_recovered, Decimal("0"))
+            active_principal_total += active_principal
+        else:
+            closed_count += 1
+
+        total_deployed += principal
+        total_interest_earned += interest_earned
+        total_penalty_collected += penalty_earned
+
+        ltype = loan.loan_type or "other"
+        if ltype not in type_groups:
+            type_groups[ltype] = {
+                "count": 0,
+                "total_principal": Decimal("0"),
+                "total_interest_earned": Decimal("0"),
+                "total_expected_interest": Decimal("0"),
+                "total_penalty": Decimal("0"),
+                "active": 0, "closed": 0,
+                "over": 0, "on_track": 0, "under": 0, "open": 0,
+            }
+        g = type_groups[ltype]
+        g["count"] += 1
+        g["total_principal"] += principal
+        g["total_interest_earned"] += interest_earned
+        g["total_expected_interest"] += expected
+        g["total_penalty"] += penalty_earned
+        g["active"] += 1 if loan.status == "active" else 0
+        g["closed"] += 1 if loan.status != "active" else 0
+        g[performance] = g.get(performance, 0) + 1
+
+        loan_metrics.append({
+            "loan_id": loan.id,
+            "loan_type": ltype,
+            "status": loan.status,
+            "principal": float(principal),
+            "interest_rate": float(_D(loan.interest_rate or 0)),
+            "disbursed_date": loan.disbursed_date.isoformat() if loan.disbursed_date else None,
+            "months_active": months_active,
+            "interest_earned": float(interest_earned),
+            "expected_interest": float(expected),
+            "penalty_collected": float(penalty_earned),
+            "performance": performance,
+            "yield_pa": round(yield_pa, 2),
+        })
+
+    # Sort: active first, then by principal descending
+    loan_metrics.sort(key=lambda x: (0 if x["status"] == "active" else 1, -x["principal"]))
+
+    # ── Type-level summary ───────────────────────────────────────────────
+    by_type = {}
+    for ltype, g in type_groups.items():
+        ep = float(g["total_expected_interest"])
+        ie = float(g["total_interest_earned"])
+        tp = float(g["total_principal"])
+        coverage = round(ie / ep * 100, 1) if ep > 0 else None
+        by_type[ltype] = {
+            "loan_type": ltype,
+            "count": g["count"],
+            "total_principal": tp,
+            "total_interest_earned": ie,
+            "total_expected_interest": ep,
+            "interest_coverage_pct": coverage,
+            "total_penalty": float(g["total_penalty"]),
+            "active": g["active"],
+            "closed": g["closed"],
+            "performance_breakdown": {
+                "over": g.get("over", 0),
+                "on_track": g.get("on_track", 0),
+                "under": g.get("under", 0),
+                "open": g.get("open", 0),
+            },
+        }
+
+    # ── Portfolio-level annualized yield ─────────────────────────────────
+    # Weighted: total_interest / Σ(principal × months / 12) × 100
+    portfolio_yield_pa = 0.0
+    if total_deployed > 0:
+        weighted_year_capital = sum(
+            Decimal(str(lm["principal"])) * Decimal(str(max(lm["months_active"], 1))) / Decimal("12")
+            for lm in loan_metrics
+        )
+        if weighted_year_capital > 0:
+            portfolio_yield_pa = float(
+                total_interest_earned / weighted_year_capital * Decimal("100")
+            )
+
+    # ── Monthly earnings trend (last 12 months) ──────────────────────────
+    monthly_trend = []
+    for i in range(11, -1, -1):
+        m_start = (today.replace(day=1) - timedelta(days=i * 28)).replace(day=1)
+        if m_start.month == 12:
+            m_end = m_start.replace(year=m_start.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            m_end = m_start.replace(month=m_start.month + 1, day=1) - timedelta(days=1)
+
+        month_interest = Decimal("0")
+        month_penalty = Decimal("0")
+        month_principal = Decimal("0")
+        for loan in loans:
+            for p in (loan.payments or []):
+                if p.payment_date and m_start <= p.payment_date <= m_end:
+                    month_interest += (_D(p.allocated_to_current_interest)
+                                       + _D(p.allocated_to_overdue_interest))
+                    month_penalty += _D(p.penalty_paid)
+                    month_principal += _D(p.allocated_to_principal)
+
+        monthly_trend.append({
+            "month": m_start.strftime("%Y-%m"),
+            "label": m_start.strftime("%b %Y"),
+            "interest_earned": float(month_interest),
+            "penalty_collected": float(month_penalty),
+            "principal_recovered": float(month_principal),
+            "total_collected": float(month_interest + month_penalty + month_principal),
+        })
+
+    return {
+        "as_of_date": today.isoformat(),
+        "portfolio": {
+            "total_deployed": float(total_deployed),
+            "active_capital": float(active_principal_total),
+            "total_interest_earned": float(total_interest_earned),
+            "total_penalty_collected": float(total_penalty_collected),
+            "total_earnings": float(total_interest_earned + total_penalty_collected),
+            "portfolio_yield_pa": round(portfolio_yield_pa, 2),
+            "active_count": active_count,
+            "closed_count": closed_count,
+            "total_count": len(loans),
+        },
+        "by_type": by_type,
+        "loans": loan_metrics,
+        "monthly_trend": monthly_trend,
+    }
