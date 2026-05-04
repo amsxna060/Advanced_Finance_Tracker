@@ -36,12 +36,16 @@ def _build_monthly_periods(start_date: date, end_date: date) -> List[Tuple[date,
     return periods
 
 
-def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start: date, days: int, full_period_days: int = 0) -> Decimal:
+def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start: date, days: int, full_period_days: int = 0, banking: bool = False) -> Decimal:
     """
-    Calculate interest using flat monthly rate (annual_rate / 12 / 100).
-    Full period (days == full_period_days or full_period_days == 0): exact monthly amount.
-    Partial period (days < full_period_days): prorated by days / full_period_days.
+    Calculate interest for a period.
+    banking=False (commercial): flat monthly rate (annual_rate / 12 / 100). Full period = exact monthly amount.
+      Partial period prorated by days / full_period_days.
+    banking=True (banking_365): actual days / 365 (actual year days). interest = principal * rate/100 * days/365.
     """
+    if banking:
+        days_in_year = _days_in_year(period_start.year)
+        return (principal * annual_rate / Decimal("100") * Decimal(str(days)) / Decimal(str(days_in_year))).quantize(Decimal("0.01"))
     monthly_rate = annual_rate / Decimal("1200")
     if full_period_days > 0 and days < full_period_days:
         return principal * monthly_rate * Decimal(str(days)) / Decimal(str(full_period_days))
@@ -283,6 +287,9 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
     )
     pr_idx = 0
 
+    # Banking interest mode flag
+    banking_mode = getattr(loan, 'interest_calc_method', 'commercial') == 'banking_365'
+
     # Build disbursement-date-anchored monthly periods and iterate
     periods = _build_monthly_periods(interest_start_calc, as_of_date)
     for p_start, p_end, full_days in periods:
@@ -297,7 +304,7 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
 
         month_count += 1
         days = (p_end - p_start).days
-        mi = _calc_period_interest(calc_principal, calc_rate, p_start, days, full_days)
+        mi = _calc_period_interest(calc_principal, calc_rate, p_start, days, full_days, banking=banking_mode)
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
 
         interest_accrued += mi

@@ -412,8 +412,8 @@ def force_close_loan(
     current_user: User = Depends(require_admin)
 ):
     """
-    Admin: Fix payment allocations and force-close a fully-paid loan.
-    Handles cases where the old buggy code stored allocated_to_principal=0.
+    Admin: Immediately close a loan. Calculates profit/loss and appends a note.
+    No payment allocation recalculation — just close and record.
     """
     loan = db.query(Loan).filter(
         Loan.id == loan_id,
@@ -422,44 +422,56 @@ def force_close_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
 
+    today = date.today()
     all_pmts = db.query(LoanPayment).filter(
         LoanPayment.loan_id == loan_id
-    ).order_by(LoanPayment.payment_date.asc()).all()
+    ).all()
 
     principal_amount = Decimal(str(loan.principal_amount))
-    total_paid = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
-    total_principal_allocated = sum(Decimal(str(p.allocated_to_principal or 0)) for p in all_pmts)
+    total_received = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
 
-    healed = False
-    if total_paid >= principal_amount and total_principal_allocated < principal_amount - Decimal("1"):
-        # Fix each payment: excess above interest goes to principal
-        remaining_principal = principal_amount
-        for p in all_pmts:
-            interest_paid = (
-                Decimal(str(p.allocated_to_current_interest or 0))
-                + Decimal(str(p.allocated_to_overdue_interest or 0))
-            )
-            excess = max(Decimal(str(p.amount_paid or 0)) - interest_paid, Decimal("0"))
-            if remaining_principal > Decimal("0") and excess > Decimal("0"):
-                new_principal = min(excess, remaining_principal)
-                p.allocated_to_principal = new_principal
-                remaining_principal -= new_principal
-        db.flush()
-        healed = True
+    # Calculate accrued interest as of today to determine "desired profit"
+    try:
+        outstanding = calculate_outstanding(loan_id, today, db)
+        accrued_interest = outstanding.get("gross_interest_accrued", Decimal("0"))
+        interest_outstanding = outstanding.get("interest_outstanding", Decimal("0"))
+    except Exception:
+        accrued_interest = Decimal("0")
+        interest_outstanding = Decimal("0")
 
-    # Close the loan regardless (admin force-close)
-    last_payment = all_pmts[-1] if all_pmts else None
+    profit_above_principal = total_received - principal_amount
+    if profit_above_principal >= Decimal("0"):
+        # Recovered principal plus some interest
+        note = (
+            f"Force closed on {today}. "
+            f"Total received: \u20b9{float(total_received):.2f}. "
+            f"Profit above principal: \u20b9{float(profit_above_principal):.2f}."
+        )
+    else:
+        # Principal not fully recovered
+        loss_from_principal = abs(profit_above_principal)
+        desired_profit = accrued_interest  # the interest we wanted to earn
+        loss_from_desired = interest_outstanding  # unpaid interest portion
+        note = (
+            f"Force closed on {today}. "
+            f"Total received: \u20b9{float(total_received):.2f}. "
+            f"Loss: \u20b9{float(loss_from_principal):.2f} below principal. "
+            f"Uncollected interest: \u20b9{float(loss_from_desired):.2f}."
+        )
+
     loan.status = "closed"
-    loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
+    loan.actual_end_date = today
+    loan.notes = ((loan.notes or "").rstrip() + "\n" + note).strip()
     db.commit()
 
-    outstanding = calculate_outstanding(loan_id, date.today(), db)
     return {
         "loan_id": loan_id,
         "status": "closed",
-        "allocation_healed": healed,
-        "principal_outstanding": float(outstanding["principal_outstanding"]),
-        "interest_outstanding": float(outstanding["interest_outstanding"]),
+        "total_received": float(total_received),
+        "principal_amount": float(principal_amount),
+        "profit_above_principal": float(profit_above_principal),
+        "accrued_interest": float(accrued_interest),
+        "note": note,
     }
 
 

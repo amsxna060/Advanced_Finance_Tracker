@@ -22,13 +22,14 @@ def allocate_payment(
       Uses carry-forward credit balance approach.
       Clears overdue EMI balance first, then any excess stored as current.
 
-        For interest_only and short_term loans:
-            Default allocation order:
-                1. All outstanding interest (combined overdue + current)
-                2. Principal reduction
-            Override:
-                If `principal_repayment` is explicitly provided, that portion is
-                applied to principal first, then remaining amount follows default rules.
+    For interest_only loans (simplified 2x rule):
+      monthly_estimate = principal_outstanding * annual_rate / 1200
+      if payment < 2 * monthly_estimate  → entire payment = interest only (no principal)
+      if payment >= 2 * monthly_estimate  → clear all accrued interest, remainder → principal
+      Auto-close triggered in the router when principal reaches 0.
+
+    For short_term loans:
+      Interest first, then principal (original logic preserved).
 
     Returns: {
         allocated_to_overdue_interest,
@@ -64,8 +65,7 @@ def allocate_payment(
         emis_due_count = sum(1 for e in schedule if e["due_date"] <= payment_date)
         total_due = emi_amount * emis_due_count
 
-        # Payments made BEFORE the current payment (exclude same-date current payment),
-        # ordered by payment ID to ensure deterministic allocation on same-day payments
+        # Payments made BEFORE the current payment (exclude same-date current payment)
         previous_total = db.query(func.sum(LoanPayment.amount_paid)).filter(
             LoanPayment.loan_id == loan_id,
             LoanPayment.payment_date < payment_date,
@@ -96,7 +96,46 @@ def allocate_payment(
             "unallocated": remaining,
         }
 
+    elif loan.loan_type == "interest_only":
+        # Simplified 2x-rule for interest-only loans.
+        # principal_repayment and auto_split are ignored here.
+        outstanding = calculate_outstanding(loan_id, payment_date, db)
+        interest_outstanding = outstanding["interest_outstanding"]
+        principal_outstanding = outstanding["principal_outstanding"]
+        annual_rate = Decimal(str(loan.interest_rate or 0))
+
+        # Monthly interest estimate (for the 2x threshold check)
+        monthly_estimate = (principal_outstanding * annual_rate / Decimal("1200")).quantize(Decimal("0.01"))
+        threshold = monthly_estimate * Decimal("2")
+
+        allocated_overdue = Decimal("0")
+        allocated_current = Decimal("0")
+        allocated_principal = Decimal("0")
+        unallocated = Decimal("0")
+
+        if payment_amount < threshold:
+            # Small payment → all interest, no principal (shortfall carries automatically)
+            allocated_current = payment_amount
+        else:
+            # Large payment → clear all accrued interest first, remainder to principal
+            interest_cleared = min(payment_amount, interest_outstanding)
+            allocated_current = interest_cleared
+            remaining = payment_amount - interest_cleared
+            if remaining > 0 and principal_outstanding > 0:
+                principal_payment = min(remaining, principal_outstanding)
+                allocated_principal = principal_payment
+                remaining -= principal_payment
+            unallocated = remaining  # over-payment beyond full principal
+
+        return {
+            "allocated_to_overdue_interest": allocated_overdue,
+            "allocated_to_current_interest": allocated_current,
+            "allocated_to_principal": allocated_principal,
+            "unallocated": unallocated,
+        }
+
     else:
+        # short_term (and any future types): interest-first, then principal
         outstanding = calculate_outstanding(loan_id, payment_date, db)
         interest_outstanding = outstanding["interest_outstanding"]
         principal_outstanding = outstanding["principal_outstanding"]
@@ -106,32 +145,14 @@ def allocate_payment(
         allocated_current = Decimal("0")
         allocated_principal = Decimal("0")
 
-        explicit_principal = (
-            principal_repayment
-            if principal_repayment is not None and principal_repayment > Decimal("0")
-            else Decimal("0")
-        )
-
-        # If caller explicitly marks principal repayment, honor it first.
-        # This avoids forcing interest-first in explicit principal scenarios.
-        if explicit_principal > Decimal("0") and remaining > Decimal("0") and principal_outstanding > Decimal("0"):
-            principal_payment = min(explicit_principal, remaining, principal_outstanding)
-            allocated_principal = principal_payment
-            remaining -= principal_payment
-
-        # For the rest of payment, default rule remains interest-first.
         if remaining > 0 and interest_outstanding > 0:
             interest_payment = min(remaining, interest_outstanding)
             allocated_current = interest_payment
             remaining -= interest_payment
 
-        # For both interest_only and short_term: any amount above accrued interest
-        # is a principal repayment.  The caller never needs to tick a checkbox —
-        # principal comes back first if explicit, then interest, then the rest
-        # always reduces principal.  Excess beyond full principal = interest/bonus.
         if remaining > 0 and principal_outstanding > 0:
             principal_payment = min(remaining, principal_outstanding)
-            allocated_principal += principal_payment
+            allocated_principal = principal_payment
             remaining -= principal_payment
 
         return {

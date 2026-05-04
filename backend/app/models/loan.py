@@ -43,6 +43,9 @@ class Loan(Base):
     capitalization_after_months = Column(Integer)
     last_capitalization_date = Column(Date)
 
+    # Interest calculation method: 'commercial' (monthly flat, 30-day) | 'banking_365' (actual/365)
+    interest_calc_method = Column(String(20), nullable=False, server_default='commercial', default='commercial')
+
     # For loans taken from institutions
     institution_name = Column(String(255))
     institution_loan_id = Column(String(100))

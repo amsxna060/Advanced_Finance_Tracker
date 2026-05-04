@@ -203,13 +203,15 @@ function LoanDetail() {
     },
   });
 
-  // Mark as Closed — calls force-close to fix any wrong allocations before closing
+  // Mark as Closed — calls force-close: just closes + records profit/loss
+  const [closeResult, setCloseResult] = useState(null);
   const markClosedMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post(`/api/loans/${id}/force-close`, {});
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setCloseResult(data);
       queryClient.invalidateQueries({ queryKey: ["loan", id] });
       queryClient.invalidateQueries({ queryKey: ["loans"] });
     },
@@ -217,27 +219,36 @@ function LoanDetail() {
 
   const handlePaymentAmountChange = (value) => {
     setPaymentAmount(value);
-    fetchPreview(value, null, autoSplit);
+    const isInterestOnly = loan?.loan_type === "interest_only";
+    fetchPreview(value, null, isInterestOnly ? false : autoSplit);
   };
 
   const handleRecordPayment = () => {
     const isEmi = loan?.loan_type === "emi";
-    const useAutoSplit = !isEmi && autoSplit;
-    const total =
-      isEmi || useAutoSplit
-        ? parseFloat(paymentAmount)
-        : parseFloat(nonEmiTotal());
+    const isInterestOnly = loan?.loan_type === "interest_only";
+
+    let total;
+    if (isEmi || isInterestOnly) {
+      total = parseFloat(paymentAmount);
+    } else {
+      // short_term with manual split
+      total = autoSplit ? parseFloat(paymentAmount) : parseFloat(nonEmiTotal());
+    }
     if (!total || total <= 0) return;
+
     const payload = {
       amount_paid: total,
       payment_date: paymentDate,
       payment_mode: paymentMode,
       notes: paymentNotes,
       account_id: paymentAccountId ? parseInt(paymentAccountId) : null,
-      auto_split: useAutoSplit,
     };
-    if (!isEmi && !useAutoSplit && parseFloat(principalRepaymentAmount) > 0) {
-      payload.principal_repayment = parseFloat(principalRepaymentAmount);
+    // Only short_term uses auto_split/principal_repayment (interest_only now uses 2x rule)
+    if (!isEmi && !isInterestOnly) {
+      payload.auto_split = autoSplit;
+      if (!autoSplit && parseFloat(principalRepaymentAmount) > 0) {
+        payload.principal_repayment = parseFloat(principalRepaymentAmount);
+      }
     }
     recordPaymentMutation.mutate(payload);
   };
@@ -896,6 +907,22 @@ function LoanDetail() {
                     )}
                   </button>
                 )}
+                {closeResult && (
+                  <div className={`rounded-xl border px-4 py-3 text-sm ${
+                    closeResult.profit_above_principal >= 0
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}>
+                    <p className="font-semibold mb-1">
+                      {closeResult.profit_above_principal >= 0 ? "💰 Closed with Profit" : "⚠️ Closed with Loss"}
+                    </p>
+                    <p className="text-xs">{closeResult.note}</p>
+                    <button
+                      onClick={() => setCloseResult(null)}
+                      className="mt-2 text-xs underline opacity-60 hover:opacity-100"
+                    >Dismiss</button>
+                  </div>
+                )}
                 {user?.role === "admin" && (
                   <button
                     onClick={handleDeleteLoan}
@@ -967,6 +994,65 @@ function LoanDetail() {
                     className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
                     placeholder="0.00"
                   />
+                </div>
+              ) : loan.loan_type === "interest_only" ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Payment Amount *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
+                        ₹
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={paymentAmount}
+                        onChange={(e) =>
+                          handlePaymentAmountChange(e.target.value)
+                        }
+                        className="w-full pl-7 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    {(() => {
+                      const principal = parseFloat(outstanding?.principal_outstanding || 0);
+                      const rate = parseFloat(loan.interest_rate || 0);
+                      const monthlyEst = (principal * rate / 1200).toFixed(0);
+                      const threshold = (principal * rate / 1200 * 2).toFixed(0);
+                      const amt = parseFloat(paymentAmount) || 0;
+                      return (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-slate-400">
+                            Monthly interest est.: {formatCurrency(monthlyEst)}
+                            {" · "}
+                            2× threshold: {formatCurrency(threshold)}
+                          </p>
+                          {amt > 0 && (
+                            <p className={`text-xs font-medium ${
+                              amt >= parseFloat(threshold)
+                                ? "text-emerald-600"
+                                : "text-amber-600"
+                            }`}>
+                              {amt >= parseFloat(threshold)
+                                ? "✔ Interest + principal repayment"
+                                : "⏳ Interest only payment (shortfall carries forward)"}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  {outstanding?.interest_outstanding > 0 && (
+                    <div className="flex items-center justify-between bg-amber-50 border border-amber-200/60 rounded-xl px-4 py-2.5">
+                      <span className="text-xs text-amber-700">Accrued interest due</span>
+                      <span className="text-sm font-semibold text-amber-800">
+                        {formatCurrency(outstanding.interest_outstanding)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1090,10 +1176,6 @@ function LoanDetail() {
                             placeholder="0.00"
                           />
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Interest will stop accruing on returned amount from
-                          this date.
-                        </p>
                       </div>
                       {(parseFloat(interestPaymentAmount) || 0) +
                         (parseFloat(principalRepaymentAmount) || 0) >
@@ -1123,7 +1205,7 @@ function LoanDetail() {
                   value={paymentDate}
                   onChange={(e) => {
                     setPaymentDate(e.target.value);
-                    if (loan.loan_type === "emi") {
+                    if (loan.loan_type === "emi" || loan.loan_type === "interest_only") {
                       if (paymentAmount) fetchPreview(paymentAmount, null);
                     } else if (autoSplit) {
                       if (paymentAmount)
@@ -1256,13 +1338,16 @@ function LoanDetail() {
               <button
                 onClick={handleRecordPayment}
                 disabled={
-                  (loan.loan_type === "emi"
-                    ? !paymentAmount || parseFloat(paymentAmount) <= 0
-                    : autoSplit
+                  (() => {
+                    if (loan.loan_type === "emi" || loan.loan_type === "interest_only") {
+                      return !paymentAmount || parseFloat(paymentAmount) <= 0;
+                    }
+                    // short_term
+                    return autoSplit
                       ? !paymentAmount || parseFloat(paymentAmount) <= 0
                       : (parseFloat(interestPaymentAmount) || 0) +
-                          (parseFloat(principalRepaymentAmount) || 0) <=
-                        0) || recordPaymentMutation.isPending
+                          (parseFloat(principalRepaymentAmount) || 0) <= 0;
+                  })() || recordPaymentMutation.isPending
                 }
                 className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-all font-medium shadow-sm shadow-emerald-500/20 active:scale-[0.98]"
               >

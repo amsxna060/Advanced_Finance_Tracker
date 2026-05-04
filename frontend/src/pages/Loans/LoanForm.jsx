@@ -15,6 +15,7 @@ const normalizeLoanForForm = (loan) => ({
   capitalization_after_months: loan.capitalization_after_months
     ? String(loan.capitalization_after_months)
     : "12",
+  interest_calc_method: loan.interest_calc_method || "commercial",
   emi_amount: loan.emi_amount ? String(loan.emi_amount) : "",
   tenure_months: loan.tenure_months ? String(loan.tenure_months) : "",
   emi_day: loan.emi_day_of_month ? String(loan.emi_day_of_month) : "1",
@@ -54,6 +55,7 @@ const buildLoanPayload = (formData) => {
       capitalizationMonths && capitalizationMonths > 0,
     );
     payload.capitalization_after_months = capitalizationMonths;
+    payload.interest_calc_method = formData.interest_calc_method || "commercial";
   }
 
   if (formData.type === "emi") {
@@ -103,6 +105,7 @@ function LoanForm() {
     // Interest Only fields
     interest_start_date: "",
     capitalization_after_months: 12,
+    interest_calc_method: "commercial",
 
     // EMI fields
     emi_amount: "",
@@ -698,6 +701,45 @@ function LoanForm() {
                           Interest added to principal after this period
                         </p>
                       </div>
+                    </div>
+                    {/* Banking interest calculation toggle */}
+                    <div className="mt-4">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <div
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              interest_calc_method:
+                                prev.interest_calc_method === "banking_365"
+                                  ? "commercial"
+                                  : "banking_365",
+                            }))
+                          }
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            formData.interest_calc_method === "banking_365"
+                              ? "bg-indigo-600"
+                              : "bg-slate-200"
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              formData.interest_calc_method === "banking_365"
+                                ? "translate-x-5"
+                                : "translate-x-0"
+                            }`}
+                          />
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium text-slate-700">
+                            Banking Interest Calculation (actual/365)
+                          </span>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {formData.interest_calc_method === "banking_365"
+                              ? "Using actual days ÷ 365 — as charged by banks"
+                              : "Using flat monthly rate (commercial/default)"}
+                          </p>
+                        </div>
+                      </label>
                     </div>
                   </div>
                 )}

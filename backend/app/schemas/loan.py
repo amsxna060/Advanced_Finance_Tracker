@@ -35,6 +35,7 @@ class LoanCreate(BaseModel):
     expected_end_date: Optional[date] = None
     account_id: Optional[int] = None
     notes: Optional[str] = None
+    interest_calc_method: str = 'commercial'  # 'commercial' | 'banking_365'
 
 
 class LoanUpdate(BaseModel):
@@ -60,6 +61,7 @@ class LoanUpdate(BaseModel):
     actual_end_date: Optional[date] = None
     account_id: Optional[int] = None
     notes: Optional[str] = None
+    interest_calc_method: Optional[str] = None  # 'commercial' | 'banking_365'
 
 
 class LoanOut(BaseModel):
@@ -88,6 +90,7 @@ class LoanOut(BaseModel):
     actual_end_date: Optional[date]
     account_id: Optional[int] = None
     notes: Optional[str]
+    interest_calc_method: str = 'commercial'
     is_deleted: Optional[bool] = None
     created_at: datetime
     updated_at: datetime
@@ -100,8 +103,6 @@ class LoanOut(BaseModel):
 class LoanPaymentCreate(BaseModel):
     payment_date: date
     amount_paid: Decimal
-    principal_repayment: Optional[Decimal] = None  # explicit principal reduction for interest_only loans
-    auto_split: bool = False  # when True, interest first then remainder to principal
     payment_mode: Optional[str] = None
     collected_by: Optional[str] = None
     reference_number: Optional[str] = None
