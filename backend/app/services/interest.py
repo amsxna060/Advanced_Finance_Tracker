@@ -505,13 +505,39 @@ def calculate_emi_interest_summary(
 
     amortization = []
     foreclose_amount = float(principal)
+    foreclose_principal = float(principal)
+    foreclose_accrued_interest = 0.0
+    foreclose_processing_fee = 0.0
     if include_amortization and tenure_months <= 360:
         amortization = _generate_emi_amortization(principal, emi_amount, tenure_months, monthly_r)
         if disbursed_date:
             today = date.today()
-            months_elapsed = max(0, (today.year - disbursed_date.year) * 12 + (today.month - disbursed_date.month))
-            idx = min(months_elapsed, len(amortization) - 1)
-            foreclose_amount = amortization[idx]["outstanding_after"] if amortization else float(principal)
+            # Count only EMIs whose due dates have actually passed (day-of-month aware)
+            months_diff = (today.year - disbursed_date.year) * 12 + (today.month - disbursed_date.month)
+            if today.day < disbursed_date.day:
+                months_diff -= 1
+            emis_paid = max(0, min(months_diff, len(amortization)))
+
+            # Remaining principal after all paid EMIs
+            rem_principal = (
+                Decimal(str(amortization[emis_paid - 1]["outstanding_after"]))
+                if emis_paid > 0
+                else principal
+            )
+
+            # Interest accrued from last EMI due date to today (actual/365)
+            last_due = disbursed_date + relativedelta(months=emis_paid)
+            days_elapsed = max(0, (today - last_due).days)
+            annual_r = monthly_r * 12
+            accrued = (rem_principal * annual_r * Decimal(str(days_elapsed)) / Decimal("365")).quantize(Decimal("0.01"))
+
+            # Processing fee: 2.5% of remaining principal (standard foreclosure charge)
+            fee = (rem_principal * Decimal("0.025")).quantize(Decimal("0.01"))
+
+            foreclose_principal = float(rem_principal)
+            foreclose_accrued_interest = float(accrued)
+            foreclose_processing_fee = float(fee)
+            foreclose_amount = float(rem_principal + accrued + fee)
 
     return {
         "total_repayment": total_repayment,
@@ -520,6 +546,9 @@ def calculate_emi_interest_summary(
         "effective_rb_rate_pct": effective_rb_rate,
         "monthly_rate_pct": (monthly_r * 100).quantize(Decimal("0.0001")),
         "foreclose_amount": foreclose_amount,
+        "foreclose_principal": foreclose_principal,
+        "foreclose_accrued_interest": foreclose_accrued_interest,
+        "foreclose_processing_fee": foreclose_processing_fee,
         "amortization": amortization,
     }
 

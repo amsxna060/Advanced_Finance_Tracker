@@ -1560,10 +1560,14 @@ function EmiSummarySection({ emiInterestSummary: s, loan }) {
           <div className="font-semibold text-slate-900">~{s.effective_rb_rate_pct}% p.a.</div>
           <div className="text-[10px] text-slate-400">Flat: ~{s.effective_annual_rate_pct}%</div>
         </div>
-        <div className="bg-emerald-50 rounded-xl p-3">
-          <div className="text-xs text-slate-500">Foreclose Now</div>
-          <div className="font-semibold text-emerald-700">{formatCurrency(s.foreclose_amount)}</div>
-          <div className="text-[10px] text-slate-400">Remaining principal today</div>
+        <div className="bg-emerald-50 rounded-xl p-3 col-span-2 sm:col-span-1">
+          <div className="text-xs text-slate-500 mb-1">Foreclose Now</div>
+          <div className="font-bold text-emerald-700 text-base">{formatCurrency(s.foreclose_amount)}</div>
+          <div className="mt-1.5 space-y-0.5 text-[10px] text-slate-500 border-t border-emerald-100 pt-1.5">
+            <div className="flex justify-between"><span>Remaining principal</span><span className="font-medium text-slate-700">{formatCurrency(s.foreclose_principal)}</span></div>
+            <div className="flex justify-between"><span>Interest to today</span><span className="font-medium text-slate-700">{formatCurrency(s.foreclose_accrued_interest)}</span></div>
+            <div className="flex justify-between"><span>Processing fee (2.5%)</span><span className="font-medium text-rose-600">{formatCurrency(s.foreclose_processing_fee)}</span></div>
+          </div>
         </div>
         {loan.penalty_per_day && (
           <div className="bg-rose-50 rounded-xl p-3">
