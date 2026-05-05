@@ -420,6 +420,7 @@ function generatePDF(data, contact) {
   y += 12;
 
   const t = data.totals;
+  const hasTaken = (t.taken_outstanding || 0) > 0;
   const summaryRows = [
     ["Kul mool / Total Principal (all loans)", pdfFmt(t.total_principal), ""],
     ["Kul byaj / Total Interest & Charges", pdfFmt(t.total_interest_accrued), ""],
@@ -427,9 +428,16 @@ function generatePDF(data, contact) {
     ["", "", ""],
     ["Kul jama / Total Already Paid", "", pdfFmt(t.total_paid)],
     ["", "", ""],
-    ["Baqi mool / Principal Outstanding", "", pdfFmt(t.total_principal_outstanding)],
-    ["Baqi byaj / Interest & Charges", "", pdfFmt(t.total_interest_outstanding)],
+    hasTaken
+      ? ["Lena baaki / Receivable (Given loans)", "", pdfFmt(t.given_outstanding)]
+      : ["Baqi mool / Principal Outstanding", "", pdfFmt(t.total_principal_outstanding)],
+    hasTaken
+      ? ["Dena baaki / Payable (Taken loans)", "", `- ${pdfFmt(t.taken_outstanding)}`]
+      : ["Baqi byaj / Interest & Charges", "", pdfFmt(t.total_interest_outstanding)],
   ];
+  if (hasTaken) {
+    summaryRows.push(["Baqi byaj / Net Interest Outstanding", "", pdfFmt(t.total_interest_outstanding)]);
+  }
   if (data.obligation_items?.length > 0) {
     summaryRows.push(["Daayta bakaya / Obligations Remaining", "", pdfFmt(t.obligations_outstanding)]);
   }
@@ -445,7 +453,13 @@ function generatePDF(data, contact) {
       1: { cellWidth: 44, halign: "right" },
       2: { cellWidth: 44, halign: "right" },
     },
-    didParseCell: (hd) => { if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1.5; },
+    didParseCell: (hd) => {
+      if (hd.row.raw[0] === "") hd.cell.styles.cellPadding = 1.5;
+      if (hasTaken && hd.row.raw[0]?.startsWith("Dena baaki")) {
+        hd.cell.styles.textColor = ROSE;
+        hd.cell.styles.fontStyle = "bold";
+      }
+    },
     theme: "plain",
     alternateRowStyles: { fillColor: LIGHT },
   });

@@ -364,8 +364,11 @@ def get_contact(
     total_lent = Decimal("0")
     total_borrowed = Decimal("0")
     total_interest_outstanding = Decimal("0")
-    total_overdue = Decimal("0")
-    total_principal_outstanding = Decimal("0")
+    # Track given (receivable) and taken (payable) separately so we can show NET.
+    given_principal = Decimal("0")
+    given_interest  = Decimal("0")
+    taken_principal = Decimal("0")
+    taken_interest  = Decimal("0")
     outstanding_map = {}
     for loan in loans_given + loans_taken:
         if loan.status != "active":
@@ -375,22 +378,26 @@ def get_contact(
             outstanding_map[loan.id] = out
             pout = Decimal(str(out.get("principal_outstanding", 0)))
             iout = Decimal(str(out.get("interest_outstanding", 0)))
-            total_principal_outstanding += pout
-            total_interest_outstanding += iout
-            total_overdue += pout + iout
-            # For principal display: EMI loans show remaining amortized principal;
-            # interest-only / short-term show original disbursed amount (capitalised
-            # interest is not principal growth from lender's perspective).
+            # For principal display: EMI shows amortized remaining; others show original.
             if loan.loan_type == "emi":
                 principal_for_display = pout
             else:
                 principal_for_display = Decimal(str(loan.principal_amount))
             if loan.loan_direction == "given":
-                total_lent += principal_for_display
+                given_principal += pout
+                given_interest  += iout
+                total_lent      += principal_for_display
             else:
-                total_borrowed += principal_for_display
+                taken_principal += pout
+                taken_interest  += iout
+                total_borrowed  += principal_for_display
         except Exception:
             pass
+
+    # NET outstanding = what they owe us minus what we owe them
+    total_principal_outstanding = given_principal - taken_principal
+    total_interest_outstanding  = given_interest  - taken_interest
+    total_overdue               = total_principal_outstanding + total_interest_outstanding
 
     # Total collateral value across all loans for this contact
     all_loan_ids = [l.id for l in loans_given + loans_taken]
@@ -415,6 +422,8 @@ def get_contact(
             "total_loans_count": len(loans_given) + len(loans_taken),
             "total_interest_due": float(total_interest_outstanding),
             "total_outstanding": float(total_overdue),
+            "given_outstanding": float(given_principal + given_interest),
+            "taken_outstanding": float(taken_principal + taken_interest),
             "total_collateral_value": float(total_collateral),
         },
         # Detailed loans list for display
@@ -654,15 +663,24 @@ def generate_statement(
                 "status": obl.status,
             })
 
-    # Totals
-    total_principal = sum(i["principal_amount"] for i in loan_items)
-    total_interest = sum(i["interest_accrued"] for i in loan_items)
-    total_paid = sum(i["already_paid_total"] for i in loan_items)
-    total_p_outstanding = sum(i["principal_outstanding"] for i in loan_items)
-    total_i_outstanding = sum(i["interest_outstanding"] for i in loan_items)
-    total_outstanding = total_p_outstanding + total_i_outstanding
+    # Totals — given loans are receivable, taken loans are payable (subtract)
+    given_items = [i for i in loan_items if i["direction"] == "given"]
+    taken_items = [i for i in loan_items if i["direction"] == "taken"]
+
+    total_principal  = sum(i["principal_amount"] for i in loan_items)
+    total_interest   = sum(i["interest_accrued"]  for i in loan_items)
+    total_paid       = sum(i["already_paid_total"] for i in loan_items)
+
+    given_p_out = sum(i["principal_outstanding"] for i in given_items)
+    given_i_out = sum(i["interest_outstanding"]  for i in given_items)
+    taken_p_out = sum(i["principal_outstanding"] for i in taken_items)
+    taken_i_out = sum(i["interest_outstanding"]  for i in taken_items)
+
+    given_total_out = given_p_out + given_i_out
+    taken_total_out = taken_p_out + taken_i_out
+    net_outstanding = given_total_out - taken_total_out
     obl_outstanding = sum(o["outstanding"] for o in obligation_items)
-    settlement_amount = total_outstanding + obl_outstanding
+    settlement_amount = net_outstanding + obl_outstanding
 
     return {
         "contact": {
@@ -682,9 +700,11 @@ def generate_statement(
             "total_interest_accrued": total_interest,
             "total_amount": total_principal + total_interest,
             "total_paid": total_paid,
-            "total_principal_outstanding": total_p_outstanding,
-            "total_interest_outstanding": total_i_outstanding,
-            "total_outstanding": total_outstanding,
+            "total_principal_outstanding": given_p_out,
+            "total_interest_outstanding": given_i_out,
+            "given_outstanding": given_total_out,
+            "taken_outstanding": taken_total_out,
+            "net_outstanding": net_outstanding,
             "obligations_outstanding": obl_outstanding,
             "settlement_amount": settlement_amount,
         },

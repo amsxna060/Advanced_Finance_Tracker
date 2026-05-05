@@ -425,7 +425,7 @@ export default function ContactDetail() {
             </div>
 
             {/* Outstanding Breakdown Bar */}
-            {(summary?.total_lent > 0 || displayInterest > 0) && (
+            {(summary?.given_outstanding > 0 || summary?.taken_outstanding > 0) && (
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
@@ -435,40 +435,67 @@ export default function ContactDetail() {
                     {formatCurrency(summary?.total_outstanding || 0)}
                   </span>
                 </div>
-                <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
-                  {summary?.total_lent > 0 && (
-                    <div
-                      className="bg-indigo-500 transition-all"
-                      style={{
-                        width: `${(summary.total_lent / summary.total_outstanding) * 100}%`,
-                      }}
-                    />
-                  )}
-                  {displayInterest > 0 && (
-                    <div
-                      className="bg-amber-400 transition-all"
-                      style={{
-                        width: `${(displayInterest / summary.total_outstanding) * 100}%`,
-                      }}
-                    />
-                  )}
-                </div>
-                <div className="flex justify-between mt-2 text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
-                    <span className="text-slate-500">Principal</span>
-                    <span className="font-bold text-slate-700">
-                      {formatCurrency(summary?.total_lent || 0)}
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                    <span className="text-slate-500">Interest</span>
-                    <span className="font-bold text-slate-700">
-                      {formatCurrency(displayInterest)}
-                    </span>
-                  </span>
-                </div>
+                {summary?.taken_outstanding > 0 ? (
+                  /* Net view: show receivable vs payable */
+                  <>
+                    <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
+                      {summary.given_outstanding > 0 && (
+                        <div
+                          className="bg-emerald-500 transition-all"
+                          style={{ width: `${(summary.given_outstanding / (summary.given_outstanding + summary.taken_outstanding)) * 100}%` }}
+                        />
+                      )}
+                      {summary.taken_outstanding > 0 && (
+                        <div
+                          className="bg-rose-400 transition-all"
+                          style={{ width: `${(summary.taken_outstanding / (summary.given_outstanding + summary.taken_outstanding)) * 100}%` }}
+                        />
+                      )}
+                    </div>
+                    <div className="flex justify-between mt-2 text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        <span className="text-slate-500">Receivable</span>
+                        <span className="font-bold text-emerald-700">{formatCurrency(summary.given_outstanding)}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                        <span className="text-slate-500">Payable</span>
+                        <span className="font-bold text-rose-600">− {formatCurrency(summary.taken_outstanding)}</span>
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  /* Simple view: principal + interest */
+                  <>
+                    <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
+                      {summary?.total_lent > 0 && (
+                        <div
+                          className="bg-indigo-500 transition-all"
+                          style={{ width: `${(summary.total_lent / summary.given_outstanding) * 100}%` }}
+                        />
+                      )}
+                      {displayInterest > 0 && (
+                        <div
+                          className="bg-amber-400 transition-all"
+                          style={{ width: `${(displayInterest / summary.given_outstanding) * 100}%` }}
+                        />
+                      )}
+                    </div>
+                    <div className="flex justify-between mt-2 text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                        <span className="text-slate-500">Principal</span>
+                        <span className="font-bold text-slate-700">{formatCurrency(summary?.total_lent || 0)}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                        <span className="text-slate-500">Interest</span>
+                        <span className="font-bold text-slate-700">{formatCurrency(displayInterest)}</span>
+                      </span>
+                    </div>
+                  </>
+                )}
               </Card>
             )}
 
