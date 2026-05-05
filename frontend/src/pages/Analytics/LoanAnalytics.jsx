@@ -14,7 +14,7 @@ function fmtPct(n) {
 }
 
 /* ── Stat card ── */
-function StatCard({ label, primary, secondary, secondaryLabel, accent = "indigo", wide = false }) {
+function StatCard({ label, primary, secondary, secondaryLabel, accent = "indigo", wide = false, onClick }) {
   const A = {
     indigo: { bg: "bg-indigo-50 border-indigo-200", txt: "text-indigo-700", sub: "text-indigo-400" },
     emerald: { bg: "bg-emerald-50 border-emerald-200", txt: "text-emerald-700", sub: "text-emerald-400" },
@@ -25,7 +25,11 @@ function StatCard({ label, primary, secondary, secondaryLabel, accent = "indigo"
     slate:   { bg: "bg-slate-50 border-slate-200",    txt: "text-slate-700",   sub: "text-slate-400"   },
   }[accent] || {};
   return (
-    <div className={`${A.bg} border rounded-xl p-4 ${wide ? "col-span-2" : ""}`}>
+    <div
+      className={`${A.bg} border rounded-xl p-4 ${wide ? "col-span-2" : ""} ${onClick ? "cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-150 active:scale-100" : ""}`}
+      onClick={onClick}
+      title={onClick ? "Click to see calculation" : undefined}
+    >
       <p className={`text-[11px] font-medium uppercase tracking-wide ${A.sub} mb-1`}>{label}</p>
       <p className={`text-xl font-bold ${A.txt} leading-tight`}>{primary}</p>
       {secondary != null && (
@@ -34,6 +38,7 @@ function StatCard({ label, primary, secondary, secondaryLabel, accent = "indigo"
           {secondary}
         </p>
       )}
+      {onClick && <p className={`text-[9px] mt-1.5 ${A.sub} opacity-60`}>tap to see calc ↗</p>}
     </div>
   );
 }
@@ -58,8 +63,25 @@ const TYPE_META = {
   other:         { label: "Other",               color: "#8b5cf6" },
 };
 
+/* ── clickable type stat box ── */
+function TypeStat({ bg, labelCls, label, valCls, value, onClick }) {
+  return (
+    <div
+      className={`${bg} rounded-lg p-3 ${onClick ? "cursor-pointer hover:brightness-95 active:brightness-90 transition-all" : ""}`}
+      onClick={onClick}
+      title={onClick ? "Click to see breakdown" : undefined}
+    >
+      <p className={`${labelCls} mb-0.5 flex items-center justify-between`}>
+        <span>{label}</span>
+        {onClick && <span className="text-[9px] opacity-50">↗</span>}
+      </p>
+      <p className={`font-bold ${valCls} text-sm`}>{value}</p>
+    </div>
+  );
+}
+
 /* ── EMI type card ── */
-function EmiCard({ data }) {
+function EmiCard({ data, onCalcClick }) {
   const { total_principal, total_interest_earned, total_interest_at_completion,
           total_accrued, total_penalty, active, closed, count,
           interest_coverage_pct, performance_breakdown: pb } = data;
@@ -72,22 +94,10 @@ function EmiCard({ data }) {
         <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <div className="bg-slate-50 rounded-lg p-3">
-          <p className="text-slate-400 mb-0.5">Capital Deployed</p>
-          <p className="font-bold text-slate-800 text-sm">{formatCurrency(total_principal)}</p>
-        </div>
-        <div className="bg-emerald-50 rounded-lg p-3">
-          <p className="text-emerald-500 mb-0.5">Interest Paid So Far</p>
-          <p className="font-bold text-emerald-700 text-sm">{formatCurrency(total_interest_earned)}</p>
-        </div>
-        <div className="bg-indigo-50 rounded-lg p-3">
-          <p className="text-indigo-400 mb-0.5">Total Interest When Closed</p>
-          <p className="font-bold text-indigo-700 text-sm">{total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"}</p>
-        </div>
-        <div className="bg-amber-50 rounded-lg p-3">
-          <p className="text-amber-500 mb-0.5">Penalty Collected</p>
-          <p className="font-bold text-amber-700 text-sm">{total_penalty > 0 ? formatCurrency(total_penalty) : "₹0"}</p>
-        </div>
+        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Capital Deployed" valCls="text-slate-800" value={formatCurrency(total_principal)} onClick={() => onCalcClick("emi_principal")} />
+        <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Interest Paid So Far" valCls="text-emerald-700" value={formatCurrency(total_interest_earned)} onClick={() => onCalcClick("emi_interest")} />
+        <TypeStat bg="bg-indigo-50" labelCls="text-indigo-400" label="Total Interest When Closed" valCls="text-indigo-700" value={total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"} onClick={() => onCalcClick("emi_at_completion")} />
+        <TypeStat bg="bg-amber-50" labelCls="text-amber-500" label="Penalty Collected" valCls="text-amber-700" value={total_penalty > 0 ? formatCurrency(total_penalty) : "₹0"} onClick={total_penalty > 0 ? () => onCalcClick("emi_penalty") : undefined} />
       </div>
       {total_accrued > 0 && (
         <div className="mb-3">
@@ -111,7 +121,7 @@ function EmiCard({ data }) {
 }
 
 /* ── Interest-Only type card ── */
-function InterestOnlyCard({ data }) {
+function InterestOnlyCard({ data, onCalcClick }) {
   const { total_principal, total_interest_earned, total_interest_outstanding,
           total_interest_at_completion,
           total_accrued, total_penalty, active, closed, count,
@@ -129,22 +139,10 @@ function InterestOnlyCard({ data }) {
         <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <div className="bg-slate-50 rounded-lg p-3">
-          <p className="text-slate-400 mb-0.5">Capital Deployed</p>
-          <p className="font-bold text-slate-800 text-sm">{formatCurrency(total_principal)}</p>
-        </div>
-        <div className="bg-emerald-50 rounded-lg p-3">
-          <p className="text-emerald-500 mb-0.5">Interest Collected</p>
-          <p className="font-bold text-emerald-700 text-sm">{formatCurrency(ioPaid)}</p>
-        </div>
-        <div className="bg-rose-50 rounded-lg p-3">
-          <p className="text-rose-500 mb-0.5">Interest Pending</p>
-          <p className="font-bold text-rose-700 text-sm">{ioPending > 0 ? formatCurrency(ioPending) : "₹0"}</p>
-        </div>
-        <div className="bg-teal-50 rounded-lg p-3">
-          <p className="text-teal-500 mb-0.5">Expected Total (at term)</p>
-          <p className="font-bold text-teal-700 text-sm">{total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"}</p>
-        </div>
+        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Capital Deployed" valCls="text-slate-800" value={formatCurrency(total_principal)} onClick={() => onCalcClick("io_principal")} />
+        <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Interest Collected" valCls="text-emerald-700" value={formatCurrency(ioPaid)} onClick={() => onCalcClick("io_collected")} />
+        <TypeStat bg="bg-rose-50" labelCls="text-rose-500" label="Interest Pending" valCls="text-rose-700" value={ioPending > 0 ? formatCurrency(ioPending) : "₹0"} onClick={ioPending > 0 ? () => onCalcClick("io_pending") : undefined} />
+        <TypeStat bg="bg-teal-50" labelCls="text-teal-500" label="Expected Total (at term)" valCls="text-teal-700" value={total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"} onClick={total_interest_at_completion > 0 ? () => onCalcClick("io_at_completion") : undefined} />
       </div>
       {ioTotal > 0 && (
         <div className="mb-3">
@@ -197,7 +195,7 @@ function InterestOnlyCard({ data }) {
 }
 
 /* ── Short-Term type card ── */
-function ShortTermCard({ data }) {
+function ShortTermCard({ data, onCalcClick }) {
   const { total_principal, total_principal_recovered, total_principal_outstanding,
           total_extra_collected, total_interest_earned, total_penalty,
           active, closed, count } = data;
@@ -211,25 +209,13 @@ function ShortTermCard({ data }) {
         <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <div className="bg-slate-50 rounded-lg p-3">
-          <p className="text-slate-400 mb-0.5">Capital Deployed</p>
-          <p className="font-bold text-slate-800 text-sm">{formatCurrency(total_principal)}</p>
-        </div>
-        <div className="bg-emerald-50 rounded-lg p-3">
-          <p className="text-emerald-500 mb-0.5">Principal Recovered</p>
-          <p className="font-bold text-emerald-700 text-sm">{formatCurrency(total_principal_recovered)}</p>
-        </div>
-        <div className="bg-rose-50 rounded-lg p-3">
-          <p className="text-rose-500 mb-0.5">Still To Recover</p>
-          <p className="font-bold text-rose-700 text-sm">{formatCurrency(total_principal_outstanding)}</p>
-        </div>
-        <div className="bg-amber-50 rounded-lg p-3">
-          <p className="text-amber-500 mb-0.5">Extra Beyond Principal</p>
-          <p className="font-bold text-amber-700 text-sm">{formatCurrency(total_extra_collected)}</p>
-          {total_penalty > 0 && (
-            <p className="text-[10px] text-amber-400 mt-0.5">incl. ₹{(total_penalty / 1000).toFixed(1)}K penalty</p>
-          )}
-        </div>
+        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Capital Deployed" valCls="text-slate-800" value={formatCurrency(total_principal)} onClick={() => onCalcClick("st_principal")} />
+        <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Principal Recovered" valCls="text-emerald-700" value={formatCurrency(total_principal_recovered)} onClick={() => onCalcClick("st_recovered")} />
+        <TypeStat bg="bg-rose-50" labelCls="text-rose-500" label="Still To Recover" valCls="text-rose-700" value={formatCurrency(total_principal_outstanding)} onClick={() => onCalcClick("st_outstanding")} />
+        <TypeStat bg="bg-amber-50" labelCls="text-amber-500" label="Extra Beyond Principal" valCls="text-amber-700"
+          value={<>{formatCurrency(total_extra_collected)}{total_penalty > 0 && <span className="block text-[10px] text-amber-400 mt-0.5">incl. ₹{(total_penalty / 1000).toFixed(1)}K penalty</span>}</>}
+          onClick={() => onCalcClick("st_extra")}
+        />
       </div>
       <div className="mb-2">
         <div className="flex justify-between text-[11px] text-slate-500 mb-1">
@@ -335,58 +321,14 @@ function CalcModal({ data, onClose }) {
   );
 }
 
-function buildLoanDebugData(loan) {
-  const d = loan.debug || {};
-  const fmt = formatCurrency;
-  const rows = [
-    { label: "Original Principal", value: fmt(loan.principal) },
-    { label: "Total Cash Received", value: fmt(d.total_cash_paid || 0) },
-    { divider: true },
-    { label: "Interest Earned (computed)", value: fmt(d.interest_earned || 0), highlight: "green" },
-    { label: "Principal Recovered (computed)", value: fmt(d.principal_recovered || 0), highlight: "green" },
-  ];
-  if ((d.penalty_earned || 0) > 0) {
-    rows.push({ label: "Penalty Collected", value: fmt(d.penalty_earned), highlight: "amber" });
-  }
-  if (loan.loan_type === "emi" && d.emi_split) {
-    const s = d.emi_split;
-    rows.push({ divider: true });
-    rows.push({ label: "EMI Amount", value: fmt(s.emi_amount), bold: true });
-    rows.push({ label: "Tenure (months)", value: `${s.tenure} EMIs` });
-    rows.push({ label: "Total Repayment", value: fmt(s.total_repayment) });
-    rows.push({ label: "Lifetime Interest", value: fmt(s.total_lifetime_interest) });
-    rows.push({ label: "Interest % of each EMI", value: `${s.interest_ratio_pct}%` });
-    rows.push({ label: "Cash split (interest + principal)", value: s.cash_paid_split });
-  }
-  rows.push({ divider: true });
-  if (d.gross_interest_accrued != null) {
-    rows.push({ label: "Gross Interest Accrued (expected by today)", value: fmt(d.gross_interest_accrued) });
-  }
-  rows.push({ label: "Interest Outstanding (unpaid)", value: fmt(d.interest_outstanding || 0), highlight: (d.interest_outstanding || 0) > 0 ? "rose" : undefined });
-  rows.push({ label: "Principal Outstanding", value: fmt(d.principal_outstanding || 0) });
-  rows.push({ label: "Active Duration", value: `${d.years_active} yrs` });
-  rows.push({ label: "Yield p.a.", value: loan.yield_pa > 0 ? `${loan.yield_pa.toFixed(2)}%` : "—", highlight: loan.yield_pa >= 12 ? "green" : loan.yield_pa > 0 ? "amber" : undefined });
-  return {
-    title: `${loan.contact_name}`,
-    subtitle: `${(loan.loan_type || "").replace("_", " ").toUpperCase()} · ID #${loan.loan_id} · ${loan.status} · ${loan.interest_rate}% p.a.`,
-    rows,
-    formula: d.yield_formula,
-  };
-}
-
 /* ── Grouped loan table ── */
 function LoanGroup({ ltype, loans }) {
-  const [selectedLoan, setSelectedLoan] = useState(null);
   const meta = TYPE_META[ltype] || { label: ltype, color: "#8b5cf6" };
   const isShortTerm = ltype === "short_term";
   const isEmi = ltype === "emi";
 
   return (
-    <>
-      {selectedLoan && (
-        <CalcModal data={buildLoanDebugData(selectedLoan)} onClose={() => setSelectedLoan(null)} />
-      )}
-      <div>
+    <div>
         {/* Group header */}
         <div
           className="flex items-center gap-2 px-4 py-2.5 sticky top-0 z-10"
@@ -395,7 +337,6 @@ function LoanGroup({ ltype, loans }) {
           <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
           <span className="text-sm font-semibold text-slate-700">{meta.label}</span>
           <span className="text-xs text-slate-400">({loans.length})</span>
-          <span className="ml-auto text-[10px] text-slate-400 italic">click row for calc breakdown</span>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -424,12 +365,7 @@ function LoanGroup({ ltype, loans }) {
           </thead>
           <tbody className="divide-y divide-slate-50">
             {loans.map((loan) => (
-              <tr
-                key={loan.loan_id}
-                className="hover:bg-indigo-50/40 transition-colors cursor-pointer"
-                onClick={() => setSelectedLoan(loan)}
-                title="Click to see calculation breakdown"
-              >
+              <tr key={loan.loan_id} className="hover:bg-slate-50/80 transition-colors">
                 <td className="px-4 py-3">
                   <span className="font-medium text-slate-800 text-xs">{loan.contact_name}</span>
                 </td>
@@ -503,13 +439,14 @@ function LoanGroup({ ltype, loans }) {
             ))}
           </tbody>
         </table>
-      </div>
-    </>
+    </div>
   );
 }
 
 /* ═══════════════════════════════ main page ═══════════════════════════════ */
 export default function LoanAnalytics() {
+  const [calcModal, setCalcModal] = useState(null);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["loanAnalytics"],
     queryFn: () => api.get("/api/analytics/loans-given").then((r) => r.data),
@@ -532,6 +469,194 @@ export default function LoanAnalytics() {
   const allLoans = data?.loans || [];
   const monthlyTrend = data?.monthly_trend || [];
 
+  // ── Calc modal builder ───────────────────────────────────────────────────
+  const fmt = formatCurrency;
+  function buildCalcModal(key, extra) {
+    const loansByType = (t) => allLoans.filter((l) => l.loan_type === t);
+    switch (key) {
+      case "total_deployed": {
+        const rows = allLoans.map((l) => ({ label: `${l.contact_name} (${l.loan_type?.replace("_"," ")})`, value: fmt(l.principal) }));
+        rows.push({ divider: true });
+        rows.push({ label: `${allLoans.length} loans total`, value: fmt(p.total_deployed), highlight: true, bold: true });
+        return { title: "Total Deployed", subtitle: "Sum of all loan principals (active + closed)", rows };
+      }
+      case "active_principal": {
+        const active = allLoans.filter((l) => l.status === "active");
+        const rows = active.map((l) => ({ label: `${l.contact_name} (${l.loan_type?.replace("_"," ")})`, value: fmt(l.principal_outstanding) }));
+        rows.push({ divider: true });
+        rows.push({ label: `${active.length} active loans`, value: fmt(p.active_principal), highlight: true, bold: true });
+        return { title: "Active Principal", subtitle: "Outstanding principal per active loan (from outstanding service)", rows };
+      }
+      case "interest_earned": {
+        const rows = [];
+        const emi = loansByType("emi").filter((l) => l.interest_earned > 0);
+        const others = allLoans.filter((l) => l.loan_type !== "emi" && l.interest_earned > 0);
+        if (emi.length) {
+          rows.push({ label: "── EMI Loans (proportional split) ──", value: "", bold: true });
+          emi.forEach((l) => {
+            const s = l.debug?.emi_split;
+            rows.push({ label: `${l.contact_name} · cash=${fmt(l.debug?.total_cash_paid||0)} × ${s?.interest_ratio_pct||"?"}%`, value: fmt(l.interest_earned) });
+          });
+        }
+        if (others.length) {
+          rows.push({ label: "── Other Loans (direct allocation) ──", value: "", bold: true });
+          others.forEach((l) => rows.push({ label: `${l.contact_name} (${l.loan_type?.replace("_"," ")})`, value: fmt(l.interest_earned) }));
+        }
+        rows.push({ divider: true });
+        rows.push({ label: "Total Interest Earned", value: fmt(p.total_interest_earned), highlight: "green", bold: true });
+        return { title: "Interest Earned", subtitle: "EMI: cash × interest ratio | Others: direct payment allocation", rows };
+      }
+      case "penalty": {
+        const penaltyLoans = allLoans.filter((l) => l.penalty_collected > 0);
+        const rows = penaltyLoans.length
+          ? penaltyLoans.map((l) => ({ label: l.contact_name, value: fmt(l.penalty_collected), highlight: "amber" }))
+          : [{ label: "No penalties recorded", value: "₹0" }];
+        rows.push({ divider: true });
+        rows.push({ label: "Total Penalty", value: fmt(p.total_penalty_collected), highlight: "amber", bold: true });
+        return { title: "Penalty Collected", subtitle: "Late payment charges across all loans", rows };
+      }
+      case "total_earnings": {
+        const rows = [
+          { label: "Interest Earned", value: fmt(p.total_interest_earned), highlight: "green" },
+          { label: "Penalty Collected", value: fmt(p.total_penalty_collected), highlight: "amber" },
+          { divider: true },
+          { label: "Total Earnings", value: fmt(p.total_earnings), highlight: true, bold: true },
+        ];
+        return { title: "Total Earnings", subtitle: "Interest Earned + Penalty Collected", rows };
+      }
+      case "portfolio_yield": {
+        const contrib = allLoans.filter((l) => l.interest_earned > 0 && (l.debug?.years_active||0) > 0);
+        const rows = contrib.map((l) => ({
+          label: `${l.contact_name} · ${fmt(l.principal)} × ${l.debug?.years_active}y`,
+          value: fmt(l.interest_earned),
+        }));
+        const totalCap = contrib.reduce((s, l) => s + l.principal * (l.debug?.years_active || 0), 0);
+        const totalInt = contrib.reduce((s, l) => s + l.interest_earned, 0);
+        rows.push({ divider: true });
+        rows.push({ label: "Σ Interest Earned", value: fmt(totalInt) });
+        rows.push({ label: "Σ (Principal × Years)", value: fmt(totalCap) });
+        rows.push({ label: "Portfolio Yield = (Σ Int / Σ P×Y) × 100", value: totalCap > 0 ? `${((totalInt / totalCap) * 100).toFixed(2)}%` : "—", highlight: true, bold: true });
+        return { title: "Portfolio Yield (Dollar-Weighted)", subtitle: "Σ(interest_earned) ÷ Σ(principal × years_active) × 100", rows, formula: totalCap > 0 ? `${fmt(totalInt)} ÷ ${fmt(totalCap)} × 100 = ${((totalInt/totalCap)*100).toFixed(2)}%` : "N/A" };
+      }
+      // ── EMI type breakdown ──
+      case "emi_principal": {
+        const loans = loansByType("emi");
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal) }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total", value: fmt(byType?.emi?.total_principal||0), highlight: true, bold: true });
+        return { title: "EMI — Capital Deployed", subtitle: "Sum of all EMI loan principals", rows };
+      }
+      case "emi_interest": {
+        const loans = loansByType("emi");
+        const rows = loans.map((l) => {
+          const s = l.debug?.emi_split;
+          return { label: `${l.contact_name} · cash=${fmt(l.debug?.total_cash_paid||0)} × ${s?.interest_ratio_pct||"?"}%`, value: fmt(l.interest_earned) };
+        });
+        rows.push({ divider: true });
+        rows.push({ label: "Total Interest Earned", value: fmt(byType?.emi?.total_interest_earned||0), highlight: "green", bold: true });
+        return { title: "EMI — Interest Paid So Far", subtitle: "Proportional split: total EMI cash × (lifetime interest ÷ total repayment)", rows };
+      }
+      case "emi_at_completion": {
+        const loans = loansByType("emi");
+        const rows = loans.map((l) => {
+          const s = l.debug?.emi_split;
+          return { label: `${l.contact_name} · ${s ? `${fmt(s.emi_amount)}×${s.tenure} − ${fmt(l.principal)}` : ""}`, value: fmt(l.interest_at_completion) };
+        });
+        rows.push({ divider: true });
+        rows.push({ label: "Total", value: fmt(byType?.emi?.total_interest_at_completion||0), highlight: true, bold: true });
+        return { title: "EMI — Total Interest When Closed", subtitle: "(EMI Amount × Tenure) − Principal", rows };
+      }
+      case "emi_penalty": {
+        const loans = loansByType("emi").filter((l) => l.penalty_collected > 0);
+        const rows = loans.map((l) => ({ label: l.contact_name, value: fmt(l.penalty_collected), highlight: "amber" }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total", value: fmt(byType?.emi?.total_penalty||0), highlight: "amber", bold: true });
+        return { title: "EMI — Penalty Collected", subtitle: "Late payment charges on EMI loans", rows };
+      }
+      // ── IO type breakdown ──
+      case "io_principal": {
+        const loans = loansByType("interest_only");
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal) }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total", value: fmt(byType?.interest_only?.total_principal||0), highlight: true, bold: true });
+        return { title: "IO — Capital Deployed", subtitle: "Sum of all interest-only loan principals", rows };
+      }
+      case "io_collected": {
+        const loans = loansByType("interest_only").filter((l) => l.interest_earned > 0);
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.interest_earned) }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total Collected", value: fmt(byType?.interest_only?.total_interest_earned||0), highlight: "green", bold: true });
+        return { title: "IO — Interest Collected", subtitle: "Actual payments received (gross_interest_accrued used for accrual baseline)", rows };
+      }
+      case "io_pending": {
+        const loans = loansByType("interest_only").filter((l) => l.status === "active" && (l.interest_outstanding||0) > 0);
+        const rows = loans.map((l) => ({ label: `${l.contact_name}`, value: fmt(l.interest_outstanding), highlight: "rose" }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total Pending", value: fmt(byType?.interest_only?.total_interest_outstanding||0), highlight: "rose", bold: true });
+        return { title: "IO — Interest Pending", subtitle: "Unpaid interest on active IO loans (from outstanding service)", rows };
+      }
+      case "io_at_completion": {
+        const loans = loansByType("interest_only").filter((l) => l.interest_at_completion > 0);
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.interest_at_completion) }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total Expected", value: fmt(byType?.interest_only?.total_interest_at_completion||0), highlight: true, bold: true });
+        return { title: "IO — Expected Total Interest (at term)", subtitle: "Principal × monthly rate × term months", rows };
+      }
+      // ── Short-Term type breakdown ──
+      case "st_principal": {
+        const loans = loansByType("short_term");
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal) }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total", value: fmt(byType?.short_term?.total_principal||0), highlight: true, bold: true });
+        return { title: "Short-Term — Capital Deployed", subtitle: "Sum of all short-term loan principals", rows };
+      }
+      case "st_recovered": {
+        const loans = loansByType("short_term");
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal_recovered) }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total Recovered", value: fmt(byType?.short_term?.total_principal_recovered||0), highlight: "green", bold: true });
+        return { title: "Short-Term — Principal Recovered", subtitle: "Payments allocated to principal repayment", rows };
+      }
+      case "st_outstanding": {
+        const loans = loansByType("short_term").filter((l) => l.principal_outstanding > 0);
+        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal_outstanding), highlight: "rose" }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total Outstanding", value: fmt(byType?.short_term?.total_principal_outstanding||0), highlight: "rose", bold: true });
+        return { title: "Short-Term — Still To Recover", subtitle: "Computed outstanding principal per active loan", rows };
+      }
+      case "st_extra": {
+        const loans = loansByType("short_term").filter((l) => (l.interest_earned + l.penalty_collected) > 0);
+        const rows = loans.map((l) => ({
+          label: `${l.contact_name} · int=${fmt(l.interest_earned)} + pen=${fmt(l.penalty_collected)}`,
+          value: fmt(l.interest_earned + l.penalty_collected),
+          highlight: "amber",
+        }));
+        rows.push({ divider: true });
+        rows.push({ label: "Total Extra Collected", value: fmt(byType?.short_term?.total_extra_collected||0), highlight: "amber", bold: true });
+        return { title: "Short-Term — Extra Beyond Principal", subtitle: "Interest earned + penalties (cash beyond principal return)", rows };
+      }
+      // ── Monthly chart click ──
+      case "monthly": {
+        if (!extra) return null;
+        const rows = [
+          { label: "Interest Earned", value: fmt(extra.interest_earned), highlight: "green" },
+          { label: "Principal Recovered", value: fmt(extra.principal_recovered) },
+          { label: "Penalty Collected", value: fmt(extra.penalty_collected), highlight: "amber" },
+          { divider: true },
+          { label: "Total Earnings (int + penalty)", value: fmt(extra.total_earnings), highlight: true, bold: true },
+        ];
+        return { title: `Monthly Detail — ${extra.label}`, subtitle: "Cash flows in this month (based on payment dates)", rows };
+      }
+      default:
+        return null;
+    }
+  }
+
+  function openCalc(key, extra) {
+    const d = buildCalcModal(key, extra);
+    if (d) setCalcModal(d);
+  }
+
   // Group loans: active first, then closed — within each group sorted by principal desc
   // Display order: EMI → Interest Only → Short Term → Other
   const TYPE_ORDER = ["emi", "interest_only", "short_term", "other"];
@@ -549,6 +674,7 @@ export default function LoanAnalytics() {
 
   return (
     <div className="p-4 md:p-6 space-y-7 max-w-7xl mx-auto">
+      {calcModal && <CalcModal data={calcModal} onClose={() => setCalcModal(null)} />}
 
       {/* ── Header ── */}
       <div>
@@ -556,48 +682,18 @@ export default function LoanAnalytics() {
         <p className="text-sm text-slate-500 mt-1">
           Loans given · {p.total_count || 0} total ({p.active_count || 0} active,{" "}
           {p.closed_count || 0} closed) · As of {data?.as_of_date}
+          <span className="ml-2 text-indigo-400 text-[11px]">· click any card or chart to see calculation</span>
         </p>
       </div>
 
       {/* ── Portfolio Stats ── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard
-          label="Total Deployed"
-          primary={formatCurrency(p.total_deployed)}
-          secondary="Total principal given out"
-          accent="indigo"
-        />
-        <StatCard
-          label="Active Principal"
-          primary={formatCurrency(p.active_principal)}
-          secondary="Still owed by borrowers"
-          accent="violet"
-        />
-        <StatCard
-          label="Interest Earned"
-          primary={formatCurrency(p.total_interest_earned)}
-          secondaryLabel="Expected remaining"
-          secondary={p.total_interest_expected_remaining > 0 ? formatCurrency(p.total_interest_expected_remaining) : "₹0"}
-          accent="emerald"
-        />
-        <StatCard
-          label="Penalty Collected"
-          primary={formatCurrency(p.total_penalty_collected)}
-          secondary="Late payment charges"
-          accent="amber"
-        />
-        <StatCard
-          label="Total Earnings"
-          primary={formatCurrency(p.total_earnings)}
-          secondary={`Interest + Penalty`}
-          accent="cyan"
-        />
-        <StatCard
-          label="Portfolio Yield"
-          primary={`${(p.portfolio_yield_pa || 0).toFixed(1)}%`}
-          secondary="p.a. (dollar-weighted)"
-          accent="rose"
-        />
+        <StatCard label="Total Deployed" primary={fmt(p.total_deployed)} secondary="Total principal given out" accent="indigo" onClick={() => openCalc("total_deployed")} />
+        <StatCard label="Active Principal" primary={fmt(p.active_principal)} secondary="Still owed by borrowers" accent="violet" onClick={() => openCalc("active_principal")} />
+        <StatCard label="Interest Earned" primary={fmt(p.total_interest_earned)} secondaryLabel="Expected remaining" secondary={p.total_interest_expected_remaining > 0 ? fmt(p.total_interest_expected_remaining) : "₹0"} accent="emerald" onClick={() => openCalc("interest_earned")} />
+        <StatCard label="Penalty Collected" primary={fmt(p.total_penalty_collected)} secondary="Late payment charges" accent="amber" onClick={() => openCalc("penalty")} />
+        <StatCard label="Total Earnings" primary={fmt(p.total_earnings)} secondary="Interest + Penalty" accent="cyan" onClick={() => openCalc("total_earnings")} />
+        <StatCard label="Portfolio Yield" primary={`${(p.portfolio_yield_pa || 0).toFixed(1)}%`} secondary="p.a. (dollar-weighted)" accent="rose" onClick={() => openCalc("portfolio_yield")} />
       </div>
 
       {/* ── Type Cards ── */}
@@ -606,9 +702,9 @@ export default function LoanAnalytics() {
           <h2 className="text-sm font-semibold text-slate-700 mb-3">By Loan Type</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {TYPE_ORDER.filter((t) => byType[t]).map((t) => {
-              if (t === "emi")           return <EmiCard          key={t} data={byType[t]} />;
-              if (t === "interest_only") return <InterestOnlyCard key={t} data={byType[t]} />;
-              if (t === "short_term")    return <ShortTermCard    key={t} data={byType[t]} />;
+              if (t === "emi")           return <EmiCard          key={t} data={byType[t]} onCalcClick={(k) => openCalc(k)} />;
+              if (t === "interest_only") return <InterestOnlyCard key={t} data={byType[t]} onCalcClick={(k) => openCalc(k)} />;
+              if (t === "short_term")    return <ShortTermCard    key={t} data={byType[t]} onCalcClick={(k) => openCalc(k)} />;
               return null;
             })}
           </div>
@@ -624,8 +720,14 @@ export default function LoanAnalytics() {
               Interest collected, penalties, and principal returned each month
             </p>
           </div>
+          <p className="text-[10px] text-slate-400 mb-2">Click any data point to see monthly breakdown</p>
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={monthlyTrend} margin={{ top: 5, right: 10, left: 0, bottom: 20 }}>
+            <LineChart
+              data={monthlyTrend}
+              margin={{ top: 5, right: 10, left: 0, bottom: 20 }}
+              onClick={(e) => { if (e?.activePayload?.[0]) openCalc("monthly", e.activePayload[0].payload); }}
+              style={{ cursor: "pointer" }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis
                 dataKey="label"
