@@ -3752,10 +3752,19 @@ def analytics_loans_given(
         write_off = _D(loan.write_off_amount or 0)
         total_write_offs += write_off
 
+        # For IO loans with capitalization: track how much interest has been rolled
+        # into principal (capitalized). Uses outstanding.principal - original.principal
+        # so that principal already repaid after capitalization is excluded.
+        capitalized_interest = Decimal("0")
+        if ltype == "interest_only" and loan.status == "active" and loan_outstanding:
+            current_outstanding_p = _D(loan_outstanding.get("principal_outstanding", 0))
+            capitalized_interest = max(current_outstanding_p - principal, Decimal("0"))
+
         if ltype not in type_groups:
             type_groups[ltype] = {
                 "count": 0,
                 "total_principal": Decimal("0"),
+                "total_active_original_principal": Decimal("0"),
                 "total_interest_earned": Decimal("0"),
                 "total_interest_at_completion": Decimal("0"),
                 "total_accrued_to_today": Decimal("0"),
@@ -3763,6 +3772,7 @@ def analytics_loans_given(
                 "total_principal_recovered": Decimal("0"),
                 "total_principal_outstanding": Decimal("0"),
                 "total_interest_outstanding": Decimal("0"),
+                "total_capitalized_interest": Decimal("0"),
                 "total_write_offs": Decimal("0"),
                 "active": 0, "closed": 0,
                 "over": 0, "on_track": 0, "under": 0, "open": 0,
@@ -3778,6 +3788,8 @@ def analytics_loans_given(
         g["total_principal_outstanding"] += principal_outstanding
         if loan.status == "active":
             g["total_interest_outstanding"] += interest_outstanding_loan
+            g["total_active_original_principal"] += principal
+            g["total_capitalized_interest"] += capitalized_interest
         g["total_write_offs"] += write_off
         g["active"] += 1 if loan.status == "active" else 0
         g["closed"] += 1 if loan.status != "active" else 0
@@ -3860,11 +3872,14 @@ def analytics_loans_given(
         io = float(g["total_interest_outstanding"])   # active unpaid interest
 
         wo = float(g["total_write_offs"])
+        active_orig_p = float(g["total_active_original_principal"])
+        cap_int = float(g["total_capitalized_interest"])
         coverage_vs_accrued = round(ie / accrued * 100, 1) if accrued > 0 else None
         by_type[ltype] = {
             "loan_type": ltype,
             "count": g["count"],
             "total_principal": tp,
+            "total_active_original_principal": round(active_orig_p, 2),
             "total_interest_earned": ie,
             "total_interest_accrued": accrued,
             "total_interest_at_completion": iac,
@@ -3873,6 +3888,8 @@ def analytics_loans_given(
             "total_principal_recovered": pr,
             "total_principal_outstanding": round(po, 2),
             "total_interest_outstanding": round(io, 2),
+            "total_capitalized_interest": round(cap_int, 2),
+            "total_interest_pending": round(io + cap_int, 2),
             "total_write_offs": round(wo, 2),
             "total_extra_collected": round(ie + float(g["total_penalty"]), 2),
             "active": g["active"],

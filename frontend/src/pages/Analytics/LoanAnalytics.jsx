@@ -122,15 +122,25 @@ function EmiCard({ data, onCalcClick }) {
 
 /* ── Interest-Only type card ── */
 function InterestOnlyCard({ data, onCalcClick }) {
-  const { total_principal, total_interest_earned, total_interest_outstanding,
+  const { total_principal, total_active_original_principal,
+          total_interest_earned, total_interest_outstanding,
+          total_capitalized_interest, total_interest_pending,
           total_interest_at_completion,
           total_accrued, total_penalty, active, closed, count,
           interest_coverage_pct, performance_breakdown: pb } = data;
   const color = TYPE_META.interest_only.color;
+
+  // Capital Deployed = sum of original principal for ACTIVE loans only
+  const activeDeployed = total_active_original_principal || 0;
+  // Interest Collected = actual payments received as interest
   const ioPaid = total_interest_earned || 0;
-  const ioPending = total_interest_outstanding || 0;
+  // Interest Pending = currently outstanding + interest capitalized into principal
+  const ioPending = total_interest_pending || total_interest_outstanding || 0;
+  const ioCapitalized = total_capitalized_interest || 0;
+  const ioCurrentOutstanding = total_interest_outstanding || 0;
   const ioTotal = ioPaid + ioPending;
   const ioPaidPct = ioTotal > 0 ? (ioPaid / ioTotal) * 100 : 0;
+
   return (
     <div className="bg-white border border-emerald-100 rounded-xl p-5 shadow-sm">
       <div className="flex items-center gap-2 mb-4">
@@ -139,11 +149,21 @@ function InterestOnlyCard({ data, onCalcClick }) {
         <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Capital Deployed" valCls="text-slate-800" value={formatCurrency(total_principal)} onClick={() => onCalcClick("io_principal")} />
+        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Active Capital Deployed" valCls="text-slate-800" value={formatCurrency(activeDeployed)} onClick={() => onCalcClick("io_principal")} />
         <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Interest Collected" valCls="text-emerald-700" value={formatCurrency(ioPaid)} onClick={() => onCalcClick("io_collected")} />
         <TypeStat bg="bg-rose-50" labelCls="text-rose-500" label="Interest Pending" valCls="text-rose-700" value={ioPending > 0 ? formatCurrency(ioPending) : "₹0"} onClick={ioPending > 0 ? () => onCalcClick("io_pending") : undefined} />
         <TypeStat bg="bg-teal-50" labelCls="text-teal-500" label="Expected Total (at term)" valCls="text-teal-700" value={total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"} onClick={total_interest_at_completion > 0 ? () => onCalcClick("io_at_completion") : undefined} />
       </div>
+      {ioCapitalized > 0 && (
+        <div className="mb-2 flex gap-1.5 text-[10px]">
+          <span className="bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">
+            {formatCurrency(ioCurrentOutstanding)} accrued outstanding
+          </span>
+          <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">
+            + {formatCurrency(ioCapitalized)} capitalized into principal
+          </span>
+        </div>
+      )}
       {ioTotal > 0 && (
         <div className="mb-3">
           <div className="flex justify-between text-[11px] text-slate-500 mb-1">
@@ -575,25 +595,38 @@ export default function LoanAnalytics() {
       }
       // ── IO type breakdown ──
       case "io_principal": {
-        const loans = loansByType("interest_only");
-        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal) }));
+        const ioType = byType?.interest_only || {};
+        const loans = loansByType("interest_only").filter((l) => l.status === "active");
+        const rows = loans.map((l) => ({ label: l.contact_name, value: fmt(l.principal) }));
         rows.push({ divider: true });
-        rows.push({ label: "Total", value: fmt(byType?.interest_only?.total_principal||0), highlight: true, bold: true });
-        return { title: "IO — Capital Deployed", subtitle: "Sum of all interest-only loan principals", rows };
+        rows.push({ label: "Active Capital Deployed (original)", value: fmt(ioType.total_active_original_principal||0), highlight: true, bold: true });
+        rows.push({ label: "All Loans Total (incl. closed)", value: fmt(ioType.total_principal||0) });
+        return { title: "IO — Active Capital Deployed", subtitle: "Sum of original disbursed principals for active IO loans only (excludes closed loans)", rows };
       }
       case "io_collected": {
         const loans = loansByType("interest_only").filter((l) => l.interest_earned > 0);
         const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.interest_earned) }));
         rows.push({ divider: true });
         rows.push({ label: "Total Collected", value: fmt(byType?.interest_only?.total_interest_earned||0), highlight: "green", bold: true });
-        return { title: "IO — Interest Collected", subtitle: "Actual payments received (gross_interest_accrued used for accrual baseline)", rows };
+        return { title: "IO — Interest Collected", subtitle: "Actual payments received and allocated to interest", rows };
       }
       case "io_pending": {
-        const loans = loansByType("interest_only").filter((l) => l.status === "active" && (l.interest_outstanding||0) > 0);
-        const rows = loans.map((l) => ({ label: `${l.contact_name}`, value: fmt(l.interest_outstanding), highlight: "rose" }));
+        const ioType = byType?.interest_only || {};
+        const currentOutstanding = ioType.total_interest_outstanding || 0;
+        const capitalized = ioType.total_capitalized_interest || 0;
+        const rows = [];
+        rows.push({ label: "── Accrued (not yet paid) ──", value: "", bold: true });
+        loansByType("interest_only").filter((l) => l.status === "active" && (l.interest_outstanding||0) > 0)
+          .forEach((l) => rows.push({ label: l.contact_name, value: fmt(l.interest_outstanding), highlight: "rose" }));
+        rows.push({ label: "Sub-total: accrued outstanding", value: fmt(currentOutstanding), bold: true });
+        if (capitalized > 0) {
+          rows.push({ divider: true });
+          rows.push({ label: "── Capitalized into Principal ──", value: "", bold: true });
+          rows.push({ label: "Interest added to principal in past cap events (still owed as interest from business perspective)", value: fmt(capitalized), highlight: "rose" });
+        }
         rows.push({ divider: true });
-        rows.push({ label: "Total Pending", value: fmt(byType?.interest_only?.total_interest_outstanding||0), highlight: "rose", bold: true });
-        return { title: "IO — Interest Pending", subtitle: "Unpaid interest on active IO loans (from outstanding service)", rows };
+        rows.push({ label: "Total Interest Pending", value: fmt(currentOutstanding + capitalized), highlight: "rose", bold: true });
+        return { title: "IO — Interest Pending", subtitle: "Accrued outstanding + capitalized interest embedded in principal", rows };
       }
       case "io_at_completion": {
         const loans = loansByType("interest_only").filter((l) => l.interest_at_completion > 0);
