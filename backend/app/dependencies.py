@@ -40,3 +40,18 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin access required"
         )
     return current_user
+
+
+def require_write_access(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency for any endpoint that mutates data.
+    Blocks users with role='readonly'.
+    The middleware in main.py already enforces this at the HTTP level;
+    this dependency is a belt-and-suspenders guard at the route level.
+    """
+    if current_user.role == "readonly":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read-only credentials: write operations are not permitted.",
+        )
+    return current_user

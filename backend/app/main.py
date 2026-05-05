@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+from jose import JWTError, jwt
 import time
 
 from app.config import settings
@@ -46,6 +47,33 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
+
+# ── Read-only enforcement middleware ──────────────────────────────────────────
+# Users with role="readonly" may only issue safe HTTP methods (GET, HEAD, OPTIONS).
+# The role is embedded in the JWT access token to avoid a DB lookup per request.
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def enforce_readonly(request: Request, call_next):
+    if request.method not in _SAFE_METHODS:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            try:
+                payload = jwt.decode(
+                    token,
+                    settings.SECRET_KEY,
+                    algorithms=[settings.ALGORITHM],
+                )
+                if payload.get("role") == "readonly" and payload.get("type") == "access":
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Read-only credentials: write operations are not permitted."},
+                    )
+            except JWTError:
+                pass  # invalid token — let the route handler return 401 as normal
+    return await call_next(request)
 
 # Include routers
 app.include_router(auth.router)

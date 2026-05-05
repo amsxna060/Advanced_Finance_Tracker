@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from typing import Optional
 from jose import jwt
 from passlib.context import CryptContext
 
@@ -18,9 +20,9 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 limiter = Limiter(key_func=get_remote_address)
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, role: str = "viewer") -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode = {"sub": str(user_id), "exp": expire, "type": "access"}
+    to_encode = {"sub": str(user_id), "exp": expire, "type": "access", "role": role}
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -44,7 +46,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is disabled")
 
-    access_token = create_access_token(user.id)
+    access_token = create_access_token(user.id, role=user.role)
     refresh_token = create_refresh_token(user.id)
 
     return {
@@ -113,3 +115,69 @@ def register(user_data: UserCreate, db: Session = Depends(get_db), admin: User =
 def logout(current_user: User = Depends(get_current_user)):
     # In a production system, would invalidate the refresh token in a blacklist/database
     return {"message": "Logged out successfully"}
+
+
+class ReadonlyUserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    note: Optional[str] = None   # e.g. "Shared with accountant"
+
+
+@router.post("/create-readonly", response_model=UserOut)
+def create_readonly_user(
+    payload: ReadonlyUserCreate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """
+    Admin-only: create a read-only credential.
+    The issued token can only perform GET requests — all write operations
+    (POST/PUT/PATCH/DELETE) will be rejected with 403.
+    """
+    existing = db.query(User).filter(User.username == payload.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    # Use a placeholder email derived from username to satisfy the unique constraint
+    placeholder_email = f"{payload.username}@readonly.internal"
+    email_taken = db.query(User).filter(User.email == placeholder_email).first()
+    if email_taken:
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    new_user = User(
+        username=payload.username,
+        email=placeholder_email,
+        password_hash=pwd_context.hash(payload.password),
+        full_name=payload.full_name or payload.username,
+        role="readonly",
+        is_active=True,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+@router.get("/readonly-users", response_model=list[UserOut])
+def list_readonly_users(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Admin-only: list all readonly credentials."""
+    return db.query(User).filter(User.role == "readonly").all()
+
+
+@router.delete("/readonly-users/{user_id}")
+def revoke_readonly_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Admin-only: deactivate (revoke) a readonly credential."""
+    user = db.query(User).filter(User.id == user_id, User.role == "readonly").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Readonly user not found")
+    user.is_active = False
+    db.commit()
+    return {"message": f"Readonly user '{user.username}' has been revoked"}
