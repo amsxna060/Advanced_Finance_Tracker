@@ -324,3 +324,39 @@ class PlotBuyerOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Deal Simulator Schemas ────────────────────────────────────────────────────
+
+class SimulationPayload(BaseModel):
+    """All slider/input states + computed outputs for one scenario snapshot."""
+    holding_months: int = 6
+    target_price_per_sqft: float = 0.0
+    target_annual_profit_pct: Optional[float] = None
+    purchase_and_hold: bool = False
+    registry_cost_per_sqft: float = 70.0
+    annual_appreciation_pct: float = 12.0
+    # Computed outputs stored with the snapshot for instant display
+    absolute_profit: Optional[float] = None
+    absolute_roi_pct: Optional[float] = None
+    annualized_roi_pct: Optional[float] = None
+    breakeven_price_per_sqft: Optional[float] = None
+    ai_verdict: Optional[str] = None      # "HOLD" | "SELL" | "REGISTRY"
+    ai_reasoning: Optional[str] = None
+
+
+class SimulationCreate(BaseModel):
+    name: str
+    payload: SimulationPayload
+
+
+class SimulationOut(BaseModel):
+    id: int
+    property_deal_id: int
+    name: str
+    payload: SimulationPayload
+    created_by: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

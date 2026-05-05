@@ -89,6 +89,7 @@ class PropertyDeal(Base):
     transactions = relationship("PropertyTransaction", back_populates="property_deal")
     site_plots = relationship("SitePlot", back_populates="property_deal")
     plot_buyers = relationship("PlotBuyer", back_populates="property_deal")
+    simulations = relationship("PropertySimulation", back_populates="property_deal", cascade="all, delete-orphan")
 
 
 class PropertyTransaction(Base):
@@ -174,4 +175,19 @@ class PlotBuyer(Base):
 
     property_deal = relationship("PropertyDeal", back_populates="plot_buyers")
     buyer_contact = relationship("Contact", foreign_keys=[buyer_contact_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class PropertySimulation(Base):
+    """Sandboxed deal simulation scenario — never mutates live property data."""
+    __tablename__ = "property_simulations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_deal_id = Column(Integer, ForeignKey("property_deals.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    payload = Column(Text, nullable=False)   # JSON blob with all slider states + computed outputs
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    property_deal = relationship("PropertyDeal", back_populates="simulations")
     creator = relationship("User", foreign_keys=[created_by])

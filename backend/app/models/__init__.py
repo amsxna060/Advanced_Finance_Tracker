@@ -2,7 +2,7 @@ from app.models.user import User
 from app.models.contact import Contact
 from app.models.loan import Loan, LoanPayment, LoanCapitalizationEvent
 from app.models.collateral import Collateral
-from app.models.property_deal import PropertyDeal, PropertyTransaction
+from app.models.property_deal import PropertyDeal, PropertyTransaction, PropertySimulation
 from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.expense import Expense
 from app.models.category_learning import CategoryLearning
@@ -25,6 +25,7 @@ __all__ = [
     "Collateral",
     "PropertyDeal",
     "PropertyTransaction",
+    "PropertySimulation",
     "Partnership",
     "PartnershipMember",
     "PartnershipTransaction",

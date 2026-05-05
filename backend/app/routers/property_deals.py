@@ -1116,3 +1116,90 @@ def delete_plot_buyer(
     db.delete(buyer)
     db.commit()
     return {"message": "Buyer deleted"}
+
+
+# ── Deal Simulator Endpoints ──────────────────────────────────────────────────
+# These are fully sandboxed: they only read/write the property_simulations table.
+# No mutations are made to property_deals, property_transactions, or any other
+# production table.
+
+from app.models.property_deal import PropertySimulation  # noqa: E402 (local import for clarity)
+from app.schemas.property_deal import SimulationCreate, SimulationOut  # noqa: E402
+import json  # noqa: E402
+
+
+@router.post("/{property_id}/simulations", response_model=SimulationOut)
+def save_simulation(
+    property_id: int,
+    body: SimulationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Save a named simulation scenario for a property. Sandboxed — no live data is changed."""
+    _get_property_or_404(property_id, db)
+    sim = PropertySimulation(
+        property_deal_id=property_id,
+        name=body.name,
+        payload=json.dumps(body.payload.model_dump()),
+        created_by=current_user.id,
+    )
+    db.add(sim)
+    db.commit()
+    db.refresh(sim)
+    # Deserialize payload for the response
+    sim.payload = body.payload  # type: ignore[assignment]
+    return _sim_to_out(sim, body.payload)
+
+
+@router.get("/{property_id}/simulations", response_model=list[SimulationOut])
+def list_simulations(
+    property_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return all saved simulation scenarios for a property."""
+    _get_property_or_404(property_id, db)
+    rows = (
+        db.query(PropertySimulation)
+        .filter(PropertySimulation.property_deal_id == property_id)
+        .order_by(PropertySimulation.created_at.desc())
+        .all()
+    )
+    return [_sim_to_out(r) for r in rows]
+
+
+@router.delete("/{property_id}/simulations/{sim_id}", status_code=204)
+def delete_simulation(
+    property_id: int,
+    sim_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a saved simulation scenario."""
+    _get_property_or_404(property_id, db)
+    sim = db.query(PropertySimulation).filter(
+        PropertySimulation.id == sim_id,
+        PropertySimulation.property_deal_id == property_id,
+    ).first()
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    db.delete(sim)
+    db.commit()
+
+
+def _sim_to_out(sim: "PropertySimulation", parsed_payload=None) -> SimulationOut:
+    from app.schemas.property_deal import SimulationPayload  # noqa: PLC0415
+
+    if parsed_payload is None:
+        raw = sim.payload if isinstance(sim.payload, str) else json.dumps(sim.payload)
+        parsed_payload = SimulationPayload(**json.loads(raw))
+
+    return SimulationOut(
+        id=sim.id,
+        property_deal_id=sim.property_deal_id,
+        name=sim.name,
+        payload=parsed_payload,
+        created_by=sim.created_by,
+        created_at=sim.created_at,
+    )
+
