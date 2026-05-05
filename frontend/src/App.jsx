@@ -44,6 +44,7 @@ const AccountDetail = lazy(() => import("./pages/Accounts/AccountDetail"));
 const ObligationList = lazy(() => import("./pages/Obligations/ObligationList"));
 const AdminMigration = lazy(() => import("./pages/Admin/AdminMigration"));
 
+
 // Minimal spinner shown while a lazy chunk loads
 function PageLoader() {
   return (
