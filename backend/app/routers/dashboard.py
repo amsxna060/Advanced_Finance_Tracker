@@ -659,11 +659,31 @@ def get_dashboard_v2(
             out_amount = _decimal(outstanding_cache[loan.id]["total_outstanding"])
         total_outstanding_receivable += out_amount
 
-        loan_interest = sum(
-            _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
-            for p in loan.payments
-        )
-        loan_principal_rec = sum(_decimal(p.allocated_to_principal) for p in loan.payments)
+        payments = loan.payments or []
+        if loan.loan_type == "emi":
+            emi_amt = _decimal(loan.emi_amount or 0)
+            tenure = int(loan.tenure_months or 0)
+            if emi_amt > 0 and tenure > 0 and principal > 0:
+                total_repayment = emi_amt * Decimal(str(tenure))
+                total_lifetime_interest = max(total_repayment - principal, Decimal("0"))
+                interest_ratio = total_lifetime_interest / total_repayment
+                principal_ratio = Decimal("1") - interest_ratio
+                total_cash = sum(
+                    _decimal(p.allocated_to_overdue_interest) + _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_principal)
+                    for p in payments
+                )
+                loan_interest = (total_cash * interest_ratio).quantize(Decimal("0.01"))
+                loan_principal_rec = (total_cash * principal_ratio).quantize(Decimal("0.01"))
+            else:
+                loan_interest = sum(_decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest) for p in payments)
+                loan_principal_rec = sum(_decimal(p.allocated_to_principal) for p in payments)
+        else:
+            loan_interest = sum(
+                _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+                for p in payments
+            )
+            loan_principal_rec = sum(_decimal(p.allocated_to_principal) for p in payments)
+
         total_interest_earned += loan_interest
         total_principal_recovered += loan_principal_rec
 
@@ -712,10 +732,26 @@ def get_dashboard_v2(
             out_amount = _decimal(outstanding_cache[loan.id]["total_outstanding"])
         total_outstanding_payable += out_amount
 
-        lip = sum(
-            _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
-            for p in loan.payments
-        )
+        taken_payments = loan.payments or []
+        if loan.loan_type == "emi":
+            emi_amt = _decimal(loan.emi_amount or 0)
+            tenure = int(loan.tenure_months or 0)
+            if emi_amt > 0 and tenure > 0 and principal > 0:
+                total_repayment = emi_amt * Decimal(str(tenure))
+                total_lifetime_interest = max(total_repayment - principal, Decimal("0"))
+                interest_ratio = total_lifetime_interest / total_repayment
+                total_cash = sum(
+                    _decimal(p.allocated_to_overdue_interest) + _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_principal)
+                    for p in taken_payments
+                )
+                lip = (total_cash * interest_ratio).quantize(Decimal("0.01"))
+            else:
+                lip = sum(_decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest) for p in taken_payments)
+        else:
+            lip = sum(
+                _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
+                for p in taken_payments
+            )
         total_interest_paid += lip
 
         if loan.status == "active":

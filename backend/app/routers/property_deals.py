@@ -1236,41 +1236,40 @@ def ai_insight(
     mode = "Purchase & Hold (register and own)" if req.purchase_and_hold else "Flip / sell to buyer"
     lending_return = req.my_capital * (req.lending_rate_pct / 100) * (req.holding_months / 12)
 
-    prompt = f"""You are a personal capital management advisor for a property investor in India.
-The user runs a money-lending business earning ~{req.lending_rate_pct:.0f}% p.a. Capital tied up in property is NOT available for lending — this is a real opportunity cost.
+    prompt = f"""You are a personal capital advisor for a small Indian property investor. You must give blunt, specific, numbers-first advice.
 
-=== DEAL CONTEXT ===
+=== INVESTOR PROFILE ===
+- Runs a parallel money-lending business at ~{req.lending_rate_pct:.0f}% p.a. as primary income
+- Capital is SCARCE — tying up money in property directly reduces lending capacity and other deal opportunities
+- Also actively flips plots (typical 25–40% annualised returns in 4–5 months)
+- Cannot afford prolonged capital blockage; every idle rupee is a missed lending EMI or deal
+
+=== DEAL DETAILS ===
 Property: {prop.title}
-Type: {getattr(prop, "property_type", "residential")}
-Status: {getattr(prop, "status", "unknown")}
 Total area: {total_area:,.0f} sqft
 All-in investment: ₹{total_invest:,.0f}
-
-=== SIMULATION SCENARIO ===
 Mode: {mode}
 Holding period: {req.holding_months:.0f} months
 Target sale price: ₹{req.target_price_per_sqft:,.0f}/sqft
 Break-even price: ₹{req.breakeven_price_per_sqft:,.0f}/sqft
-Projected absolute profit: ₹{req.absolute_profit:,.0f}
-Projected absolute ROI: {req.absolute_roi_pct:.1f}%
-Projected annualized ROI: {req.annualized_roi_pct:.1f}%
-{"Annual appreciation rate: " + str(req.annual_appreciation_pct) + "% p.a." if req.purchase_and_hold else ""}
+{"Annual appreciation: " + str(req.annual_appreciation_pct) + "% p.a." if req.purchase_and_hold else ""}
 
-=== MY PERSONAL POSITION ===
-My capital committed: ₹{req.my_capital:,.0f}
+=== MY POSITION ===
+My capital at stake: ₹{req.my_capital:,.0f}
 My projected profit: ₹{req.my_profit:,.0f}
-My annualized ROI: {req.my_ann_roi_pct:.1f}%
-Alternative — lending ₹{req.my_capital:,.0f} at {req.lending_rate_pct:.0f}% for {req.holding_months:.0f}mo: ₹{lending_return:,.0f} return
+My annualised ROI: {req.my_ann_roi_pct:.1f}%
+If I lent this ₹{req.my_capital:,.0f} at {req.lending_rate_pct:.0f}% for {req.holding_months:.0f} months instead: ₹{lending_return:,.0f} return
+Deal profit vs lending alternative: ₹{req.my_profit - lending_return:,.0f} {"better" if req.my_profit >= lending_return else "WORSE"}
 
 === ANALYSIS REQUIRED ===
-1. Is the annualized ROI attractive vs. {req.lending_rate_pct:.0f}% lending baseline? By how much?
-2. Is capital blockage justified — i.e., does this deal beat lending?
-3. Is the holding period appropriate for the returns?
-{"4. Does " + str(req.annual_appreciation_pct) + "% appreciation justify registry cost and long-term lock-in?" if req.purchase_and_hold else "4. Would accepting a lower price now close the deal faster and redeploy capital better?"}
+1. Does the {req.my_ann_roi_pct:.1f}% ROI justify locking capital vs {req.lending_rate_pct:.0f}% lending? Be specific with rupee numbers.
+2. What is the opportunity cost of capital blockage on this investor's lending business and other deals?
+3. Is the {req.holding_months:.0f}-month hold period reasonable, or should they accept a lower price faster to redeploy?
+{"4. Does " + str(req.annual_appreciation_pct) + "% appreciation justify the registry cost and full capital lock-in for " + str(req.holding_months) + " months?" if req.purchase_and_hold else "4. Would shaving ₹" + str(round((req.target_price_per_sqft - req.breakeven_price_per_sqft) * 0.3)) + "/sqft off the ask close the deal faster and still beat lending?"}
 
 Respond with EXACTLY this format (nothing else):
 VERDICT: [SELL or HOLD or REGISTRY]
-REASONING: [3-4 sentences with specific numbers from the scenario. Be direct and actionable.]"""
+REASONING: [3-5 sentences. Use rupee numbers. Be blunt. Reference the lending business impact explicitly.]"""
 
     try:
         from google import genai

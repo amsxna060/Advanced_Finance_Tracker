@@ -421,13 +421,7 @@ export default function PropertyDetail() {
         backTo="/properties"
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate(`/properties/${id}/simulator`)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
-              title="Open Deal Simulator (sandbox mode)"
-            >
-              🧪 Simulate
-            </button>
+            <Button variant="white" size="sm" onClick={() => navigate(`/properties/${id}/simulator`)}>🧪 Simulate</Button>
             <Button variant="white" size="sm" onClick={() => setShowShare(true)}>🔗 Share</Button>
             <Button variant="white" size="sm" onClick={() => navigate(`/properties/${id}/edit`)}>✏ Edit</Button>
             <Button variant="white" size="sm"

@@ -861,11 +861,12 @@ export default function LoanAnalytics() {
         return { title: "Short-Term — Principal Recovered", subtitle: "Payments allocated to principal repayment", rows };
       }
       case "st_outstanding": {
-        const loans = loansByType("short_term").filter((l) => l.principal_outstanding > 0);
-        const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal_outstanding), highlight: "rose" }));
+        const loans = loansByType("short_term").filter((l) => l.status === "active" && l.principal_outstanding > 0);
+        const activeTotal = loans.reduce((s, l) => s + l.principal_outstanding, 0);
+        const rows = loans.map((l) => ({ label: l.contact_name, value: fmt(l.principal_outstanding), highlight: "rose" }));
         rows.push({ divider: true });
-        rows.push({ label: "Total Outstanding", value: fmt(byType?.short_term?.total_principal_outstanding||0), highlight: "rose", bold: true });
-        return { title: "Short-Term — Still To Recover", subtitle: "Computed outstanding principal per active loan", rows };
+        rows.push({ label: "Total Outstanding (active loans)", value: fmt(activeTotal), highlight: "rose", bold: true });
+        return { title: "Short-Term — Still To Recover", subtitle: "Outstanding principal for active loans only — closed loans excluded", rows };
       }
       case "st_extra": {
         const loans = loansByType("short_term").filter((l) => (l.interest_earned + l.penalty_collected) > 0);
@@ -957,13 +958,27 @@ export default function LoanAnalytics() {
             {TYPE_ORDER.filter(t => byType[t]).map(t => {
               let typeData = byType[t];
               if (t === "emi") {
-                const emiLoans = allLoans.filter(l => l.loan_type === "emi");
-                const emiRecovered = emiLoans.reduce((s, l) => s + (l.principal_recovered || 0), 0);
+                // Only active loans: principal recovered and still outstanding
+                const emiActive = allLoans.filter(l => l.loan_type === "emi" && l.status === "active");
+                const emiAll    = allLoans.filter(l => l.loan_type === "emi");
+                const emiRecoveredAll    = emiAll.reduce((s, l) => s + (l.principal_recovered || 0), 0);
+                const emiActivePrincipal = emiActive.reduce((s, l) => s + l.principal, 0);
+                const emiActiveRecovered = emiActive.reduce((s, l) => s + (l.principal_recovered || 0), 0);
                 typeData = {
                   ...typeData,
-                  total_principal_recovered: emiRecovered,
-                  // Simple subtraction avoids per-loan rounding drift from the service calculation
-                  total_principal_outstanding: (byType.emi?.total_principal || 0) - emiRecovered,
+                  total_principal_recovered: emiRecoveredAll,
+                  // Only active loan outstanding — closed loans have no outstanding
+                  total_principal_outstanding: emiActivePrincipal - emiActiveRecovered,
+                };
+              }
+              if (t === "short_term") {
+                // Recompute outstanding for active loans only
+                const stActive = allLoans.filter(l => l.loan_type === "short_term" && l.status === "active");
+                const stActivePrincipal = stActive.reduce((s, l) => s + l.principal, 0);
+                const stActiveRecovered = stActive.reduce((s, l) => s + (l.principal_recovered || 0), 0);
+                typeData = {
+                  ...typeData,
+                  total_principal_outstanding: stActivePrincipal - stActiveRecovered,
                 };
               }
               return <TypeSummaryCard key={t} type={t} data={typeData} onCalcClick={openCalc} />;
