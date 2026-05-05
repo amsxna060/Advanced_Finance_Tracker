@@ -624,6 +624,15 @@ export default function LoanAnalytics() {
     staleTime: 2 * 60 * 1000,
   });
 
+  // useMemo must be called before any conditional returns (Rules of Hooks)
+  const allLoans = data?.loans || [];
+  const filteredLoans = useMemo(() => allLoans.filter(l => {
+    if (filterType !== "all" && l.loan_type !== filterType) return false;
+    if (filterStatus !== "all" && l.status !== filterStatus) return false;
+    if (filterBorrower && !l.contact_name?.toLowerCase().includes(filterBorrower.toLowerCase())) return false;
+    return true;
+  }), [allLoans, filterType, filterStatus, filterBorrower]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -644,7 +653,6 @@ export default function LoanAnalytics() {
 
   const p = data?.portfolio || {};
   const byType = data?.by_type || {};
-  const allLoans = data?.loans || [];
   const monthlyTrend = data?.monthly_trend || [];
 
   // ── Calc modal builder ───────────────────────────────────────────────────
@@ -842,14 +850,6 @@ export default function LoanAnalytics() {
     const d = buildCalcModal(key, extra);
     if (d) setCalcModal(d);
   }
-
-  // Filter + group loans
-  const filteredLoans = useMemo(() => allLoans.filter(l => {
-    if (filterType !== "all" && l.loan_type !== filterType) return false;
-    if (filterStatus !== "all" && l.status !== filterStatus) return false;
-    if (filterBorrower && !l.contact_name?.toLowerCase().includes(filterBorrower.toLowerCase())) return false;
-    return true;
-  }), [allLoans, filterType, filterStatus, filterBorrower]);
 
   const TYPE_ORDER = ["emi", "interest_only", "short_term", "other"];
   const grouped = {};
