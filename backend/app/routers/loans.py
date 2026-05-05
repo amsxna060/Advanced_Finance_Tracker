@@ -430,6 +430,7 @@ def force_close_loan(
 
     principal_amount = Decimal(str(loan.principal_amount))
     total_received = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
+    principal_recovered = sum(Decimal(str(p.allocated_to_principal or 0)) for p in all_pmts)
 
     # Calculate accrued interest as of today to determine "desired profit"
     try:
@@ -440,29 +441,29 @@ def force_close_loan(
         accrued_interest = Decimal("0")
         interest_outstanding = Decimal("0")
 
+    principal_shortfall = max(principal_amount - principal_recovered, Decimal("0"))
     profit_above_principal = total_received - principal_amount
-    if profit_above_principal >= Decimal("0"):
-        # Recovered principal plus some interest
+
+    if principal_shortfall == 0:
         note = (
             f"Force closed on {today}. "
             f"Total received: \u20b9{float(total_received):.2f}. "
             f"Profit above principal: \u20b9{float(profit_above_principal):.2f}."
         )
     else:
-        # Principal not fully recovered
-        loss_from_principal = abs(profit_above_principal)
-        desired_profit = accrued_interest  # the interest we wanted to earn
-        loss_from_desired = interest_outstanding  # unpaid interest portion
         note = (
             f"Force closed on {today}. "
             f"Total received: \u20b9{float(total_received):.2f}. "
-            f"Loss: \u20b9{float(loss_from_principal):.2f} below principal. "
-            f"Uncollected interest: \u20b9{float(loss_from_desired):.2f}."
+            f"Principal shortfall (write-off): \u20b9{float(principal_shortfall):.2f}. "
+            f"Uncollected interest: \u20b9{float(interest_outstanding):.2f}."
         )
 
     loan.status = "closed"
     loan.actual_end_date = today
     loan.notes = ((loan.notes or "").rstrip() + "\n" + note).strip()
+    # Record write-off for loss loan analytics
+    if principal_shortfall > 0:
+        loan.write_off_amount = principal_shortfall
     db.commit()
 
     return {
@@ -470,6 +471,8 @@ def force_close_loan(
         "status": "closed",
         "total_received": float(total_received),
         "principal_amount": float(principal_amount),
+        "principal_recovered": float(principal_recovered),
+        "principal_shortfall": float(principal_shortfall),
         "profit_above_principal": float(profit_above_principal),
         "accrued_interest": float(accrued_interest),
         "note": note,

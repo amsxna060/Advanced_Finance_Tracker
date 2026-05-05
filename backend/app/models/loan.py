@@ -61,6 +61,10 @@ class Loan(Base):
     # Default account for money flow
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
 
+    # Write-off amount: principal shortfall recorded when a loan is deliberately
+    # closed with less than the full outstanding amount (loss/bad-debt scenario).
+    write_off_amount = Column(Numeric(15, 2), default=0, nullable=True)
+
     notes = Column(Text)
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

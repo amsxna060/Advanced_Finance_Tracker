@@ -3514,6 +3514,8 @@ def analytics_loans_given(
             "total_interest_expected_remaining": 0.0,
             "total_penalty_collected": 0.0,
             "total_earnings": 0.0,
+            "total_write_offs": 0.0,
+            "effective_earnings": 0.0,
             "portfolio_yield_pa": 0.0,
             "active_count": 0,
             "closed_count": 0,
@@ -3644,6 +3646,7 @@ def analytics_loans_given(
     total_interest_earned = Decimal("0")
     total_penalty_collected = Decimal("0")
     total_interest_expected_remaining = Decimal("0")
+    total_write_offs = Decimal("0")
     active_count = 0
     closed_count = 0
     active_principal_total = Decimal("0")
@@ -3746,6 +3749,9 @@ def analytics_loans_given(
         total_interest_earned += interest_earned
         total_penalty_collected += penalty_earned
 
+        write_off = _D(loan.write_off_amount or 0)
+        total_write_offs += write_off
+
         if ltype not in type_groups:
             type_groups[ltype] = {
                 "count": 0,
@@ -3757,6 +3763,7 @@ def analytics_loans_given(
                 "total_principal_recovered": Decimal("0"),
                 "total_principal_outstanding": Decimal("0"),
                 "total_interest_outstanding": Decimal("0"),
+                "total_write_offs": Decimal("0"),
                 "active": 0, "closed": 0,
                 "over": 0, "on_track": 0, "under": 0, "open": 0,
             }
@@ -3771,6 +3778,7 @@ def analytics_loans_given(
         g["total_principal_outstanding"] += principal_outstanding
         if loan.status == "active":
             g["total_interest_outstanding"] += interest_outstanding_loan
+        g["total_write_offs"] += write_off
         g["active"] += 1 if loan.status == "active" else 0
         g["closed"] += 1 if loan.status != "active" else 0
         g[performance] = g.get(performance, 0) + 1
@@ -3786,6 +3794,7 @@ def analytics_loans_given(
             "interest_earned": float(interest_earned),
             "principal_recovered": float(principal_recovered),
             "penalty_earned": float(penalty_earned),
+            "write_off": float(write_off),
             "gross_interest_accrued": float(loan_outstanding.get("gross_interest_accrued", 0)) if loan_outstanding else None,
             "interest_outstanding": float(interest_outstanding_loan),
             "principal_outstanding": float(principal_outstanding),
@@ -3827,6 +3836,7 @@ def analytics_loans_given(
             "interest_outstanding": float(interest_outstanding_loan),
             "performance": performance,
             "yield_pa": round(yield_pa, 2),
+            "write_off": float(write_off),
             "debug": debug,
         })
 
@@ -3849,6 +3859,7 @@ def analytics_loans_given(
         po = float(g["total_principal_outstanding"])  # computed sum, not tp-pr
         io = float(g["total_interest_outstanding"])   # active unpaid interest
 
+        wo = float(g["total_write_offs"])
         coverage_vs_accrued = round(ie / accrued * 100, 1) if accrued > 0 else None
         by_type[ltype] = {
             "loan_type": ltype,
@@ -3862,6 +3873,7 @@ def analytics_loans_given(
             "total_principal_recovered": pr,
             "total_principal_outstanding": round(po, 2),
             "total_interest_outstanding": round(io, 2),
+            "total_write_offs": round(wo, 2),
             "total_extra_collected": round(ie + float(g["total_penalty"]), 2),
             "active": g["active"],
             "closed": g["closed"],
@@ -3922,6 +3934,8 @@ def analytics_loans_given(
             "total_interest_expected_remaining": float(total_interest_expected_remaining),
             "total_penalty_collected": float(total_penalty_collected),
             "total_earnings": float(total_interest_earned + total_penalty_collected),
+            "total_write_offs": float(total_write_offs),
+            "effective_earnings": float(total_interest_earned + total_penalty_collected - total_write_offs),
             "portfolio_yield_pa": round(portfolio_yield_pa, 2),
             "active_count": active_count,
             "closed_count": closed_count,

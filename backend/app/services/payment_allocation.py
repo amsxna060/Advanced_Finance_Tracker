@@ -1,10 +1,9 @@
 from decimal import Decimal
 from datetime import date
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import Dict
 from app.models.loan import Loan, LoanPayment
-from app.services.interest import calculate_outstanding, generate_emi_schedule
+from app.services.interest import calculate_outstanding
 
 
 def allocate_payment(
@@ -19,8 +18,10 @@ def allocate_payment(
     Allocate a payment amount to overdue interest, current interest, and principal.
 
     For EMI loans:
-      Uses carry-forward credit balance approach.
-      Clears overdue EMI balance first, then any excess stored as current.
+      Proportional split: interest_ratio = total_lifetime_interest / total_repayment.
+      allocated_to_current_interest = payment × interest_ratio (rounded to 0.01)
+      allocated_to_principal = payment - allocated_to_current_interest
+      EMI schedule tracking uses amount_paid/penalty_paid directly — not these fields.
 
     For interest_only loans (simplified 2x rule):
       monthly_estimate = principal_outstanding * annual_rate / 1200
@@ -29,7 +30,7 @@ def allocate_payment(
       Auto-close triggered in the router when principal reaches 0.
 
     For short_term loans:
-      Interest first, then principal (original logic preserved).
+      Interest first, then principal; any surplus = additional profit → current_interest.
 
     Returns: {
         allocated_to_overdue_interest,
@@ -48,52 +49,30 @@ def allocate_payment(
         }
 
     if loan.loan_type == "emi":
-        # For EMI loans: use carry-forward logic
-        schedule = generate_emi_schedule(loan)
-        if not schedule:
-            # No schedule — treat entire payment as current
-            return {
-                "allocated_to_overdue_interest": Decimal("0"),
-                "allocated_to_current_interest": payment_amount,
-                "allocated_to_principal": Decimal("0"),
-                "unallocated": Decimal("0"),
-            }
+        # Proportional interest/principal split based on embedded rate.
+        # The EMI schedule tracking (which EMIs are overdue) uses amount_paid
+        # directly in get_emi_schedule_with_payments — allocation fields are
+        # free to carry the economically correct interest/principal split.
+        principal = Decimal(str(loan.principal_amount or 0))
+        emi_amount = Decimal(str(loan.emi_amount or 0))
+        tenure = int(loan.tenure_months or 0)
 
-        emi_amount = Decimal(str(loan.emi_amount))
-
-        # Total EMIs due up to and including payment_date
-        emis_due_count = sum(1 for e in schedule if e["due_date"] <= payment_date)
-        total_due = emi_amount * emis_due_count
-
-        # Payments made BEFORE the current payment (exclude same-date current payment)
-        previous_total = db.query(func.sum(LoanPayment.amount_paid)).filter(
-            LoanPayment.loan_id == loan_id,
-            LoanPayment.payment_date < payment_date,
-        ).scalar() or Decimal("0")
-        previous_total = Decimal(str(previous_total))
-
-        overdue_emi_balance = max(total_due - previous_total, Decimal("0"))
-        remaining = payment_amount
-        allocated_overdue = Decimal("0")
-        allocated_current = Decimal("0")
-        allocated_principal = Decimal("0")
-
-        # Clear overdue EMI balance first (stored as overdue_interest for tracking)
-        if remaining > 0 and overdue_emi_balance > 0:
-            pay = min(remaining, overdue_emi_balance)
-            allocated_overdue = pay
-            remaining -= pay
-
-        # Any excess goes towards future EMIs (stored as current_interest)
-        if remaining > 0:
-            allocated_current = remaining
-            remaining = Decimal("0")
+        if emi_amount > 0 and tenure > 0 and principal > 0:
+            total_repayment = emi_amount * Decimal(str(tenure))
+            total_interest = max(total_repayment - principal, Decimal("0"))
+            interest_ratio = total_interest / total_repayment
+            allocated_current = (payment_amount * interest_ratio).quantize(Decimal("0.01"))
+            allocated_principal = payment_amount - allocated_current
+        else:
+            # No schedule configured — treat as all interest (rare edge case)
+            allocated_current = payment_amount
+            allocated_principal = Decimal("0")
 
         return {
-            "allocated_to_overdue_interest": allocated_overdue,
+            "allocated_to_overdue_interest": Decimal("0"),
             "allocated_to_current_interest": allocated_current,
             "allocated_to_principal": allocated_principal,
-            "unallocated": remaining,
+            "unallocated": Decimal("0"),
         }
 
     elif loan.loan_type == "interest_only":
@@ -135,7 +114,8 @@ def allocate_payment(
         }
 
     else:
-        # short_term (and any future types): interest-first, then principal
+        # short_term (and any future types): interest-first, then principal,
+        # then any surplus is additional profit (allocated to current_interest).
         outstanding = calculate_outstanding(loan_id, payment_date, db)
         interest_outstanding = outstanding["interest_outstanding"]
         principal_outstanding = outstanding["principal_outstanding"]
@@ -155,9 +135,14 @@ def allocate_payment(
             allocated_principal = principal_payment
             remaining -= principal_payment
 
+        # Surplus after full principal recovery = extra interest / profit
+        if remaining > 0:
+            allocated_current += remaining
+            remaining = Decimal("0")
+
         return {
             "allocated_to_overdue_interest": allocated_overdue,
             "allocated_to_current_interest": allocated_current,
             "allocated_to_principal": allocated_principal,
-            "unallocated": remaining,
+            "unallocated": Decimal("0"),
         }

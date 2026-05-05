@@ -89,6 +89,7 @@ class LoanOut(BaseModel):
     expected_end_date: Optional[date]
     actual_end_date: Optional[date]
     account_id: Optional[int] = None
+    write_off_amount: Optional[Decimal] = None
     notes: Optional[str]
     interest_calc_method: str = 'commercial'
     is_deleted: Optional[bool] = None
