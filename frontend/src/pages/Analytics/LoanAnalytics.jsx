@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   PieChart, Pie, Cell,
@@ -36,7 +36,7 @@ function GhostStat({ label, value, sub, onClick }) {
       }`}
     >
       <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-2">{label}</p>
-      <p className="text-2xl font-bold text-slate-900 leading-none tabular-nums">{value}</p>
+      <p className="text-xl font-bold text-slate-900 leading-tight tabular-nums break-all">{value}</p>
       {sub && <p className="text-xs text-slate-400 mt-2 leading-tight">{sub}</p>}
       {onClick && (
         <p className="text-[10px] text-slate-300 mt-2 group-hover:text-slate-400 transition-colors">tap to see calc ↗</p>
@@ -172,6 +172,13 @@ function PerformanceHeatmap({ allLoans }) {
           ))}
         </tbody>
       </table>
+      <div className="mt-3 pt-3 border-t border-slate-100 space-y-1">
+        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide mb-1.5">What these mean</p>
+        <p className="text-[10px] text-slate-400"><span className="text-emerald-600 font-semibold">Over</span> — paid more than expected, ahead of schedule</p>
+        <p className="text-[10px] text-slate-400"><span className="text-blue-500 font-semibold">On Track</span> — paying as expected, no issues</p>
+        <p className="text-[10px] text-slate-400"><span className="text-rose-500 font-semibold">Under</span> — behind on payments, collecting less</p>
+        <p className="text-[10px] text-slate-400"><span className="text-slate-400 font-semibold">Open</span> — no payments recorded yet</p>
+      </div>
     </div>
   );
 }
@@ -244,6 +251,22 @@ function TypeSummaryCard({ type, data, onCalcClick }) {
           <div className="flex gap-1.5 flex-wrap pt-1">
             <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">{fmt(data.total_interest_outstanding || 0)} accrued</span>
             <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">+{fmt(ioCapitalized)} capitalized</span>
+          </div>
+        )}
+
+        {isEmi && (data.total_principal_recovered || 0) > 0 && (
+          <div className="flex justify-between items-baseline">
+            <button type="button" onClick={() => onCalcClick("emi_principal")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors text-left">
+              Principal Recovered ↗
+            </button>
+            <span className="text-sm font-bold text-emerald-600 tabular-nums">{fmt(data.total_principal_recovered || 0)}</span>
+          </div>
+        )}
+
+        {isEmi && (data.total_principal_outstanding || 0) > 0 && (
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs text-slate-400">Still with Borrowers</span>
+            <span className="text-sm font-bold text-rose-500 tabular-nums">{fmt(data.total_principal_outstanding || 0)}</span>
           </div>
         )}
 
@@ -513,9 +536,33 @@ function LoanGroupSection({ ltype, loans }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {loans.map((loan) => (
-              <LoanRow key={loan.loan_id} loan={loan} isShortTerm={isShortTerm} isEmi={isEmi} />
-            ))}
+            {(() => {
+              // Count loans per contact to decide when to show sub-headers
+              const contactCounts = {};
+              for (const l of loans) {
+                const n = l.contact_name || "Unknown";
+                contactCounts[n] = (contactCounts[n] || 0) + 1;
+              }
+              return loans.map((loan, idx) => {
+                const name = loan.contact_name || "Unknown";
+                const isNewContact = idx === 0 || loans[idx - 1].contact_name !== loan.contact_name;
+                const multiLoan = contactCounts[name] > 1;
+                return (
+                  <React.Fragment key={loan.loan_id}>
+                    {isNewContact && multiLoan && (
+                      <tr>
+                        <td colSpan={isShortTerm ? 9 : 10} className="px-4 pt-2.5 pb-0.5 bg-slate-50/60 border-t border-slate-100">
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                            {name} · {contactCounts[name]} loans
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    <LoanRow loan={loan} isShortTerm={isShortTerm} isEmi={isEmi} />
+                  </React.Fragment>
+                );
+              });
+            })()}
           </tbody>
         </table>
       )}
@@ -896,9 +943,18 @@ export default function LoanAnalytics() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <TypeDonut allLoans={allLoans} />
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {TYPE_ORDER.filter(t => byType[t]).map(t => (
-              <TypeSummaryCard key={t} type={t} data={byType[t]} onCalcClick={openCalc} />
-            ))}
+            {TYPE_ORDER.filter(t => byType[t]).map(t => {
+              let typeData = byType[t];
+              if (t === "emi") {
+                const emiLoans = allLoans.filter(l => l.loan_type === "emi");
+                typeData = {
+                  ...typeData,
+                  total_principal_recovered: emiLoans.reduce((s, l) => s + (l.principal_recovered || 0), 0),
+                  total_principal_outstanding: emiLoans.reduce((s, l) => s + (l.principal_outstanding || 0), 0),
+                };
+              }
+              return <TypeSummaryCard key={t} type={t} data={typeData} onCalcClick={openCalc} />;
+            })}
           </div>
         </div>
 
@@ -919,7 +975,11 @@ export default function LoanAnalytics() {
           <div className="overflow-x-auto divide-y divide-slate-100">
             {TYPE_ORDER.filter(t => grouped[t]).map(t => {
               const g = grouped[t];
-              const loans = [...g.active, ...g.closed];
+              const byName = (a, b) => (a.contact_name || "").localeCompare(b.contact_name || "");
+              const loans = [
+                ...[...g.active].sort(byName),
+                ...[...g.closed].sort(byName),
+              ];
               if (!loans.length) return null;
               return <LoanGroupSection key={t} ltype={t} loans={loans} />;
             })}
