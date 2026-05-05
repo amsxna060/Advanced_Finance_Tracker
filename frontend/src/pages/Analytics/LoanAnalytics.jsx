@@ -1,319 +1,588 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
+  PieChart, Pie, Cell,
+  AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
 } from "recharts";
 import api from "../../lib/api";
 import { formatCurrency } from "../../lib/utils";
 
-/* ── formatters ── */
-function fmtPct(n) {
-  if (n == null) return "—";
-  return `${n.toFixed(1)}%`;
-}
+const fmt = formatCurrency;
+function fmtPct(n) { return n == null ? "—" : `${n.toFixed(1)}%`; }
 
-/* ── Stat card ── */
-function StatCard({ label, primary, secondary, secondaryLabel, accent = "indigo", wide = false, onClick }) {
-  const A = {
-    indigo: { bg: "bg-indigo-50 border-indigo-200", txt: "text-indigo-700", sub: "text-indigo-400" },
-    emerald: { bg: "bg-emerald-50 border-emerald-200", txt: "text-emerald-700", sub: "text-emerald-400" },
-    amber:   { bg: "bg-amber-50 border-amber-200",   txt: "text-amber-700",   sub: "text-amber-400"   },
-    rose:    { bg: "bg-rose-50 border-rose-200",      txt: "text-rose-700",    sub: "text-rose-400"    },
-    violet:  { bg: "bg-violet-50 border-violet-200",  txt: "text-violet-700",  sub: "text-violet-400"  },
-    cyan:    { bg: "bg-cyan-50 border-cyan-200",      txt: "text-cyan-700",    sub: "text-cyan-400"    },
-    slate:   { bg: "bg-slate-50 border-slate-200",    txt: "text-slate-700",   sub: "text-slate-400"   },
-  }[accent] || {};
-  return (
-    <div
-      className={`${A.bg} border rounded-xl p-4 ${wide ? "col-span-2" : ""} ${onClick ? "cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-150 active:scale-100" : ""}`}
-      onClick={onClick}
-      title={onClick ? "Click to see calculation" : undefined}
-    >
-      <p className={`text-[11px] font-medium uppercase tracking-wide ${A.sub} mb-1`}>{label}</p>
-      <p className={`text-xl font-bold ${A.txt} leading-tight`}>{primary}</p>
-      {secondary != null && (
-        <p className={`text-[11px] mt-1 ${A.sub}`}>
-          {secondaryLabel && <span className="font-medium">{secondaryLabel}: </span>}
-          {secondary}
-        </p>
-      )}
-      {onClick && <p className={`text-[9px] mt-1.5 ${A.sub} opacity-60`}>tap to see calc ↗</p>}
-    </div>
-  );
-}
-
-/* ── Progress bar ── */
-function Bar({ pct, color }) {
-  return (
-    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-700"
-        style={{ width: `${Math.min(Math.max(pct || 0, 0), 150)}%`, backgroundColor: color }}
-      />
-    </div>
-  );
-}
-
-/* ── Type colours ── */
 const TYPE_META = {
-  emi:           { label: "EMI Loans",          color: "#6366f1" },
-  interest_only: { label: "Interest-Only Loans", color: "#10b981" },
-  short_term:    { label: "Short-Term Loans",    color: "#f59e0b" },
-  other:         { label: "Other",               color: "#8b5cf6" },
+  emi:           { label: "EMI",           color: "#6366f1" },
+  interest_only: { label: "Interest-Only", color: "#10b981" },
+  short_term:    { label: "Short-Term",    color: "#f59e0b" },
+  other:         { label: "Other",         color: "#8b5cf6" },
+};
+const PERF_META = {
+  over:     { label: "Over",     cls: "bg-emerald-100 text-emerald-700" },
+  on_track: { label: "On Track", cls: "bg-blue-100 text-blue-700" },
+  under:    { label: "Under",    cls: "bg-rose-100 text-rose-700" },
+  open:     { label: "Open",     cls: "bg-slate-100 text-slate-500" },
 };
 
-/* ── clickable type stat box ── */
-function TypeStat({ bg, labelCls, label, valCls, value, onClick }) {
+/* ── Ghost Stat Card ── */
+function GhostStat({ label, value, sub, onClick }) {
   return (
-    <div
-      className={`${bg} rounded-lg p-3 ${onClick ? "cursor-pointer hover:brightness-95 active:brightness-90 transition-all" : ""}`}
+    <button
+      type="button"
       onClick={onClick}
-      title={onClick ? "Click to see breakdown" : undefined}
+      className={`bg-white border border-slate-200/80 rounded-2xl p-5 text-left w-full transition-all duration-150 ${
+        onClick ? "hover:shadow-md hover:border-slate-300 cursor-pointer group" : "cursor-default"
+      }`}
     >
-      <p className={`${labelCls} mb-0.5 flex items-center justify-between`}>
-        <span>{label}</span>
-        {onClick && <span className="text-[9px] opacity-50">↗</span>}
-      </p>
-      <p className={`font-bold ${valCls} text-sm`}>{value}</p>
+      <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-2">{label}</p>
+      <p className="text-2xl font-bold text-slate-900 leading-none tabular-nums">{value}</p>
+      {sub && <p className="text-xs text-slate-400 mt-2 leading-tight">{sub}</p>}
+      {onClick && (
+        <p className="text-[10px] text-slate-300 mt-2 group-hover:text-slate-400 transition-colors">tap to see calc ↗</p>
+      )}
+    </button>
+  );
+}
+
+/* ── Thin progress bar ── */
+function ThinBar({ pct, color }) {
+  return (
+    <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(Math.max(pct || 0, 0), 100)}%`, backgroundColor: color }} />
     </div>
   );
 }
 
-/* ── EMI type card ── */
-function EmiCard({ data, onCalcClick }) {
-  const { total_principal, total_interest_earned, total_interest_at_completion,
-          total_accrued, total_penalty, active, closed, count,
-          interest_coverage_pct, performance_breakdown: pb } = data;
-  const color = TYPE_META.emi.color;
+/* ── Donut Chart ── */
+function TypeDonut({ allLoans }) {
+  const data = useMemo(() => {
+    const counts = {};
+    for (const l of allLoans) {
+      const t = l.loan_type || "other";
+      if (!counts[t]) counts[t] = { count: 0, principal: 0 };
+      counts[t].count += 1;
+      counts[t].principal += l.principal || 0;
+    }
+    return Object.entries(counts).map(([type, v]) => ({
+      type, label: TYPE_META[type]?.label || type,
+      value: v.principal, count: v.count,
+      color: TYPE_META[type]?.color || "#8b5cf6",
+    }));
+  }, [allLoans]);
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (!data.length) return null;
+
   return (
-    <div className="bg-white border border-indigo-100 rounded-xl p-5 shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-        <h3 className="font-semibold text-slate-800">EMI Loans</h3>
-        <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Capital Deployed" valCls="text-slate-800" value={formatCurrency(total_principal)} onClick={() => onCalcClick("emi_principal")} />
-        <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Interest Paid So Far" valCls="text-emerald-700" value={formatCurrency(total_interest_earned)} onClick={() => onCalcClick("emi_interest")} />
-        <TypeStat bg="bg-indigo-50" labelCls="text-indigo-400" label="Total Interest When Closed" valCls="text-indigo-700" value={total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"} onClick={() => onCalcClick("emi_at_completion")} />
-        <TypeStat bg="bg-amber-50" labelCls="text-amber-500" label="Penalty Collected" valCls="text-amber-700" value={total_penalty > 0 ? formatCurrency(total_penalty) : "₹0"} onClick={total_penalty > 0 ? () => onCalcClick("emi_penalty") : undefined} />
-      </div>
-      {total_accrued > 0 && (
-        <div className="mb-3">
-          <div className="flex justify-between text-[11px] text-slate-500 mb-1">
-            <span>Collection vs Expected (today)</span>
-            <span className={`font-semibold ${(interest_coverage_pct || 0) >= 85 ? "text-emerald-600" : "text-rose-600"}`}>
-              {fmtPct(interest_coverage_pct)}
-            </span>
+    <div className="bg-white border border-slate-200/80 rounded-2xl p-5">
+      <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-4">Portfolio Mix</p>
+      <div className="flex items-center gap-5">
+        <div className="relative shrink-0">
+          <ResponsiveContainer width={110} height={110}>
+            <PieChart>
+              <Pie data={data} dataKey="value" cx="50%" cy="50%" innerRadius={35} outerRadius={52} strokeWidth={0} paddingAngle={2}>
+                {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-base font-bold text-slate-800">{allLoans.length}</span>
+            <span className="text-[9px] text-slate-400 uppercase tracking-wide">loans</span>
           </div>
-          <Bar pct={interest_coverage_pct} color={(interest_coverage_pct || 0) >= 100 ? "#10b981" : (interest_coverage_pct || 0) >= 85 ? "#f59e0b" : "#ef4444"} />
         </div>
-      )}
-      <div className="flex flex-wrap gap-2 text-[11px]">
-        {pb?.over > 0 && <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{pb.over} over</span>}
-        {pb?.on_track > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{pb.on_track} on track</span>}
-        {pb?.under > 0 && <span className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">{pb.under} under</span>}
-        {pb?.open > 0 && <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{pb.open} open</span>}
+        <div className="flex flex-col gap-2.5 min-w-0 flex-1">
+          {data.map((d) => (
+            <div key={d.type}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                <span className="text-xs text-slate-600 truncate flex-1">{d.label}</span>
+                <span className="text-xs font-semibold text-slate-800 tabular-nums">{d.count}</span>
+                <span className="text-[10px] text-slate-400 tabular-nums w-9 text-right">
+                  {total > 0 ? `${((d.value / total) * 100).toFixed(0)}%` : "—"}
+                </span>
+              </div>
+              <ThinBar pct={total > 0 ? (d.value / total) * 100 : 0} color={d.color} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-/* ── Interest-Only type card ── */
-function InterestOnlyCard({ data, onCalcClick }) {
-  const { total_principal, total_active_original_principal,
-          total_interest_earned, total_interest_outstanding,
-          total_capitalized_interest, total_interest_pending,
-          total_interest_at_completion,
-          total_accrued, total_penalty, active, closed, count,
-          interest_coverage_pct, performance_breakdown: pb } = data;
-  const color = TYPE_META.interest_only.color;
+/* ── Performance Heatmap ── */
+function PerformanceHeatmap({ allLoans }) {
+  const types = ["emi", "interest_only", "short_term"];
+  const perfs = ["over", "on_track", "under", "open"];
 
-  // Capital Deployed = sum of original principal for ACTIVE loans only
-  const activeDeployed = total_active_original_principal || 0;
-  // Interest Collected = actual payments received as interest
-  const ioPaid = total_interest_earned || 0;
-  // Interest Pending = currently outstanding + interest capitalized into principal
-  const ioPending = total_interest_pending || total_interest_outstanding || 0;
-  const ioCapitalized = total_capitalized_interest || 0;
-  const ioCurrentOutstanding = total_interest_outstanding || 0;
-  const ioTotal = ioPaid + ioPending;
-  const ioPaidPct = ioTotal > 0 ? (ioPaid / ioTotal) * 100 : 0;
+  const matrix = useMemo(() => {
+    const m = {};
+    for (const perf of perfs) {
+      m[perf] = {};
+      for (const type of types) {
+        const loans = allLoans.filter(l => l.loan_type === type && l.performance === perf);
+        m[perf][type] = { count: loans.length, principal: loans.reduce((s, l) => s + l.principal, 0) };
+      }
+    }
+    return m;
+  }, [allLoans]);
+
+  const maxCount = Math.max(1, ...perfs.flatMap(p => types.map(t => matrix[p][t].count)));
 
   return (
-    <div className="bg-white border border-emerald-100 rounded-xl p-5 shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-        <h3 className="font-semibold text-slate-800">Interest-Only Loans</h3>
-        <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Active Capital Deployed" valCls="text-slate-800" value={formatCurrency(activeDeployed)} onClick={() => onCalcClick("io_principal")} />
-        <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Interest Collected" valCls="text-emerald-700" value={formatCurrency(ioPaid)} onClick={() => onCalcClick("io_collected")} />
-        <TypeStat bg="bg-rose-50" labelCls="text-rose-500" label="Interest Pending" valCls="text-rose-700" value={ioPending > 0 ? formatCurrency(ioPending) : "₹0"} onClick={ioPending > 0 ? () => onCalcClick("io_pending") : undefined} />
-        <TypeStat bg="bg-teal-50" labelCls="text-teal-500" label="Expected Total (at term)" valCls="text-teal-700" value={total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"} onClick={total_interest_at_completion > 0 ? () => onCalcClick("io_at_completion") : undefined} />
-      </div>
-      {ioCapitalized > 0 && (
-        <div className="mb-2 flex gap-1.5 text-[10px]">
-          <span className="bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">
-            {formatCurrency(ioCurrentOutstanding)} accrued outstanding
-          </span>
-          <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">
-            + {formatCurrency(ioCapitalized)} capitalized into principal
-          </span>
+    <div className="bg-white border border-slate-200/80 rounded-2xl p-5">
+      <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-4">Performance × Type</p>
+      <table className="w-full text-xs">
+        <thead>
+          <tr>
+            <th className="text-left pr-2 pb-2 text-slate-400 font-normal"></th>
+            {types.map(t => (
+              <th key={t} className="text-center pb-2 text-slate-400 font-normal px-1">
+                {TYPE_META[t]?.label || t}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {perfs.map(perf => (
+            <tr key={perf}>
+              <td className="pr-2 py-1.5 text-slate-500">{PERF_META[perf].label}</td>
+              {types.map(t => {
+                const cell = matrix[perf][t];
+                const intensity = cell.count / maxCount;
+                const color = TYPE_META[t]?.color || "#94a3b8";
+                const opacity = Math.round(intensity * 50 + 10).toString(16).padStart(2, "0");
+                return (
+                  <td key={t} className="py-1.5 px-1 text-center">
+                    <div
+                      className="inline-flex items-center justify-center w-9 h-8 rounded-lg text-xs font-semibold"
+                      style={{
+                        backgroundColor: cell.count > 0 ? `${color}${opacity}` : "#f8fafc",
+                        color: cell.count > 0 ? color : "#cbd5e1",
+                      }}
+                      title={cell.count > 0 ? `${cell.count} loans · ${fmt(cell.principal)}` : "none"}
+                    >
+                      {cell.count || "·"}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ── Type Summary Card ── */
+function TypeSummaryCard({ type, data, onCalcClick }) {
+  const meta = TYPE_META[type] || TYPE_META.other;
+  const isEmi = type === "emi";
+  const isIO  = type === "interest_only";
+  const isST  = type === "short_term";
+  const pb = data.performance_breakdown || {};
+  const ioPending     = isIO ? (data.total_interest_pending || data.total_interest_outstanding || 0) : 0;
+  const ioCapitalized = isIO ? (data.total_capitalized_interest || 0) : 0;
+  const activeDeployed = isIO ? (data.total_active_original_principal || 0) : (data.total_principal || 0);
+
+  return (
+    <div className="bg-white border border-slate-200/80 rounded-2xl p-5" style={{ borderLeft: `3px solid ${meta.color}` }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
+          <span className="text-sm font-semibold text-slate-800">{meta.label}</span>
         </div>
-      )}
-      {ioTotal > 0 && (
-        <div className="mb-3">
-          <div className="flex justify-between text-[11px] text-slate-500 mb-1">
-            <span>Interest Collected vs Pending</span>
-            <span className={`font-semibold ${ioPaidPct >= 85 ? "text-emerald-600" : "text-amber-600"}`}>
-              {ioPaidPct.toFixed(0)}% collected
-            </span>
+        <span className="text-xs text-slate-400">{data.count || 0} · {data.active || 0} active</span>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex justify-between items-baseline">
+          <button type="button" onClick={() => onCalcClick(isEmi ? "emi_principal" : isIO ? "io_principal" : "st_principal")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors text-left">
+            {isIO ? "Active Capital" : "Capital Deployed"} ↗
+          </button>
+          <span className="text-sm font-bold text-slate-900 tabular-nums">{fmt(activeDeployed)}</span>
+        </div>
+
+        {!isST && (
+          <div className="flex justify-between items-baseline">
+            <button type="button" onClick={() => onCalcClick(isEmi ? "emi_interest" : "io_collected")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors text-left">
+              {isEmi ? "Interest Earned" : "Interest Collected"} ↗
+            </button>
+            <span className="text-sm font-bold text-emerald-600 tabular-nums">{fmt(data.total_interest_earned || 0)}</span>
           </div>
-          <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
-            <div
-              className="h-full bg-emerald-400 transition-all duration-700"
-              style={{ width: `${ioPaidPct}%` }}
-            />
-            {ioPending > 0 && (
-              <div
-                className="h-full bg-amber-300 transition-all duration-700"
-                style={{ width: `${100 - ioPaidPct}%` }}
-              />
+        )}
+
+        {isST && (
+          <>
+            <div className="flex justify-between items-baseline">
+              <button type="button" onClick={() => onCalcClick("st_recovered")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Principal Recovered ↗</button>
+              <span className="text-sm font-bold text-emerald-600 tabular-nums">{fmt(data.total_principal_recovered || 0)}</span>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <button type="button" onClick={() => onCalcClick("st_extra")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Extra Collected ↗</button>
+              <span className="text-sm font-bold text-amber-600 tabular-nums">{fmt(data.total_extra_collected || 0)}</span>
+            </div>
+            {(data.total_principal_outstanding || 0) > 0 && (
+              <div className="flex justify-between items-baseline">
+                <button type="button" onClick={() => onCalcClick("st_outstanding")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Still To Recover ↗</button>
+                <span className="text-sm font-bold text-rose-500 tabular-nums">{fmt(data.total_principal_outstanding || 0)}</span>
+              </div>
             )}
+          </>
+        )}
+
+        {isIO && ioPending > 0 && (
+          <div className="flex justify-between items-baseline">
+            <button type="button" onClick={() => onCalcClick("io_pending")} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Interest Pending ↗</button>
+            <span className="text-sm font-bold text-rose-500 tabular-nums">{fmt(ioPending)}</span>
           </div>
-          <div className="flex justify-between text-[10px] mt-1">
-            <span className="text-emerald-500">Paid: {formatCurrency(ioPaid)}</span>
-            <span className="text-amber-500">Pending: {formatCurrency(ioPending)}</span>
+        )}
+
+        {isIO && ioCapitalized > 0 && (
+          <div className="flex gap-1.5 flex-wrap pt-1">
+            <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">{fmt(data.total_interest_outstanding || 0)} accrued</span>
+            <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">+{fmt(ioCapitalized)} capitalized</span>
           </div>
-        </div>
-      )}
-      {total_accrued > 0 && (
-        <div className="mb-3">
-          <div className="flex justify-between text-[11px] text-slate-500 mb-1">
-            <span>Paid vs Accrued (today)</span>
-            <span className={`font-semibold ${(interest_coverage_pct || 0) >= 85 ? "text-emerald-600" : "text-rose-600"}`}>
-              {fmtPct(interest_coverage_pct)}
-            </span>
+        )}
+
+        {isEmi && (data.interest_coverage_pct || 0) > 0 && (
+          <div className="pt-1">
+            <div className="flex justify-between text-[10px] text-slate-400 mb-1.5">
+              <span>Collection vs Expected</span>
+              <span className={`font-semibold ${(data.interest_coverage_pct || 0) >= 85 ? "text-emerald-600" : "text-rose-500"}`}>
+                {fmtPct(data.interest_coverage_pct)}
+              </span>
+            </div>
+            <ThinBar pct={data.interest_coverage_pct || 0} color={(data.interest_coverage_pct || 0) >= 85 ? "#10b981" : "#ef4444"} />
           </div>
-          <Bar pct={interest_coverage_pct} color={(interest_coverage_pct || 0) >= 100 ? "#10b981" : (interest_coverage_pct || 0) >= 85 ? "#f59e0b" : "#ef4444"} />
-        </div>
-      )}
-      {total_penalty > 0 && (
-        <p className="text-[11px] text-amber-500 mb-3">+ {formatCurrency(total_penalty)} penalty collected</p>
-      )}
-      <div className="flex flex-wrap gap-2 text-[11px]">
-        {pb?.over > 0 && <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{pb.over} over</span>}
-        {pb?.on_track > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{pb.on_track} on track</span>}
-        {pb?.under > 0 && <span className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">{pb.under} under</span>}
-        {pb?.open > 0 && <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{pb.open} open</span>}
+        )}
       </div>
+
+      {(pb.over > 0 || pb.on_track > 0 || pb.under > 0 || pb.open > 0) && (
+        <div className="flex flex-wrap gap-1.5 mt-4 pt-3 border-t border-slate-100">
+          {pb.over > 0 && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{pb.over} over</span>}
+          {pb.on_track > 0 && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{pb.on_track} on track</span>}
+          {pb.under > 0 && <span className="text-[10px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">{pb.under} under</span>}
+          {pb.open > 0 && <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{pb.open} open</span>}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── Short-Term type card ── */
-function ShortTermCard({ data, onCalcClick }) {
-  const { total_principal, total_principal_recovered, total_principal_outstanding,
-          total_extra_collected, total_interest_earned, total_penalty,
-          active, closed, count } = data;
-  const color = TYPE_META.short_term.color;
-  const recoveryPct = total_principal > 0 ? (total_principal_recovered / total_principal) * 100 : 0;
+/* ── Area Chart ── */
+function MonthlyAreaChart({ data, onMonthClick, chartView, setChartView }) {
+  const hasData = data?.some(m => m.interest_earned > 0 || m.principal_recovered > 0);
+  if (!hasData) return null;
+
   return (
-    <div className="bg-white border border-amber-100 rounded-xl p-5 shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-        <h3 className="font-semibold text-slate-800">Short-Term Loans</h3>
-        <span className="ml-auto text-xs text-slate-400">{count} loan{count !== 1 ? "s" : ""} · {active} active · {closed} closed</span>
+    <div className="bg-white border border-slate-200/80 rounded-2xl p-5">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-0.5">Monthly Cash Flow</p>
+          <p className="text-sm font-semibold text-slate-800">Last 12 Months</p>
+        </div>
+        <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+          {[{ v: "earnings", l: "Earnings" }, { v: "cashflow", l: "Cash Flow" }].map(({ v, l }) => (
+            <button key={v} onClick={() => setChartView(v)} className={`text-[11px] px-3 py-1 rounded-md transition-all ${chartView === v ? "bg-white text-slate-800 shadow-sm font-medium" : "text-slate-400 hover:text-slate-600"}`}>{l}</button>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-        <TypeStat bg="bg-slate-50" labelCls="text-slate-400" label="Capital Deployed" valCls="text-slate-800" value={formatCurrency(total_principal)} onClick={() => onCalcClick("st_principal")} />
-        <TypeStat bg="bg-emerald-50" labelCls="text-emerald-500" label="Principal Recovered" valCls="text-emerald-700" value={formatCurrency(total_principal_recovered)} onClick={() => onCalcClick("st_recovered")} />
-        <TypeStat bg="bg-rose-50" labelCls="text-rose-500" label="Still To Recover" valCls="text-rose-700" value={formatCurrency(total_principal_outstanding)} onClick={() => onCalcClick("st_outstanding")} />
-        <TypeStat bg="bg-amber-50" labelCls="text-amber-500" label="Extra Beyond Principal" valCls="text-amber-700"
-          value={<>{formatCurrency(total_extra_collected)}{total_penalty > 0 && <span className="block text-[10px] text-amber-400 mt-0.5">incl. ₹{(total_penalty / 1000).toFixed(1)}K penalty</span>}</>}
-          onClick={() => onCalcClick("st_extra")}
+      <p className="text-[10px] text-slate-300 mb-3">Click any point to see detail</p>
+      <ResponsiveContainer width="100%" height={210}>
+        <AreaChart data={data} margin={{ top: 5, right: 5, left: 0, bottom: 25 }} onClick={(e) => { if (e?.activePayload?.[0]) onMonthClick(e.activePayload[0].payload); }} style={{ cursor: "pointer" }}>
+          <defs>
+            <linearGradient id="gInt" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
+              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="gPri" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.12} />
+              <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="gPen" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.12} />
+              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} angle={-30} textAnchor="end" height={45} interval={0} />
+          <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1e5 ? `${(v / 1e5).toFixed(1)}L` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v)} />
+          <Tooltip content={({ active, payload, label }) => {
+            if (!active || !payload?.length) return null;
+            return (
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xl text-xs min-w-[155px]">
+                <p className="font-semibold text-slate-700 mb-2">{label}</p>
+                {payload.map((p) => (
+                  <div key={p.dataKey} className="flex items-center justify-between gap-3 mb-1">
+                    <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} /><span className="text-slate-500">{p.name}</span></div>
+                    <span className="font-semibold text-slate-800">{fmt(p.value)}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          }} />
+          <Area type="monotone" dataKey="interest_earned" name="Interest" stroke="#10b981" strokeWidth={1.5} fill="url(#gInt)" dot={{ r: 2.5, fill: "#10b981", strokeWidth: 0 }} activeDot={{ r: 4 }} />
+          {chartView === "earnings"
+            ? <Area type="monotone" dataKey="penalty_collected" name="Penalty" stroke="#f59e0b" strokeWidth={1.5} fill="url(#gPen)" dot={{ r: 2.5, fill: "#f59e0b", strokeWidth: 0 }} activeDot={{ r: 4 }} />
+            : <Area type="monotone" dataKey="principal_recovered" name="Principal" stroke="#6366f1" strokeWidth={1.5} fill="url(#gPri)" dot={{ r: 2.5, fill: "#6366f1", strokeWidth: 0 }} activeDot={{ r: 4 }} />
+          }
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ── Collapsible Loan Row ── */
+function LoanRow({ loan, isShortTerm, isEmi }) {
+  const [expanded, setExpanded] = useState(false);
+  const meta = TYPE_META[loan.loan_type] || TYPE_META.other;
+  const perfMeta = PERF_META[loan.performance] || PERF_META.open;
+
+  return (
+    <>
+      <tr className="hover:bg-slate-50/60 cursor-pointer transition-colors" onClick={() => setExpanded(!expanded)}>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
+            <span className="text-xs font-medium text-slate-800">{loan.contact_name}</span>
+            <span className="text-slate-300 ml-auto text-[10px]">{expanded ? "▴" : "▾"}</span>
+          </div>
+        </td>
+        <td className="px-4 py-3 text-xs tabular-nums font-medium text-slate-700">{fmt(loan.principal)}</td>
+        <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{loan.interest_rate > 0 ? `${loan.interest_rate}%` : "—"}</td>
+        <td className="px-4 py-3 text-xs text-slate-400">
+          {loan.disbursed_date ? new Date(loan.disbursed_date).toLocaleDateString("en-IN", { month: "short", year: "2-digit" }) : "—"}
+        </td>
+        <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">{loan.months_active}m</td>
+        {isShortTerm ? (
+          <>
+            <td className="px-4 py-3 text-xs font-semibold text-emerald-600 tabular-nums">{fmt(loan.principal_recovered)}</td>
+            <td className="px-4 py-3 text-xs font-semibold tabular-nums" style={{ color: loan.principal_outstanding > 0 ? "#e11d48" : "#94a3b8" }}>
+              {loan.principal_outstanding > 0 ? fmt(loan.principal_outstanding) : "—"}
+            </td>
+            <td className="px-4 py-3 text-xs font-semibold text-amber-600 tabular-nums">
+              {(loan.interest_earned + loan.penalty_collected) > 0 ? fmt(loan.interest_earned + loan.penalty_collected) : "—"}
+            </td>
+          </>
+        ) : (
+          <>
+            <td className="px-4 py-3 text-xs font-semibold text-emerald-600 tabular-nums">
+              {fmt(loan.interest_earned)}
+              {loan.penalty_collected > 0 && <span className="ml-1 text-[10px] text-amber-500">+{fmt(loan.penalty_collected)}</span>}
+            </td>
+            <td className="px-4 py-3 text-xs text-slate-400 tabular-nums">
+              {loan.interest_at_completion > 0 ? fmt(loan.interest_at_completion) : "—"}
+            </td>
+            <td className="px-4 py-3 text-xs tabular-nums">
+              <span className={`font-semibold ${loan.yield_pa >= 12 ? "text-emerald-600" : loan.yield_pa >= 6 ? "text-amber-600" : loan.yield_pa > 0 ? "text-rose-500" : "text-slate-400"}`}>
+                {loan.yield_pa > 0 ? `${loan.yield_pa.toFixed(1)}%` : "—"}
+              </span>
+            </td>
+            <td className="px-4 py-3">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${perfMeta.cls}`}>{perfMeta.label}</span>
+            </td>
+          </>
+        )}
+        <td className="px-4 py-3">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+            loan.status === "active" ? "bg-emerald-100 text-emerald-700"
+            : loan.status === "closed" ? "bg-slate-100 text-slate-500"
+            : "bg-rose-100 text-rose-700"
+          }`}>{loan.status}</span>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={isShortTerm ? 9 : 10} className="px-4 pb-3 pt-0 bg-slate-50/40">
+            <div className="bg-white rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs border border-slate-100">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Principal</p>
+                <p className="font-semibold text-slate-800">{fmt(loan.principal)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Rate</p>
+                <p className="font-semibold text-slate-800">{loan.interest_rate > 0 ? `${loan.interest_rate}% p.a.` : "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Disbursed</p>
+                <p className="font-semibold text-slate-800">
+                  {loan.disbursed_date ? new Date(loan.disbursed_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Active For</p>
+                <p className="font-semibold text-slate-800">{loan.months_active} months</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Interest Earned</p>
+                <p className="font-semibold text-emerald-600">{fmt(loan.interest_earned)}</p>
+              </div>
+              {loan.penalty_collected > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Penalty</p>
+                  <p className="font-semibold text-amber-600">{fmt(loan.penalty_collected)}</p>
+                </div>
+              )}
+              {loan.yield_pa > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Yield p.a.</p>
+                  <p className={`font-semibold ${loan.yield_pa >= 12 ? "text-emerald-600" : loan.yield_pa >= 6 ? "text-amber-600" : "text-rose-500"}`}>
+                    {loan.yield_pa.toFixed(2)}%
+                  </p>
+                </div>
+              )}
+              {isEmi && loan.debug?.emi_split && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">EMI Structure</p>
+                  <p className="font-semibold text-slate-800">{fmt(loan.debug.emi_split.emi_amount)} × {loan.debug.emi_split.tenure}m</p>
+                </div>
+              )}
+              {loan.principal_outstanding > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Principal Outstanding</p>
+                  <p className="font-semibold text-rose-500">{fmt(loan.principal_outstanding)}</p>
+                </div>
+              )}
+              {loan.interest_outstanding > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">Interest Outstanding</p>
+                  <p className="font-semibold text-rose-400">{fmt(loan.interest_outstanding)}</p>
+                </div>
+              )}
+              {loan.interest_at_completion > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">{isEmi ? "Lifetime Interest" : "Expected at Term"}</p>
+                  <p className="font-semibold text-slate-600">{fmt(loan.interest_at_completion)}</p>
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/* ── Loan Group Section ── */
+function LoanGroupSection({ ltype, loans }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const meta = TYPE_META[ltype] || { label: ltype, color: "#8b5cf6" };
+  const isShortTerm = ltype === "short_term";
+  const isEmi = ltype === "emi";
+
+  return (
+    <div>
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50/80 transition-colors text-left"
+        style={{ borderLeft: `3px solid ${meta.color}` }}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
+        <span className="text-xs font-semibold text-slate-700">{meta.label}</span>
+        <span className="text-xs text-slate-400">({loans.length})</span>
+        <span className="ml-auto text-slate-300 text-xs">{collapsed ? "▸" : "▾"}</span>
+      </button>
+      {!collapsed && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[10px] text-slate-400 uppercase tracking-widest border-b border-slate-100 bg-slate-50/40">
+              <th className="px-4 py-2 font-medium">Borrower</th>
+              <th className="px-4 py-2 font-medium">Principal</th>
+              <th className="px-4 py-2 font-medium">Rate</th>
+              <th className="px-4 py-2 font-medium">Since</th>
+              <th className="px-4 py-2 font-medium">Months</th>
+              {isShortTerm ? (
+                <>
+                  <th className="px-4 py-2 font-medium">Recovered</th>
+                  <th className="px-4 py-2 font-medium">Outstanding</th>
+                  <th className="px-4 py-2 font-medium">Extra</th>
+                </>
+              ) : (
+                <>
+                  <th className="px-4 py-2 font-medium">Earned</th>
+                  <th className="px-4 py-2 font-medium">{isEmi ? "Lifetime" : "At Term"}</th>
+                  <th className="px-4 py-2 font-medium">Yield</th>
+                  <th className="px-4 py-2 font-medium">Perf.</th>
+                </>
+              )}
+              <th className="px-4 py-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {loans.map((loan) => (
+              <LoanRow key={loan.loan_id} loan={loan} isShortTerm={isShortTerm} isEmi={isEmi} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/* ── Filter Bar ── */
+function FilterBar({ filterType, setFilterType, filterStatus, setFilterStatus, filterBorrower, setFilterBorrower }) {
+  const types = [
+    { value: "all", label: "All Types" },
+    { value: "emi", label: "EMI" },
+    { value: "interest_only", label: "Interest-Only" },
+    { value: "short_term", label: "Short-Term" },
+  ];
+  const statuses = [
+    { value: "all", label: "All" },
+    { value: "active", label: "Active" },
+    { value: "closed", label: "Closed" },
+  ];
+  const isFiltered = filterType !== "all" || filterStatus !== "all" || filterBorrower;
+
+  return (
+    <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-sm border-b border-slate-200/60 px-4 py-2">
+      <div className="flex flex-wrap items-center gap-2 max-w-7xl mx-auto">
+        <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+          {types.map(t => (
+            <button key={t.value} onClick={() => setFilterType(t.value)} className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${filterType === t.value ? "bg-white text-slate-800 shadow-sm font-semibold" : "text-slate-400 hover:text-slate-600"}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+          {statuses.map(s => (
+            <button key={s.value} onClick={() => setFilterStatus(s.value)} className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${filterStatus === s.value ? "bg-white text-slate-800 shadow-sm font-semibold" : "text-slate-400 hover:text-slate-600"}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          placeholder="Search borrower…"
+          value={filterBorrower}
+          onChange={(e) => setFilterBorrower(e.target.value)}
+          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 placeholder-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
         />
-      </div>
-      <div className="mb-2">
-        <div className="flex justify-between text-[11px] text-slate-500 mb-1">
-          <span>Principal Recovery</span>
-          <span className={`font-semibold ${recoveryPct >= 80 ? "text-emerald-600" : "text-amber-600"}`}>
-            {recoveryPct.toFixed(0)}%
-          </span>
-        </div>
-        <Bar pct={recoveryPct} color={recoveryPct >= 80 ? "#10b981" : "#f59e0b"} />
+        {isFiltered && (
+          <button onClick={() => { setFilterType("all"); setFilterStatus("all"); setFilterBorrower(""); }} className="text-[11px] text-slate-400 hover:text-slate-600 transition-colors">
+            Clear ✕
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-/* ── Chart Tooltip ── */
-const ChartTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xl text-xs min-w-[160px]">
-      <p className="font-semibold text-slate-700 mb-2">{label}</p>
-      {payload.map((p) => (
-        <div key={p.dataKey} className="flex items-center justify-between gap-4 mb-1">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
-            <span className="text-slate-500">{p.name}</span>
-          </div>
-          <span className="font-semibold text-slate-800">{formatCurrency(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-/* ── Performance badge ── */
-function PerfBadge({ perf }) {
-  const C = {
-    over:     "bg-emerald-100 text-emerald-700",
-    on_track: "bg-blue-100 text-blue-700",
-    under:    "bg-rose-100 text-rose-700",
-    open:     "bg-slate-100 text-slate-500",
-  };
-  const L = { over: "Over", on_track: "On Track", under: "Under", open: "Open" };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${C[perf] || C.open}`}>
-      {L[perf] || perf}
-    </span>
-  );
-}
-
-function StatusBadge({ status }) {
-  const C = { active: "bg-green-100 text-green-700", closed: "bg-slate-100 text-slate-500", defaulted: "bg-red-100 text-red-700" };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${C[status] || C.active}`}>
-      {status}
-    </span>
-  );
-}
-
-/* ── Calc Debug Modal ── */
+/* ── CalcModal ── */
 function CalcModal({ data, onClose }) {
   if (!data) return null;
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 text-lg leading-none"
-          onClick={onClose}
-        >✕</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <button className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 text-lg leading-none" onClick={onClose}>✕</button>
         <h3 className="font-bold text-slate-800 mb-0.5 text-sm">{data.title}</h3>
         {data.subtitle && <p className="text-[11px] text-slate-400 mb-4">{data.subtitle}</p>}
         <div className="space-y-0.5">
-          {data.rows.map((row, i) => (
+          {data.rows.map((row, i) =>
             row.divider
               ? <div key={i} className="border-t border-slate-200 my-2" />
               : (
@@ -328,7 +597,7 @@ function CalcModal({ data, onClose }) {
                   }`}>{row.value}</span>
                 </div>
               )
-          ))}
+          )}
         </div>
         {data.formula && (
           <div className="mt-4 p-3 bg-slate-50 rounded-lg">
@@ -341,131 +610,13 @@ function CalcModal({ data, onClose }) {
   );
 }
 
-/* ── Grouped loan table ── */
-function LoanGroup({ ltype, loans }) {
-  const meta = TYPE_META[ltype] || { label: ltype, color: "#8b5cf6" };
-  const isShortTerm = ltype === "short_term";
-  const isEmi = ltype === "emi";
-
-  return (
-    <div>
-        {/* Group header */}
-        <div
-          className="flex items-center gap-2 px-4 py-2.5 sticky top-0 z-10"
-          style={{ backgroundColor: `${meta.color}18`, borderLeft: `3px solid ${meta.color}` }}
-        >
-          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
-          <span className="text-sm font-semibold text-slate-700">{meta.label}</span>
-          <span className="text-xs text-slate-400">({loans.length})</span>
-        </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100 bg-slate-50/60">
-              <th className="px-4 py-2 font-medium">Person</th>
-              <th className="px-4 py-2 font-medium">Principal</th>
-              <th className="px-4 py-2 font-medium">Rate</th>
-              <th className="px-4 py-2 font-medium">Since</th>
-              <th className="px-4 py-2 font-medium">Months</th>
-              {isShortTerm ? (
-                <>
-                  <th className="px-4 py-2 font-medium">Recovered</th>
-                  <th className="px-4 py-2 font-medium">Outstanding</th>
-                  <th className="px-4 py-2 font-medium">Extra Earned</th>
-                </>
-              ) : (
-                <>
-                  <th className="px-4 py-2 font-medium">Earned</th>
-                  <th className="px-4 py-2 font-medium">{isEmi ? "Total (Lifetime)" : "Expected (Term)"}</th>
-                  <th className="px-4 py-2 font-medium">Yield % p.a.</th>
-                  <th className="px-4 py-2 font-medium">Perf.</th>
-                </>
-              )}
-              <th className="px-4 py-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {loans.map((loan) => (
-              <tr key={loan.loan_id} className="hover:bg-slate-50/80 transition-colors">
-                <td className="px-4 py-3">
-                  <span className="font-medium text-slate-800 text-xs">{loan.contact_name}</span>
-                </td>
-                <td className="px-4 py-3 text-xs tabular-nums font-medium text-slate-700">
-                  {formatCurrency(loan.principal)}
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">
-                  {loan.interest_rate > 0 ? `${loan.interest_rate}%` : "—"}
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-500">
-                  {loan.disbursed_date
-                    ? new Date(loan.disbursed_date).toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
-                    : "—"}
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">{loan.months_active}</td>
-                {isShortTerm ? (
-                  <>
-                    <td className="px-4 py-3 text-xs font-semibold text-emerald-700 tabular-nums">
-                      {formatCurrency(loan.principal_recovered)}
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold tabular-nums" style={{
-                      color: loan.principal_outstanding > 0 ? "#e11d48" : "#64748b"
-                    }}>
-                      {loan.principal_outstanding > 0 ? formatCurrency(loan.principal_outstanding) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold text-amber-700 tabular-nums">
-                      {(loan.interest_earned + loan.penalty_collected) > 0
-                        ? formatCurrency(loan.interest_earned + loan.penalty_collected)
-                        : "—"}
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="px-4 py-3 text-xs font-semibold text-emerald-700 tabular-nums">
-                      {formatCurrency(loan.interest_earned)}
-                      {loan.penalty_collected > 0 && (
-                        <span className="ml-1 text-amber-500">+{formatCurrency(loan.penalty_collected)}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">
-                      {loan.interest_at_completion > 0 ? formatCurrency(loan.interest_at_completion) : "—"}
-                      {loan.interest_at_completion > 0 && loan.interest_earned > 0 && (
-                        <span className={`ml-1 text-[10px] ${
-                          loan.interest_earned >= loan.interest_at_completion * 0.95
-                            ? "text-emerald-500"
-                            : "text-slate-400"
-                        }`}>
-                          ({((loan.interest_earned / loan.interest_at_completion) * 100).toFixed(0)}%)
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs tabular-nums">
-                      <span className={`font-semibold ${
-                        loan.yield_pa >= 12 ? "text-emerald-700"
-                          : loan.yield_pa >= 6 ? "text-amber-700"
-                          : loan.yield_pa > 0 ? "text-rose-600"
-                          : "text-slate-400"
-                      }`}>
-                        {loan.yield_pa > 0 ? `${loan.yield_pa.toFixed(1)}%` : "—"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <PerfBadge perf={loan.performance} />
-                    </td>
-                  </>
-                )}
-                <td className="px-4 py-3">
-                  <StatusBadge status={loan.status} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════ main page ═══════════════════════════════ */
 export default function LoanAnalytics() {
   const [calcModal, setCalcModal] = useState(null);
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterBorrower, setFilterBorrower] = useState("");
+  const [chartView, setChartView] = useState("earnings");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["loanAnalytics"],
@@ -475,13 +626,20 @@ export default function LoanAnalytics() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-7 h-7 border-2 border-slate-300 border-t-slate-600 rounded-full mx-auto mb-3" />
+          <p className="text-sm text-slate-400">Loading portfolio…</p>
+        </div>
       </div>
     );
   }
   if (error) {
-    return <div className="p-6 text-rose-600 text-sm">Failed to load loan analytics. Please try again.</div>;
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-sm text-rose-500 bg-white px-6 py-4 rounded-xl border border-rose-200">Failed to load loan analytics.</p>
+      </div>
+    );
   }
 
   const p = data?.portfolio || {};
@@ -490,7 +648,6 @@ export default function LoanAnalytics() {
   const monthlyTrend = data?.monthly_trend || [];
 
   // ── Calc modal builder ───────────────────────────────────────────────────
-  const fmt = formatCurrency;
   function buildCalcModal(key, extra) {
     const loansByType = (t) => allLoans.filter((l) => l.loan_type === t);
     switch (key) {
@@ -558,7 +715,6 @@ export default function LoanAnalytics() {
         rows.push({ label: "Portfolio Yield = (Σ Int / Σ P×Y) × 100", value: totalCap > 0 ? `${((totalInt / totalCap) * 100).toFixed(2)}%` : "—", highlight: true, bold: true });
         return { title: "Portfolio Yield (Dollar-Weighted)", subtitle: "Σ(interest_earned) ÷ Σ(principal × years_active) × 100", rows, formula: totalCap > 0 ? `${fmt(totalInt)} ÷ ${fmt(totalCap)} × 100 = ${((totalInt/totalCap)*100).toFixed(2)}%` : "N/A" };
       }
-      // ── EMI type breakdown ──
       case "emi_principal": {
         const loans = loansByType("emi");
         const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal) }));
@@ -593,7 +749,6 @@ export default function LoanAnalytics() {
         rows.push({ label: "Total", value: fmt(byType?.emi?.total_penalty||0), highlight: "amber", bold: true });
         return { title: "EMI — Penalty Collected", subtitle: "Late payment charges on EMI loans", rows };
       }
-      // ── IO type breakdown ──
       case "io_principal": {
         const ioType = byType?.interest_only || {};
         const loans = loansByType("interest_only").filter((l) => l.status === "active");
@@ -601,7 +756,7 @@ export default function LoanAnalytics() {
         rows.push({ divider: true });
         rows.push({ label: "Active Capital Deployed (original)", value: fmt(ioType.total_active_original_principal||0), highlight: true, bold: true });
         rows.push({ label: "All Loans Total (incl. closed)", value: fmt(ioType.total_principal||0) });
-        return { title: "IO — Active Capital Deployed", subtitle: "Sum of original disbursed principals for active IO loans only (excludes closed loans)", rows };
+        return { title: "IO — Active Capital Deployed", subtitle: "Sum of original disbursed principals for active IO loans only", rows };
       }
       case "io_collected": {
         const loans = loansByType("interest_only").filter((l) => l.interest_earned > 0);
@@ -635,7 +790,6 @@ export default function LoanAnalytics() {
         rows.push({ label: "Total Expected", value: fmt(byType?.interest_only?.total_interest_at_completion||0), highlight: true, bold: true });
         return { title: "IO — Expected Total Interest (at term)", subtitle: "Principal × monthly rate × term months", rows };
       }
-      // ── Short-Term type breakdown ──
       case "st_principal": {
         const loans = loansByType("short_term");
         const rows = loans.map((l) => ({ label: `${l.contact_name} (${l.status})`, value: fmt(l.principal) }));
@@ -668,7 +822,6 @@ export default function LoanAnalytics() {
         rows.push({ label: "Total Extra Collected", value: fmt(byType?.short_term?.total_extra_collected||0), highlight: "amber", bold: true });
         return { title: "Short-Term — Extra Beyond Principal", subtitle: "Interest earned + penalties (cash beyond principal return)", rows };
       }
-      // ── Monthly chart click ──
       case "monthly": {
         if (!extra) return null;
         const rows = [
@@ -690,182 +843,113 @@ export default function LoanAnalytics() {
     if (d) setCalcModal(d);
   }
 
-  // Group loans: active first, then closed — within each group sorted by principal desc
-  // Display order: EMI → Interest Only → Short Term → Other
+  // Filter + group loans
+  const filteredLoans = useMemo(() => allLoans.filter(l => {
+    if (filterType !== "all" && l.loan_type !== filterType) return false;
+    if (filterStatus !== "all" && l.status !== filterStatus) return false;
+    if (filterBorrower && !l.contact_name?.toLowerCase().includes(filterBorrower.toLowerCase())) return false;
+    return true;
+  }), [allLoans, filterType, filterStatus, filterBorrower]);
+
   const TYPE_ORDER = ["emi", "interest_only", "short_term", "other"];
   const grouped = {};
-  for (const loan of allLoans) {
+  for (const loan of filteredLoans) {
     const t = loan.loan_type || "other";
     if (!grouped[t]) grouped[t] = { active: [], closed: [] };
     if (loan.status === "active") grouped[t].active.push(loan);
     else grouped[t].closed.push(loan);
   }
 
-  const hasMonthly = monthlyTrend.some(
-    (m) => m.interest_earned > 0 || m.penalty_collected > 0 || m.principal_recovered > 0
-  );
-
   return (
-    <div className="p-4 md:p-6 space-y-7 max-w-7xl mx-auto">
+    <div className="min-h-screen bg-slate-50">
       {calcModal && <CalcModal data={calcModal} onClose={() => setCalcModal(null)} />}
 
-      {/* ── Header ── */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Loan Portfolio Analytics</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Loans given · {p.total_count || 0} total ({p.active_count || 0} active,{" "}
-          {p.closed_count || 0} closed) · As of {data?.as_of_date}
-          <span className="ml-2 text-indigo-400 text-[11px]">· click any card or chart to see calculation</span>
-        </p>
-      </div>
+      <FilterBar
+        filterType={filterType} setFilterType={setFilterType}
+        filterStatus={filterStatus} setFilterStatus={setFilterStatus}
+        filterBorrower={filterBorrower} setFilterBorrower={setFilterBorrower}
+      />
 
-      {/* ── Portfolio Stats ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard label="Total Deployed" primary={fmt(p.total_deployed)} secondary="Total principal given out" accent="indigo" onClick={() => openCalc("total_deployed")} />
-        <StatCard label="Active Principal" primary={fmt(p.active_principal)} secondary="Still owed by borrowers" accent="violet" onClick={() => openCalc("active_principal")} />
-        <StatCard label="Interest Earned" primary={fmt(p.total_interest_earned)} secondaryLabel="Expected remaining" secondary={p.total_interest_expected_remaining > 0 ? fmt(p.total_interest_expected_remaining) : "₹0"} accent="emerald" onClick={() => openCalc("interest_earned")} />
-        <StatCard label="Penalty Collected" primary={fmt(p.total_penalty_collected)} secondary="Late payment charges" accent="amber" onClick={() => openCalc("penalty")} />
-        <StatCard label="Total Earnings" primary={fmt(p.total_earnings)} secondary="Interest + Penalty" accent="cyan" onClick={() => openCalc("total_earnings")} />
-        <StatCard label="Portfolio Yield" primary={`${(p.portfolio_yield_pa || 0).toFixed(1)}%`} secondary="p.a. (dollar-weighted)" accent="rose" onClick={() => openCalc("portfolio_yield")} />
-      </div>
-
-      {/* ── Type Cards ── */}
-      {Object.keys(byType).length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-slate-700 mb-3">By Loan Type</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {TYPE_ORDER.filter((t) => byType[t]).map((t) => {
-              if (t === "emi")           return <EmiCard          key={t} data={byType[t]} onCalcClick={(k) => openCalc(k)} />;
-              if (t === "interest_only") return <InterestOnlyCard key={t} data={byType[t]} onCalcClick={(k) => openCalc(k)} />;
-              if (t === "short_term")    return <ShortTermCard    key={t} data={byType[t]} onCalcClick={(k) => openCalc(k)} />;
-              return null;
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Monthly Earnings Line Chart ── */}
-      {hasMonthly && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <div className="mb-4">
-            <h2 className="text-sm font-semibold text-slate-700">Monthly Earnings — Last 12 Months</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Interest collected, penalties, and principal returned each month
+      <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex items-end justify-between pt-1">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Loan Portfolio</h1>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {p.total_count || 0} loans · {p.active_count || 0} active · {p.closed_count || 0} closed · as of {data?.as_of_date}
             </p>
           </div>
-          <p className="text-[10px] text-slate-400 mb-2">Click any data point to see monthly breakdown</p>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart
-              data={monthlyTrend}
-              margin={{ top: 5, right: 10, left: 0, bottom: 20 }}
-              onClick={(e) => { if (e?.activePayload?.[0]) openCalc("monthly", e.activePayload[0].payload); }}
-              style={{ cursor: "pointer" }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
-                tickLine={false}
-                axisLine={false}
-                angle={-30}
-                textAnchor="end"
-                height={45}
-                interval={0}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v) =>
-                  v >= 1e5 ? `${(v / 1e5).toFixed(1)}L`
-                  : v >= 1000 ? `${(v / 1000).toFixed(0)}K`
-                  : String(v)
-                }
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-              <Line
-                type="monotone"
-                dataKey="interest_earned"
-                name="Interest Earned"
-                stroke="#6366f1"
-                strokeWidth={2}
-                dot={{ r: 3, fill: "#6366f1" }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="penalty_collected"
-                name="Penalty"
-                stroke="#f59e0b"
-                strokeWidth={2}
-                dot={{ r: 3, fill: "#f59e0b" }}
-                activeDot={{ r: 5 }}
-                strokeDasharray="4 2"
-              />
-              <Line
-                type="monotone"
-                dataKey="principal_recovered"
-                name="Principal Recovered"
-                stroke="#10b981"
-                strokeWidth={2}
-                dot={{ r: 3, fill: "#10b981" }}
-                activeDot={{ r: 5 }}
-                strokeDasharray="6 3"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── Per-Loan Table grouped by type ── */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3.5 border-b border-slate-100 bg-slate-50">
-          <h2 className="text-sm font-semibold text-slate-700">
-            Individual Loan Performance
-            <span className="ml-2 text-xs font-normal text-slate-400">({allLoans.length} loans · active first · closed at end)</span>
-          </h2>
+          <span className="text-[10px] text-slate-300">tap cards to see calc ↗</span>
         </div>
 
-        <div className="overflow-x-auto divide-y divide-slate-100">
-          {TYPE_ORDER.filter((t) => grouped[t]).map((t) => {
-            const g = grouped[t];
-            const loans = [...g.active, ...g.closed];
-            if (!loans.length) return null;
-            return <LoanGroup key={t} ltype={t} loans={loans} />;
-          })}
-          {allLoans.length === 0 && (
-            <div className="px-4 py-12 text-center text-slate-400 text-sm">
-              No loans found.
-            </div>
-          )}
+        {/* Portfolio Ghost Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <GhostStat label="Total Deployed" value={fmt(p.total_deployed)} sub="All principals" onClick={() => openCalc("total_deployed")} />
+          <GhostStat label="Active Principal" value={fmt(p.active_principal)} sub="Still outstanding" onClick={() => openCalc("active_principal")} />
+          <GhostStat label="Interest Earned" value={fmt(p.total_interest_earned)} sub={p.total_interest_expected_remaining > 0 ? `${fmt(p.total_interest_expected_remaining)} remaining` : undefined} onClick={() => openCalc("interest_earned")} />
+          <GhostStat label="Penalty Collected" value={fmt(p.total_penalty_collected)} sub="Late fees" onClick={() => openCalc("penalty")} />
+          <GhostStat label="Total Earnings" value={fmt(p.total_earnings)} sub="Interest + penalty" onClick={() => openCalc("total_earnings")} />
+          <GhostStat label="Portfolio Yield" value={`${(p.portfolio_yield_pa || 0).toFixed(1)}%`} sub="Dollar-weighted p.a." onClick={() => openCalc("portfolio_yield")} />
         </div>
 
-        {/* Footer totals */}
-        {allLoans.length > 0 && (() => {
-          const totalPrincipal = allLoans.reduce((s, l) => s + l.principal, 0);
-          const totalEarned = allLoans.reduce((s, l) => s + l.interest_earned, 0);
-          const totalPenalty = allLoans.reduce((s, l) => s + l.penalty_collected, 0);
-          const totalRecovered = allLoans.reduce((s, l) => s + l.principal_recovered, 0);
-          return (
-            <div className="flex flex-wrap items-center gap-5 px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-              <span>Principal: <strong className="text-slate-800">{formatCurrency(totalPrincipal)}</strong></span>
-              <span>Interest Earned: <strong className="text-emerald-700">{formatCurrency(totalEarned)}</strong></span>
-              {totalPenalty > 0 && <span>Penalties: <strong className="text-amber-700">{formatCurrency(totalPenalty)}</strong></span>}
-              <span>Principal Recovered: <strong className="text-indigo-700">{formatCurrency(totalRecovered)}</strong></span>
-            </div>
-          );
-        })()}
+        {/* Donut + Type Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <TypeDonut allLoans={allLoans} />
+          <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+            {TYPE_ORDER.filter(t => byType[t]).map(t => (
+              <TypeSummaryCard key={t} type={t} data={byType[t]} onCalcClick={openCalc} />
+            ))}
+          </div>
+        </div>
+
+        {/* Monthly Chart + Heatmap */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="md:col-span-2">
+            <MonthlyAreaChart data={monthlyTrend} onMonthClick={(payload) => openCalc("monthly", payload)} chartView={chartView} setChartView={setChartView} />
+          </div>
+          <PerformanceHeatmap allLoans={allLoans} />
+        </div>
+
+        {/* Loan Table */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden">
+          <div className="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="text-[11px] font-semibold text-slate-700 uppercase tracking-widest">Individual Loans</h2>
+            <span className="text-xs text-slate-400">{filteredLoans.length} of {allLoans.length} · click row to expand</span>
+          </div>
+          <div className="overflow-x-auto divide-y divide-slate-100">
+            {TYPE_ORDER.filter(t => grouped[t]).map(t => {
+              const g = grouped[t];
+              const loans = [...g.active, ...g.closed];
+              if (!loans.length) return null;
+              return <LoanGroupSection key={t} ltype={t} loans={loans} />;
+            })}
+            {filteredLoans.length === 0 && (
+              <div className="px-4 py-12 text-center text-slate-400 text-sm">
+                {allLoans.length > 0 ? "No loans match the current filter." : "No loans found."}
+              </div>
+            )}
+          </div>
+          {filteredLoans.length > 0 && (() => {
+            const totalPrincipal = filteredLoans.reduce((s, l) => s + l.principal, 0);
+            const totalEarned = filteredLoans.reduce((s, l) => s + l.interest_earned, 0);
+            const totalPenalty = filteredLoans.reduce((s, l) => s + l.penalty_collected, 0);
+            const totalRecovered = filteredLoans.reduce((s, l) => s + l.principal_recovered, 0);
+            return (
+              <div className="flex flex-wrap items-center gap-5 px-4 py-3 border-t border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+                <span>Principal: <strong className="text-slate-800">{fmt(totalPrincipal)}</strong></span>
+                <span>Earned: <strong className="text-emerald-600">{fmt(totalEarned)}</strong></span>
+                {totalPenalty > 0 && <span>Penalties: <strong className="text-amber-600">{fmt(totalPenalty)}</strong></span>}
+                <span>Recovered: <strong className="text-indigo-600">{fmt(totalRecovered)}</strong></span>
+              </div>
+            );
+          })()}
+        </div>
+
+        <p className="text-[10px] text-slate-400 text-center pb-4">
+          Yield = Σ(interest) ÷ Σ(principal × years) — dollar-weighted return.
+          "Over" = earned more than expected today. Yield % p.a. = per-loan annualized return.
+        </p>
       </div>
-
-      {/* Methodology note */}
-      <p className="text-[11px] text-slate-400 text-center pb-2">
-        Portfolio Yield uses Dollar-Weighted Return: Σ(interest) ÷ Σ(principal × years) — mathematically accurate for loans with different amounts, rates, and timings.
-        "Over" = earned more than expected by today. Yield % p.a. = per-loan annualized return.
-      </p>
     </div>
   );
 }
-
-
-/* ── micro UI ── */

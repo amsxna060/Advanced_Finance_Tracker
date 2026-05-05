@@ -4,8 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { formatCurrency, formatDate } from "../../lib/utils";
 import { PageHero, PageBody, HeroStat, Button } from "../../components/ui";
-import DealSimulator from "../../components/DealSimulator";
-
 /* ─── Stage pipeline ────────────────────────────────────────────────────────── */
 const STAGES = [
   { key: "negotiating",   label: "Negotiation" },
@@ -310,7 +308,6 @@ export default function PropertyDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showShare, setShowShare] = useState(false);
-  const [showSimulator, setShowSimulator] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["property", id],
@@ -418,13 +415,6 @@ export default function PropertyDetail() {
         />
       )}
 
-      {showSimulator && (
-        <DealSimulator
-          property={property}
-          onClose={() => setShowSimulator(false)}
-        />
-      )}
-
       <PageHero
         title={property.title}
         subtitle={[property.property_type, property.location].filter(Boolean).join(" · ")}
@@ -432,8 +422,8 @@ export default function PropertyDetail() {
         actions={
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowSimulator(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm transition"
+              onClick={() => navigate(`/properties/${id}/simulator`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
               title="Open Deal Simulator (sandbox mode)"
             >
               🧪 Simulate

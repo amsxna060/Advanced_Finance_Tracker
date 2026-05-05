@@ -23,6 +23,7 @@ const LoanStatement = lazy(() => import("./pages/Loans/LoanStatement"));
 const PropertyList = lazy(() => import("./pages/Properties/PropertyList"));
 const PropertyDetail = lazy(() => import("./pages/Properties/PropertyDetail"));
 const PropertyForm = lazy(() => import("./pages/Properties/PropertyForm"));
+const SimulatorPage = lazy(() => import("./pages/Properties/SimulatorPage"));
 const PartnershipList = lazy(() => import("./pages/Partnerships/PartnershipList"));
 const PartnershipDetail = lazy(() => import("./pages/Partnerships/PartnershipDetail"));
 const PartnershipForm = lazy(() => import("./pages/Partnerships/PartnershipForm"));
@@ -207,6 +208,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <PropertyDetail />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/properties/:id/simulator"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <SimulatorPage />
                   </Layout>
                 </ProtectedRoute>
               }

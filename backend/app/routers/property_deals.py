@@ -2,6 +2,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import or_, func, text
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,7 @@ from app.schemas.loan import ContactBrief
 from app.schemas.partnership import PartnershipOut, PartnershipMemberOut
 from app.services.auto_ledger import auto_ledger, reverse_all_ledger
 from app.models.cash_account import AccountTransaction
+from app.config import settings
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -1185,6 +1187,122 @@ def delete_simulation(
         raise HTTPException(status_code=404, detail="Simulation not found")
     db.delete(sim)
     db.commit()
+
+
+# ── AI Insight endpoint ───────────────────────────────────────────────────────
+
+class AIInsightRequest(BaseModel):
+    holding_months: float
+    target_price_per_sqft: float
+    purchase_and_hold: bool = False
+    annual_appreciation_pct: float = 12
+    brokerage_amount: float = 0
+    absolute_profit: float = 0
+    absolute_roi_pct: float = 0
+    annualized_roi_pct: float = 0
+    breakeven_price_per_sqft: float = 0
+    my_capital: float = 0
+    my_profit: float = 0
+    my_ann_roi_pct: float = 0
+    effective_invest: float = 0
+    lending_rate_pct: float = 18
+
+
+class AIInsightResponse(BaseModel):
+    verdict: str
+    reasoning: str
+
+
+@router.post("/{property_id}/simulations/ai-insight", response_model=AIInsightResponse)
+def ai_insight(
+    property_id: int,
+    req: AIInsightRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Call Gemini to generate HOLD/SELL/REGISTRY verdict + reasoning for a simulation scenario."""
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
+
+    prop = _get_property_or_404(property_id, db)
+    total_area = float(prop.total_area_sqft or 0)
+    total_invest = (
+        float(prop.total_seller_value or 0)
+        + float(prop.broker_commission or 0)
+        + float(prop.other_expenses or 0)
+        + req.brokerage_amount
+    )
+
+    mode = "Purchase & Hold (register and own)" if req.purchase_and_hold else "Flip / sell to buyer"
+    lending_return = req.my_capital * (req.lending_rate_pct / 100) * (req.holding_months / 12)
+
+    prompt = f"""You are a personal capital management advisor for a property investor in India.
+The user runs a money-lending business earning ~{req.lending_rate_pct:.0f}% p.a. Capital tied up in property is NOT available for lending — this is a real opportunity cost.
+
+=== DEAL CONTEXT ===
+Property: {prop.title}
+Type: {getattr(prop, "property_type", "residential")}
+Status: {getattr(prop, "status", "unknown")}
+Total area: {total_area:,.0f} sqft
+All-in investment: ₹{total_invest:,.0f}
+
+=== SIMULATION SCENARIO ===
+Mode: {mode}
+Holding period: {req.holding_months:.0f} months
+Target sale price: ₹{req.target_price_per_sqft:,.0f}/sqft
+Break-even price: ₹{req.breakeven_price_per_sqft:,.0f}/sqft
+Projected absolute profit: ₹{req.absolute_profit:,.0f}
+Projected absolute ROI: {req.absolute_roi_pct:.1f}%
+Projected annualized ROI: {req.annualized_roi_pct:.1f}%
+{"Annual appreciation rate: " + str(req.annual_appreciation_pct) + "% p.a." if req.purchase_and_hold else ""}
+
+=== MY PERSONAL POSITION ===
+My capital committed: ₹{req.my_capital:,.0f}
+My projected profit: ₹{req.my_profit:,.0f}
+My annualized ROI: {req.my_ann_roi_pct:.1f}%
+Alternative — lending ₹{req.my_capital:,.0f} at {req.lending_rate_pct:.0f}% for {req.holding_months:.0f}mo: ₹{lending_return:,.0f} return
+
+=== ANALYSIS REQUIRED ===
+1. Is the annualized ROI attractive vs. {req.lending_rate_pct:.0f}% lending baseline? By how much?
+2. Is capital blockage justified — i.e., does this deal beat lending?
+3. Is the holding period appropriate for the returns?
+{"4. Does " + str(req.annual_appreciation_pct) + "% appreciation justify registry cost and long-term lock-in?" if req.purchase_and_hold else "4. Would accepting a lower price now close the deal faster and redeploy capital better?"}
+
+Respond with EXACTLY this format (nothing else):
+VERDICT: [SELL or HOLD or REGISTRY]
+REASONING: [3-4 sentences with specific numbers from the scenario. Be direct and actionable.]"""
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.3),
+        )
+        text = (response.text or "").strip()
+
+        verdict = "HOLD"
+        reasoning = text
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if stripped.upper().startswith("VERDICT:"):
+                v = stripped.split(":", 1)[-1].strip().upper()
+                if v in ("SELL", "HOLD", "REGISTRY"):
+                    verdict = v
+            elif stripped.upper().startswith("REASONING:"):
+                reasoning = stripped.split(":", 1)[-1].strip()
+
+        return AIInsightResponse(verdict=verdict, reasoning=reasoning)
+
+    except HTTPException:
+        raise
+    except ImportError:
+        raise HTTPException(status_code=503, detail="google-genai package not installed")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"AI service error: {str(e)}")
 
 
 def _sim_to_out(sim: "PropertySimulation", parsed_payload=None) -> SimulationOut:
