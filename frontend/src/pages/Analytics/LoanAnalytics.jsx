@@ -26,17 +26,18 @@ const PERF_META = {
 };
 
 /* ── Ghost Stat Card ── */
-function GhostStat({ label, value, sub, onClick }) {
+function GhostStat({ label, value, sub, onClick, accent = "#6366f1" }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`bg-white border border-slate-200/80 rounded-2xl p-5 text-left w-full transition-all duration-150 ${
-        onClick ? "hover:shadow-md hover:border-slate-300 cursor-pointer group" : "cursor-default"
+      style={{ borderTop: `3px solid ${accent}` }}
+      className={`bg-white border border-slate-200/60 rounded-2xl rounded-tl-none rounded-tr-none p-6 text-left w-full transition-all duration-150 ${
+        onClick ? "hover:shadow-lg cursor-pointer group" : "cursor-default"
       }`}
     >
-      <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-2">{label}</p>
-      <p className="text-xl font-bold text-slate-900 leading-tight tabular-nums break-all">{value}</p>
+      <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-3">{label}</p>
+      <p className="text-2xl font-bold leading-tight tabular-nums" style={{ color: accent }}>{value}</p>
       {sub && <p className="text-xs text-slate-400 mt-2 leading-tight">{sub}</p>}
       {onClick && (
         <p className="text-[10px] text-slate-300 mt-2 group-hover:text-slate-400 transition-colors">tap to see calc ↗</p>
@@ -930,14 +931,24 @@ export default function LoanAnalytics() {
         </div>
 
         {/* Portfolio Ghost Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <GhostStat label="Total Deployed" value={fmt(p.total_deployed)} sub="All principals" onClick={() => openCalc("total_deployed")} />
-          <GhostStat label="Active Principal" value={fmt(p.active_principal)} sub="Still outstanding" onClick={() => openCalc("active_principal")} />
-          <GhostStat label="Interest Earned" value={fmt(p.total_interest_earned)} sub={p.total_interest_expected_remaining > 0 ? `${fmt(p.total_interest_expected_remaining)} remaining` : undefined} onClick={() => openCalc("interest_earned")} />
-          <GhostStat label="Penalty Collected" value={fmt(p.total_penalty_collected)} sub="Late fees" onClick={() => openCalc("penalty")} />
-          <GhostStat label="Total Earnings" value={fmt(p.total_earnings)} sub="Interest + penalty" onClick={() => openCalc("total_earnings")} />
-          <GhostStat label="Portfolio Yield" value={`${(p.portfolio_yield_pa || 0).toFixed(1)}%`} sub="Dollar-weighted p.a." onClick={() => openCalc("portfolio_yield")} />
-        </div>
+        {(() => {
+          // Better "still to collect" figure: EMI future interest + IO pending (accrued + capitalized)
+          const totalInterestRemaining =
+            allLoans
+              .filter(l => l.status === "active" && l.loan_type === "emi")
+              .reduce((s, l) => s + Math.max((l.interest_at_completion || 0) - l.interest_earned, 0), 0)
+            + (byType.interest_only?.total_interest_pending || byType.interest_only?.total_interest_outstanding || 0);
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <GhostStat accent="#6366f1" label="Total Deployed"     value={fmt(p.total_deployed)}                        sub="All principals"          onClick={() => openCalc("total_deployed")} />
+              <GhostStat accent="#8b5cf6" label="Active Principal"   value={fmt(p.active_principal)}                      sub="Still outstanding"       onClick={() => openCalc("active_principal")} />
+              <GhostStat accent="#10b981" label="Interest Earned"    value={fmt(p.total_interest_earned)}                  sub={totalInterestRemaining > 0 ? `${fmt(totalInterestRemaining)} still to collect` : undefined} onClick={() => openCalc("interest_earned")} />
+              <GhostStat accent="#f59e0b" label="Penalty Collected"  value={fmt(p.total_penalty_collected)}                sub="Late fees"               onClick={() => openCalc("penalty")} />
+              <GhostStat accent="#14b8a6" label="Total Earnings"     value={fmt(p.total_earnings)}                         sub="Interest + penalty"      onClick={() => openCalc("total_earnings")} />
+              <GhostStat accent="#f43f5e" label="Portfolio Yield"    value={`${(p.portfolio_yield_pa || 0).toFixed(1)}%`}  sub="Dollar-weighted p.a."    onClick={() => openCalc("portfolio_yield")} />
+            </div>
+          );
+        })()}
 
         {/* Donut + Type Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -947,10 +958,12 @@ export default function LoanAnalytics() {
               let typeData = byType[t];
               if (t === "emi") {
                 const emiLoans = allLoans.filter(l => l.loan_type === "emi");
+                const emiRecovered = emiLoans.reduce((s, l) => s + (l.principal_recovered || 0), 0);
                 typeData = {
                   ...typeData,
-                  total_principal_recovered: emiLoans.reduce((s, l) => s + (l.principal_recovered || 0), 0),
-                  total_principal_outstanding: emiLoans.reduce((s, l) => s + (l.principal_outstanding || 0), 0),
+                  total_principal_recovered: emiRecovered,
+                  // Simple subtraction avoids per-loan rounding drift from the service calculation
+                  total_principal_outstanding: (byType.emi?.total_principal || 0) - emiRecovered,
                 };
               }
               return <TypeSummaryCard key={t} type={t} data={typeData} onCalcClick={openCalc} />;
