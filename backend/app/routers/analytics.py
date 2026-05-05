@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func as sa_func, extract, case, literal
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -25,7 +25,7 @@ from app.models.obligation import MoneyObligation
 from app.models.user import User
 from app.models.property_anomaly import PropertyAnomaly
 from app.models.unencumbered_asset import UnencumberedAsset
-from app.services.interest import calculate_outstanding, generate_emi_schedule, get_emi_schedule_with_payments, _build_monthly_periods, _calc_period_interest
+from app.services.interest import calculate_outstanding, calculate_outstanding_from_loan, generate_emi_schedule, get_emi_schedule_with_payments, _build_monthly_periods, _calc_period_interest
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -3498,6 +3498,10 @@ def analytics_loans_given(
     loans = (
         db.query(Loan)
         .filter(Loan.loan_direction == "given", Loan.is_deleted == False)
+        .options(
+            selectinload(Loan.payments),
+            selectinload(Loan.capitalization_events),
+        )
         .all()
     )
 
@@ -3542,6 +3546,12 @@ def analytics_loans_given(
                 return (principal * monthly_rate * months).quantize(Decimal("0.01"))
 
             elif loan.loan_type == "interest_only":
+                # Use gross_interest_accrued which handles capitalization correctly.
+                try:
+                    out = calculate_outstanding_from_loan(loan, as_of)
+                    return _D(out.get("gross_interest_accrued", 0))
+                except Exception:
+                    pass
                 start = loan.interest_start_date or loan.disbursed_date
                 if not start or as_of <= start:
                     return Decimal("0")
@@ -3643,6 +3653,7 @@ def analytics_loans_given(
 
     for loan in loans:
         principal = _D(loan.principal_amount)
+        ltype = loan.loan_type or "other"
         as_of = loan.actual_end_date if (loan.status == "closed" and loan.actual_end_date) else today
         start_date = loan.disbursed_date or loan.interest_start_date
 
@@ -3655,14 +3666,30 @@ def analytics_loans_given(
 
         # Payment aggregates
         payments = loan.payments or []
-        interest_earned = Decimal("0")
-        penalty_earned = Decimal("0")
-        principal_recovered = Decimal("0")
-        for p in payments:
-            interest_earned += (_D(p.allocated_to_current_interest)
-                                + _D(p.allocated_to_overdue_interest))
-            penalty_earned += _D(p.penalty_paid)
-            principal_recovered += _D(p.allocated_to_principal)
+        penalty_earned = sum(_D(p.penalty_paid) for p in payments)
+
+        # EMI: payment_allocation stores all cash in allocated_to_overdue_interest
+        # with allocated_to_principal=0. Use proportional amortization split.
+        if ltype == "emi":
+            emi_amt = _D(loan.emi_amount or 0)
+            tenure = int(loan.tenure_months or 0)
+            if emi_amt > 0 and tenure > 0 and principal > 0:
+                total_repayment = emi_amt * Decimal(str(tenure))
+                total_lifetime_interest = max(total_repayment - principal, Decimal("0"))
+                interest_ratio = total_lifetime_interest / total_repayment
+                principal_ratio = Decimal("1") - interest_ratio
+                total_cash = sum(
+                    _D(p.allocated_to_overdue_interest) + _D(p.allocated_to_current_interest) + _D(p.allocated_to_principal)
+                    for p in payments
+                )
+                interest_earned = (total_cash * interest_ratio).quantize(Decimal("0.01"))
+                principal_recovered = (total_cash * principal_ratio).quantize(Decimal("0.01"))
+            else:
+                interest_earned = sum(_D(p.allocated_to_overdue_interest) + _D(p.allocated_to_current_interest) for p in payments)
+                principal_recovered = sum(_D(p.allocated_to_principal) for p in payments)
+        else:
+            interest_earned = sum(_D(p.allocated_to_current_interest) + _D(p.allocated_to_overdue_interest) for p in payments)
+            principal_recovered = sum(_D(p.allocated_to_principal) for p in payments)
 
         # Duration
         days_active = max(0, (as_of - start_date).days) if start_date else 0
@@ -3692,17 +3719,20 @@ def analytics_loans_given(
         if principal > 0 and years_active > Decimal("0.08"):  # >~1 month
             yield_pa = float(interest_earned / (principal * years_active) * Decimal("100"))
 
-        # Active capital / outstanding principal
+        # Active capital / outstanding principal — use pre-loaded data
         principal_outstanding = max(principal - principal_recovered, Decimal("0"))
+        interest_outstanding_loan = Decimal("0")
+        loan_outstanding = None
+        try:
+            loan_outstanding = calculate_outstanding_from_loan(loan, as_of)
+        except Exception:
+            pass
         if loan.status == "active":
             active_count += 1
-            try:
-                outstanding = calculate_outstanding(loan.id, today, db)
-                principal_outstanding = _D(outstanding.get("principal_outstanding", 0)) or principal_outstanding
-            except Exception:
-                pass
+            if loan_outstanding:
+                principal_outstanding = _D(loan_outstanding.get("principal_outstanding", 0)) or principal_outstanding
+                interest_outstanding_loan = _D(loan_outstanding.get("interest_outstanding", 0))
             active_principal_total += principal_outstanding
-            # Expected remaining interest (still to be collected on this active loan)
             remaining = max(at_completion - interest_earned, Decimal("0"))
             total_interest_expected_remaining += remaining
         else:
@@ -3716,7 +3746,6 @@ def analytics_loans_given(
         total_interest_earned += interest_earned
         total_penalty_collected += penalty_earned
 
-        ltype = loan.loan_type or "other"
         if ltype not in type_groups:
             type_groups[ltype] = {
                 "count": 0,
@@ -3726,6 +3755,8 @@ def analytics_loans_given(
                 "total_accrued_to_today": Decimal("0"),
                 "total_penalty": Decimal("0"),
                 "total_principal_recovered": Decimal("0"),
+                "total_principal_outstanding": Decimal("0"),
+                "total_interest_outstanding": Decimal("0"),
                 "active": 0, "closed": 0,
                 "over": 0, "on_track": 0, "under": 0, "open": 0,
             }
@@ -3737,9 +3768,46 @@ def analytics_loans_given(
         g["total_accrued_to_today"] += accrued_to
         g["total_penalty"] += penalty_earned
         g["total_principal_recovered"] += principal_recovered
+        g["total_principal_outstanding"] += principal_outstanding
+        if loan.status == "active":
+            g["total_interest_outstanding"] += interest_outstanding_loan
         g["active"] += 1 if loan.status == "active" else 0
         g["closed"] += 1 if loan.status != "active" else 0
         g[performance] = g.get(performance, 0) + 1
+
+        # Build debug calc object
+        total_cash_paid = float(sum(
+            _D(p.allocated_to_overdue_interest) + _D(p.allocated_to_current_interest) + _D(p.allocated_to_principal)
+            for p in payments
+        ))
+        debug: dict = {
+            "principal": float(principal),
+            "total_cash_paid": total_cash_paid,
+            "interest_earned": float(interest_earned),
+            "principal_recovered": float(principal_recovered),
+            "penalty_earned": float(penalty_earned),
+            "gross_interest_accrued": float(loan_outstanding.get("gross_interest_accrued", 0)) if loan_outstanding else None,
+            "interest_outstanding": float(interest_outstanding_loan),
+            "principal_outstanding": float(principal_outstanding),
+            "accrued_expected": float(accrued_to),
+            "interest_at_completion": float(at_completion),
+            "years_active": round(float(years_active), 3),
+            "yield_formula": f"{float(interest_earned):.2f} / ({float(principal):.2f} × {float(years_active):.3f}) × 100",
+        }
+        if ltype == "emi":
+            emi_amt_d = _D(loan.emi_amount or 0)
+            tenure_i = int(loan.tenure_months or 0)
+            if emi_amt_d > 0 and tenure_i > 0:
+                total_repayment_d = emi_amt_d * Decimal(str(tenure_i))
+                total_int_d = max(total_repayment_d - principal, Decimal("0"))
+                debug["emi_split"] = {
+                    "emi_amount": float(emi_amt_d),
+                    "tenure": tenure_i,
+                    "total_repayment": float(total_repayment_d),
+                    "total_lifetime_interest": float(total_int_d),
+                    "interest_ratio_pct": round(float(total_int_d / total_repayment_d * 100), 2),
+                    "cash_paid_split": f"interest={float(interest_earned):.2f} + principal={float(principal_recovered):.2f}",
+                }
 
         loan_metrics.append({
             "loan_id": loan.id,
@@ -3756,8 +3824,10 @@ def analytics_loans_given(
             "penalty_collected": float(penalty_earned),
             "principal_recovered": float(principal_recovered),
             "principal_outstanding": float(principal_outstanding),
+            "interest_outstanding": float(interest_outstanding_loan),
             "performance": performance,
             "yield_pa": round(yield_pa, 2),
+            "debug": debug,
         })
 
     # Sort within each type: active first, then by principal descending
@@ -3776,21 +3846,23 @@ def analytics_loans_given(
         iac = float(g["total_interest_at_completion"])
         accrued = float(g["total_accrued_to_today"])
         pr = float(g["total_principal_recovered"])
+        po = float(g["total_principal_outstanding"])  # computed sum, not tp-pr
+        io = float(g["total_interest_outstanding"])   # active unpaid interest
 
-        # Coverage: earned vs what should have accrued by today
         coverage_vs_accrued = round(ie / accrued * 100, 1) if accrued > 0 else None
         by_type[ltype] = {
             "loan_type": ltype,
             "count": g["count"],
             "total_principal": tp,
-            "total_interest_earned": ie,             # actually paid so far
-            "total_interest_accrued": accrued,       # should have been paid by today
-            "total_interest_at_completion": iac,     # full lifetime interest
+            "total_interest_earned": ie,
+            "total_interest_accrued": accrued,
+            "total_interest_at_completion": iac,
             "interest_coverage_pct": coverage_vs_accrued,
             "total_penalty": float(g["total_penalty"]),
             "total_principal_recovered": pr,
-            "total_principal_outstanding": round(tp - pr, 2),
-            "total_extra_collected": round(ie + float(g["total_penalty"]), 2),  # short-term: beyond principal
+            "total_principal_outstanding": round(po, 2),
+            "total_interest_outstanding": round(io, 2),
+            "total_extra_collected": round(ie + float(g["total_penalty"]), 2),
             "active": g["active"],
             "closed": g["closed"],
             "performance_breakdown": {

@@ -112,10 +112,15 @@ function EmiCard({ data }) {
 
 /* ── Interest-Only type card ── */
 function InterestOnlyCard({ data }) {
-  const { total_principal, total_interest_earned, total_interest_at_completion,
+  const { total_principal, total_interest_earned, total_interest_outstanding,
+          total_interest_at_completion,
           total_accrued, total_penalty, active, closed, count,
           interest_coverage_pct, performance_breakdown: pb } = data;
   const color = TYPE_META.interest_only.color;
+  const ioPaid = total_interest_earned || 0;
+  const ioPending = total_interest_outstanding || 0;
+  const ioTotal = ioPaid + ioPending;
+  const ioPaidPct = ioTotal > 0 ? (ioPaid / ioTotal) * 100 : 0;
   return (
     <div className="bg-white border border-emerald-100 rounded-xl p-5 shadow-sm">
       <div className="flex items-center gap-2 mb-4">
@@ -129,18 +134,44 @@ function InterestOnlyCard({ data }) {
           <p className="font-bold text-slate-800 text-sm">{formatCurrency(total_principal)}</p>
         </div>
         <div className="bg-emerald-50 rounded-lg p-3">
-          <p className="text-emerald-500 mb-0.5">Interest Earned</p>
-          <p className="font-bold text-emerald-700 text-sm">{formatCurrency(total_interest_earned)}</p>
+          <p className="text-emerald-500 mb-0.5">Interest Collected</p>
+          <p className="font-bold text-emerald-700 text-sm">{formatCurrency(ioPaid)}</p>
+        </div>
+        <div className="bg-rose-50 rounded-lg p-3">
+          <p className="text-rose-500 mb-0.5">Interest Pending</p>
+          <p className="font-bold text-rose-700 text-sm">{ioPending > 0 ? formatCurrency(ioPending) : "₹0"}</p>
         </div>
         <div className="bg-teal-50 rounded-lg p-3">
           <p className="text-teal-500 mb-0.5">Expected Total (at term)</p>
           <p className="font-bold text-teal-700 text-sm">{total_interest_at_completion > 0 ? formatCurrency(total_interest_at_completion) : "—"}</p>
         </div>
-        <div className="bg-amber-50 rounded-lg p-3">
-          <p className="text-amber-500 mb-0.5">Penalty Collected</p>
-          <p className="font-bold text-amber-700 text-sm">{total_penalty > 0 ? formatCurrency(total_penalty) : "₹0"}</p>
-        </div>
       </div>
+      {ioTotal > 0 && (
+        <div className="mb-3">
+          <div className="flex justify-between text-[11px] text-slate-500 mb-1">
+            <span>Interest Collected vs Pending</span>
+            <span className={`font-semibold ${ioPaidPct >= 85 ? "text-emerald-600" : "text-amber-600"}`}>
+              {ioPaidPct.toFixed(0)}% collected
+            </span>
+          </div>
+          <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
+            <div
+              className="h-full bg-emerald-400 transition-all duration-700"
+              style={{ width: `${ioPaidPct}%` }}
+            />
+            {ioPending > 0 && (
+              <div
+                className="h-full bg-amber-300 transition-all duration-700"
+                style={{ width: `${100 - ioPaidPct}%` }}
+              />
+            )}
+          </div>
+          <div className="flex justify-between text-[10px] mt-1">
+            <span className="text-emerald-500">Paid: {formatCurrency(ioPaid)}</span>
+            <span className="text-amber-500">Pending: {formatCurrency(ioPending)}</span>
+          </div>
+        </div>
+      )}
       {total_accrued > 0 && (
         <div className="mb-3">
           <div className="flex justify-between text-[11px] text-slate-500 mb-1">
@@ -151,6 +182,9 @@ function InterestOnlyCard({ data }) {
           </div>
           <Bar pct={interest_coverage_pct} color={(interest_coverage_pct || 0) >= 100 ? "#10b981" : (interest_coverage_pct || 0) >= 85 ? "#f59e0b" : "#ef4444"} />
         </div>
+      )}
+      {total_penalty > 0 && (
+        <p className="text-[11px] text-amber-500 mb-3">+ {formatCurrency(total_penalty)} penalty collected</p>
       )}
       <div className="flex flex-wrap gap-2 text-[11px]">
         {pb?.over > 0 && <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{pb.over} over</span>}
@@ -254,125 +288,223 @@ function StatusBadge({ status }) {
   );
 }
 
+/* ── Calc Debug Modal ── */
+function CalcModal({ data, onClose }) {
+  if (!data) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 text-lg leading-none"
+          onClick={onClose}
+        >✕</button>
+        <h3 className="font-bold text-slate-800 mb-0.5 text-sm">{data.title}</h3>
+        {data.subtitle && <p className="text-[11px] text-slate-400 mb-4">{data.subtitle}</p>}
+        <div className="space-y-0.5">
+          {data.rows.map((row, i) => (
+            row.divider
+              ? <div key={i} className="border-t border-slate-200 my-2" />
+              : (
+                <div key={i} className="flex justify-between items-start gap-4 text-xs py-1.5">
+                  <span className={row.bold ? "font-semibold text-slate-700" : "text-slate-500"}>{row.label}</span>
+                  <span className={`font-semibold tabular-nums shrink-0 ${
+                    row.highlight === "green" ? "text-emerald-600"
+                    : row.highlight === "amber" ? "text-amber-600"
+                    : row.highlight === "rose" ? "text-rose-600"
+                    : row.highlight ? "text-indigo-600"
+                    : "text-slate-800"
+                  }`}>{row.value}</span>
+                </div>
+              )
+          ))}
+        </div>
+        {data.formula && (
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg">
+            <p className="text-[11px] text-slate-400 font-medium mb-1">Yield formula</p>
+            <p className="text-xs font-mono text-slate-700 break-all">{data.formula}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function buildLoanDebugData(loan) {
+  const d = loan.debug || {};
+  const fmt = formatCurrency;
+  const rows = [
+    { label: "Original Principal", value: fmt(loan.principal) },
+    { label: "Total Cash Received", value: fmt(d.total_cash_paid || 0) },
+    { divider: true },
+    { label: "Interest Earned (computed)", value: fmt(d.interest_earned || 0), highlight: "green" },
+    { label: "Principal Recovered (computed)", value: fmt(d.principal_recovered || 0), highlight: "green" },
+  ];
+  if ((d.penalty_earned || 0) > 0) {
+    rows.push({ label: "Penalty Collected", value: fmt(d.penalty_earned), highlight: "amber" });
+  }
+  if (loan.loan_type === "emi" && d.emi_split) {
+    const s = d.emi_split;
+    rows.push({ divider: true });
+    rows.push({ label: "EMI Amount", value: fmt(s.emi_amount), bold: true });
+    rows.push({ label: "Tenure (months)", value: `${s.tenure} EMIs` });
+    rows.push({ label: "Total Repayment", value: fmt(s.total_repayment) });
+    rows.push({ label: "Lifetime Interest", value: fmt(s.total_lifetime_interest) });
+    rows.push({ label: "Interest % of each EMI", value: `${s.interest_ratio_pct}%` });
+    rows.push({ label: "Cash split (interest + principal)", value: s.cash_paid_split });
+  }
+  rows.push({ divider: true });
+  if (d.gross_interest_accrued != null) {
+    rows.push({ label: "Gross Interest Accrued (expected by today)", value: fmt(d.gross_interest_accrued) });
+  }
+  rows.push({ label: "Interest Outstanding (unpaid)", value: fmt(d.interest_outstanding || 0), highlight: (d.interest_outstanding || 0) > 0 ? "rose" : undefined });
+  rows.push({ label: "Principal Outstanding", value: fmt(d.principal_outstanding || 0) });
+  rows.push({ label: "Active Duration", value: `${d.years_active} yrs` });
+  rows.push({ label: "Yield p.a.", value: loan.yield_pa > 0 ? `${loan.yield_pa.toFixed(2)}%` : "—", highlight: loan.yield_pa >= 12 ? "green" : loan.yield_pa > 0 ? "amber" : undefined });
+  return {
+    title: `${loan.contact_name}`,
+    subtitle: `${(loan.loan_type || "").replace("_", " ").toUpperCase()} · ID #${loan.loan_id} · ${loan.status} · ${loan.interest_rate}% p.a.`,
+    rows,
+    formula: d.yield_formula,
+  };
+}
+
 /* ── Grouped loan table ── */
 function LoanGroup({ ltype, loans }) {
+  const [selectedLoan, setSelectedLoan] = useState(null);
   const meta = TYPE_META[ltype] || { label: ltype, color: "#8b5cf6" };
   const isShortTerm = ltype === "short_term";
   const isEmi = ltype === "emi";
 
   return (
-    <div>
-      {/* Group header */}
-      <div
-        className="flex items-center gap-2 px-4 py-2.5 sticky top-0 z-10"
-        style={{ backgroundColor: `${meta.color}18`, borderLeft: `3px solid ${meta.color}` }}
-      >
-        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
-        <span className="text-sm font-semibold text-slate-700">{meta.label}</span>
-        <span className="text-xs text-slate-400">({loans.length})</span>
-      </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100 bg-slate-50/60">
-            <th className="px-4 py-2 font-medium">Person</th>
-            <th className="px-4 py-2 font-medium">Principal</th>
-            <th className="px-4 py-2 font-medium">Rate</th>
-            <th className="px-4 py-2 font-medium">Since</th>
-            <th className="px-4 py-2 font-medium">Months</th>
-            {isShortTerm ? (
-              <>
-                <th className="px-4 py-2 font-medium">Recovered</th>
-                <th className="px-4 py-2 font-medium">Outstanding</th>
-                <th className="px-4 py-2 font-medium">Extra Earned</th>
-              </>
-            ) : (
-              <>
-                <th className="px-4 py-2 font-medium">Earned</th>
-                <th className="px-4 py-2 font-medium">{isEmi ? "Total (Lifetime)" : "Expected (Term)"}</th>
-                <th className="px-4 py-2 font-medium">Yield % p.a.</th>
-                <th className="px-4 py-2 font-medium">Perf.</th>
-              </>
-            )}
-            <th className="px-4 py-2 font-medium">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {loans.map((loan) => (
-            <tr key={loan.loan_id} className="hover:bg-slate-50/80 transition-colors">
-              <td className="px-4 py-3">
-                <span className="font-medium text-slate-800 text-xs">{loan.contact_name}</span>
-              </td>
-              <td className="px-4 py-3 text-xs tabular-nums font-medium text-slate-700">
-                {formatCurrency(loan.principal)}
-              </td>
-              <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">
-                {loan.interest_rate > 0 ? `${loan.interest_rate}%` : "—"}
-              </td>
-              <td className="px-4 py-3 text-xs text-slate-500">
-                {loan.disbursed_date
-                  ? new Date(loan.disbursed_date).toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
-                  : "—"}
-              </td>
-              <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">{loan.months_active}</td>
+    <>
+      {selectedLoan && (
+        <CalcModal data={buildLoanDebugData(selectedLoan)} onClose={() => setSelectedLoan(null)} />
+      )}
+      <div>
+        {/* Group header */}
+        <div
+          className="flex items-center gap-2 px-4 py-2.5 sticky top-0 z-10"
+          style={{ backgroundColor: `${meta.color}18`, borderLeft: `3px solid ${meta.color}` }}
+        >
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
+          <span className="text-sm font-semibold text-slate-700">{meta.label}</span>
+          <span className="text-xs text-slate-400">({loans.length})</span>
+          <span className="ml-auto text-[10px] text-slate-400 italic">click row for calc breakdown</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100 bg-slate-50/60">
+              <th className="px-4 py-2 font-medium">Person</th>
+              <th className="px-4 py-2 font-medium">Principal</th>
+              <th className="px-4 py-2 font-medium">Rate</th>
+              <th className="px-4 py-2 font-medium">Since</th>
+              <th className="px-4 py-2 font-medium">Months</th>
               {isShortTerm ? (
                 <>
-                  <td className="px-4 py-3 text-xs font-semibold text-emerald-700 tabular-nums">
-                    {formatCurrency(loan.principal_recovered)}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-semibold tabular-nums" style={{
-                    color: loan.principal_outstanding > 0 ? "#e11d48" : "#64748b"
-                  }}>
-                    {loan.principal_outstanding > 0 ? formatCurrency(loan.principal_outstanding) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs font-semibold text-amber-700 tabular-nums">
-                    {(loan.interest_earned + loan.penalty_collected) > 0
-                      ? formatCurrency(loan.interest_earned + loan.penalty_collected)
-                      : "—"}
-                  </td>
+                  <th className="px-4 py-2 font-medium">Recovered</th>
+                  <th className="px-4 py-2 font-medium">Outstanding</th>
+                  <th className="px-4 py-2 font-medium">Extra Earned</th>
                 </>
               ) : (
                 <>
-                  <td className="px-4 py-3 text-xs font-semibold text-emerald-700 tabular-nums">
-                    {formatCurrency(loan.interest_earned)}
-                    {loan.penalty_collected > 0 && (
-                      <span className="ml-1 text-amber-500">+{formatCurrency(loan.penalty_collected)}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">
-                    {loan.interest_at_completion > 0 ? formatCurrency(loan.interest_at_completion) : "—"}
-                    {loan.interest_at_completion > 0 && loan.interest_earned > 0 && (
-                      <span className={`ml-1 text-[10px] ${
-                        loan.interest_earned >= loan.interest_at_completion * 0.95
-                          ? "text-emerald-500"
-                          : "text-slate-400"
-                      }`}>
-                        ({((loan.interest_earned / loan.interest_at_completion) * 100).toFixed(0)}%)
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs tabular-nums">
-                    <span className={`font-semibold ${
-                      loan.yield_pa >= 12 ? "text-emerald-700"
-                        : loan.yield_pa >= 6 ? "text-amber-700"
-                        : loan.yield_pa > 0 ? "text-rose-600"
-                        : "text-slate-400"
-                    }`}>
-                      {loan.yield_pa > 0 ? `${loan.yield_pa.toFixed(1)}%` : "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <PerfBadge perf={loan.performance} />
-                  </td>
+                  <th className="px-4 py-2 font-medium">Earned</th>
+                  <th className="px-4 py-2 font-medium">{isEmi ? "Total (Lifetime)" : "Expected (Term)"}</th>
+                  <th className="px-4 py-2 font-medium">Yield % p.a.</th>
+                  <th className="px-4 py-2 font-medium">Perf.</th>
                 </>
               )}
-              <td className="px-4 py-3">
-                <StatusBadge status={loan.status} />
-              </td>
+              <th className="px-4 py-2 font-medium">Status</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {loans.map((loan) => (
+              <tr
+                key={loan.loan_id}
+                className="hover:bg-indigo-50/40 transition-colors cursor-pointer"
+                onClick={() => setSelectedLoan(loan)}
+                title="Click to see calculation breakdown"
+              >
+                <td className="px-4 py-3">
+                  <span className="font-medium text-slate-800 text-xs">{loan.contact_name}</span>
+                </td>
+                <td className="px-4 py-3 text-xs tabular-nums font-medium text-slate-700">
+                  {formatCurrency(loan.principal)}
+                </td>
+                <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">
+                  {loan.interest_rate > 0 ? `${loan.interest_rate}%` : "—"}
+                </td>
+                <td className="px-4 py-3 text-xs text-slate-500">
+                  {loan.disbursed_date
+                    ? new Date(loan.disbursed_date).toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
+                    : "—"}
+                </td>
+                <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">{loan.months_active}</td>
+                {isShortTerm ? (
+                  <>
+                    <td className="px-4 py-3 text-xs font-semibold text-emerald-700 tabular-nums">
+                      {formatCurrency(loan.principal_recovered)}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-semibold tabular-nums" style={{
+                      color: loan.principal_outstanding > 0 ? "#e11d48" : "#64748b"
+                    }}>
+                      {loan.principal_outstanding > 0 ? formatCurrency(loan.principal_outstanding) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-semibold text-amber-700 tabular-nums">
+                      {(loan.interest_earned + loan.penalty_collected) > 0
+                        ? formatCurrency(loan.interest_earned + loan.penalty_collected)
+                        : "—"}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-4 py-3 text-xs font-semibold text-emerald-700 tabular-nums">
+                      {formatCurrency(loan.interest_earned)}
+                      {loan.penalty_collected > 0 && (
+                        <span className="ml-1 text-amber-500">+{formatCurrency(loan.penalty_collected)}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">
+                      {loan.interest_at_completion > 0 ? formatCurrency(loan.interest_at_completion) : "—"}
+                      {loan.interest_at_completion > 0 && loan.interest_earned > 0 && (
+                        <span className={`ml-1 text-[10px] ${
+                          loan.interest_earned >= loan.interest_at_completion * 0.95
+                            ? "text-emerald-500"
+                            : "text-slate-400"
+                        }`}>
+                          ({((loan.interest_earned / loan.interest_at_completion) * 100).toFixed(0)}%)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs tabular-nums">
+                      <span className={`font-semibold ${
+                        loan.yield_pa >= 12 ? "text-emerald-700"
+                          : loan.yield_pa >= 6 ? "text-amber-700"
+                          : loan.yield_pa > 0 ? "text-rose-600"
+                          : "text-slate-400"
+                      }`}>
+                        {loan.yield_pa > 0 ? `${loan.yield_pa.toFixed(1)}%` : "—"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <PerfBadge perf={loan.performance} />
+                    </td>
+                  </>
+                )}
+                <td className="px-4 py-3">
+                  <StatusBadge status={loan.status} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
