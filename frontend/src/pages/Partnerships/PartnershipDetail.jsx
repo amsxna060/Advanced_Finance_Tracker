@@ -1610,7 +1610,7 @@ export default function PartnershipDetail() {
               {isActive && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-5">
                   <h2 className="text-base font-bold text-slate-900 mb-3">Actions</h2>
-                  <button onClick={() => setShowSettleModal(true)} className="w-full py-2.5 bg-emerald-600 text-slate-900 rounded-xl font-medium hover:bg-emerald-500 shadow-sm shadow-emerald-500/20 active:scale-[0.98] text-sm">
+                  <button onClick={() => { setSettleForm(p => ({ ...p, total_received: totalInflow > 0 ? String(totalInflow) : "" })); setShowSettleModal(true); }} className="w-full py-2.5 bg-emerald-600 text-slate-900 rounded-xl font-medium hover:bg-emerald-500 shadow-sm shadow-emerald-500/20 active:scale-[0.98] text-sm">
                     🤝 Record Settlement
                   </button>
                 </div>
@@ -1905,8 +1905,8 @@ export default function PartnershipDetail() {
               <h2 className="text-lg font-bold text-slate-900">Record Settlement</h2>
             </div>
             <div className="p-5 space-y-4">
-              <InputField label="Total Received (₹)">
-                <input type="number" value={settleForm.total_received} onChange={(e) => setSettleForm(p => ({ ...p, total_received: e.target.value }))} className={inputCls} placeholder="Total amount received" min="0" />
+              <InputField label="Total Received (₹) — auto-filled from buyer payments">
+                <input type="number" value={settleForm.total_received} onChange={(e) => setSettleForm(p => ({ ...p, total_received: e.target.value }))} className={inputCls} placeholder="Total amount received from all buyers" min="0" />
               </InputField>
               <InputField label="Settlement Date">
                 <input type="date" value={settleForm.actual_end_date} onChange={(e) => setSettleForm(p => ({ ...p, actual_end_date: e.target.value }))} className={inputCls} />
@@ -1915,7 +1915,7 @@ export default function PartnershipDetail() {
                 <input type="text" value={settleForm.notes} onChange={(e) => setSettleForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional" />
               </InputField>
 
-              {settleForm.total_received && members.length > 0 && (
+              {members.length > 0 && (
                 <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-1.5 border border-slate-200/60">
                   <div className="font-semibold text-slate-700 mb-2">Settlement Preview</div>
                   <div className="flex justify-between">
@@ -1934,22 +1934,30 @@ export default function PartnershipDetail() {
                   <hr className="border-slate-300" />
                   {members.map((m, i) => {
                     const sharePct = parseFloat(m.member?.share_percentage || 0);
-                    const advanceBack = parseFloat(m.member?.advance_contributed || 0);
+                    const memberId = m.member?.id;
+                    // Per-member personal investment (advance + remaining + other seller payments)
+                    const PERSONAL_INVEST = ["advance_to_seller", "remaining_to_seller", "advance_given", "invested"];
+                    const personalInvest = transactions.filter(t => PERSONAL_INVEST.includes(t.txn_type) && t.member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const advanceBack = personalInvest || parseFloat(m.member?.advance_contributed || 0);
                     const profitShare = (settleProfit * sharePct) / 100;
-                    // Compute expense paid by this member
-                    const expensePaid = transactions.filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === m.member?.id).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    // Profit already taken by this member
-                    const alreadyReceived = transactions.filter(t => t.txn_type === "profit_received" && t.received_by_member_id === m.member?.id).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const expensePaid = transactions.filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const alreadyReceived = transactions.filter(t => t.txn_type === "profit_received" && t.received_by_member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                     const entitlement = advanceBack + expensePaid + profitShare - alreadyReceived;
+                    // Buyer money physically received by this member
+                    const BUYER_TYPES = ["buyer_advance", "buyer_payment", "buyer_payment_received"];
+                    const buyerCollected = transactions.filter(t => BUYER_TYPES.includes(t.txn_type) && t.received_by_member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                    const netEntitlement = entitlement - buyerCollected;
                     const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
                     return (
                       <div key={i} className="space-y-0.5">
                         <div className="flex justify-between text-xs">
                           <span className="text-slate-600 font-medium">{name} ({sharePct}%)</span>
-                          <span className={`font-semibold ${entitlement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{formatCurrency(entitlement)}</span>
+                          <span className={`font-semibold ${netEntitlement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                            {netEntitlement >= 0 ? `Gets: ${formatCurrency(netEntitlement)}` : `Owes back: ${formatCurrency(Math.abs(netEntitlement))}`}
+                          </span>
                         </div>
                         <div className="text-[10px] text-slate-400 ml-2">
-                          Advance: {formatCurrency(advanceBack)} + Expenses: {formatCurrency(expensePaid)} + Profit: {formatCurrency(profitShare)}{alreadyReceived > 0 ? ` − Already: ${formatCurrency(alreadyReceived)}` : ""}
+                          Invest: {formatCurrency(advanceBack)} + Exp: {formatCurrency(expensePaid)} + Profit: {formatCurrency(profitShare)}{alreadyReceived > 0 ? ` − Taken: ${formatCurrency(alreadyReceived)}` : ""}{buyerCollected > 0 ? ` − Collected: ${formatCurrency(buyerCollected)}` : ""}
                         </div>
                       </div>
                     );

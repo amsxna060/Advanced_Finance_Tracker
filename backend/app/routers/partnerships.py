@@ -1055,14 +1055,29 @@ def settle_partnership(
         if t.txn_type in ("expense", "other_expense") and t.member_id:
             member_expenses[t.member_id] = member_expenses.get(t.member_id, Decimal("0")) + _decimal(t.amount)
 
-    # Distribute: each member gets back advance + expenses_paid + share of net profit - profit already taken
+    # Per-member investment tracking: all seller payments made personally by each member
+    # (advance_to_seller + remaining_to_seller + advance_given + invested with a member_id)
+    PERSONAL_INVEST_TYPES = {"advance_to_seller", "remaining_to_seller", "advance_given", "invested"}
+    member_investments = {}
+    for t in transactions:
+        if t.txn_type in PERSONAL_INVEST_TYPES and t.member_id:
+            member_investments[t.member_id] = member_investments.get(t.member_id, Decimal("0")) + _decimal(t.amount)
+
+    # Per-member buyer payments already received physically by each non-self member
+    member_buyer_received = {}
+    for t in transactions:
+        if t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id:
+            mid = t.received_by_member_id
+            member_buyer_received[mid] = member_buyer_received.get(mid, Decimal("0")) + _decimal(t.amount)
+
+    # Distribute: each member gets back their personal investment + expenses_paid + share of net profit - profit already taken
     for member in members:
         share_pct = _decimal(member.share_percentage)
-        advance_back = _decimal(member.advance_contributed)
+        # Use per-member investment sum (covers remaining_to_seller etc.); fall back to advance_contributed
+        advance_back = member_investments.get(member.id, _decimal(member.advance_contributed))
         profit_share = net_profit * (share_pct / Decimal("100"))
         expense_back = member_expenses.get(member.id, Decimal("0"))
 
-        # Subtract profit already received by this member (BUG-006: use received_by_member_id)
         already_received = sum(
             _decimal(t.amount) for t in transactions
             if t.txn_type == "profit_received" and t.received_by_member_id == member.id
@@ -1070,7 +1085,7 @@ def settle_partnership(
         member.total_received = advance_back + expense_back + profit_share - already_received
 
     # ── Create settlement obligations for non-self members ──────────────────
-    # Clear any old partnership obligations first (from previous incorrect per-txn logic)
+    # Clear any old partnership obligations first
     db.query(MoneyObligation).filter(
         MoneyObligation.linked_type == "partnership",
         MoneyObligation.linked_id == partnership.id,
@@ -1082,23 +1097,27 @@ def settle_partnership(
         if member.is_self or not member.contact_id:
             continue
         entitlement = _decimal(member.total_received)
-        if entitlement > Decimal("0"):
-            # We owe this partner money
+        # Deduct buyer money this member already physically received from buyers
+        already_collected = member_buyer_received.get(member.id, Decimal("0"))
+        net_entitlement = entitlement - already_collected
+
+        if net_entitlement > Decimal("0"):
+            # We still owe this partner (they haven't collected their full share)
             db.add(MoneyObligation(
                 obligation_type="payable",
                 contact_id=member.contact_id,
-                amount=entitlement,
+                amount=net_entitlement,
                 reason=f"Partnership '{partnership.title}' settlement: partner entitlement",
                 linked_type="partnership",
                 linked_id=partnership.id,
                 created_by=current_user.id,
             ))
-        elif entitlement < Decimal("0"):
-            # Partner owes us money
+        elif net_entitlement < Decimal("0"):
+            # Partner collected more than their entitlement; they owe us the difference
             db.add(MoneyObligation(
                 obligation_type="receivable",
                 contact_id=member.contact_id,
-                amount=abs(entitlement),
+                amount=abs(net_entitlement),
                 reason=f"Partnership '{partnership.title}' settlement: partner owes back",
                 linked_type="partnership",
                 linked_id=partnership.id,
