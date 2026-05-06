@@ -126,6 +126,7 @@ class LoanPaymentOut(BaseModel):
     reference_number: Optional[str]
     account_id: Optional[int] = None
     notes: Optional[str]
+    is_voided: bool = False
     created_by: Optional[int]
     created_at: datetime
 

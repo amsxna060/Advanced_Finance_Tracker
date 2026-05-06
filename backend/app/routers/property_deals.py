@@ -57,6 +57,7 @@ def _resync_plot_buyer(property_id: int, plot_buyer_id: int, db: Session) -> Non
         PropertyTransaction.property_deal_id == property_id,
         PropertyTransaction.txn_type == "received_from_buyer",
         PropertyTransaction.plot_buyer_id == plot_buyer_id,
+        PropertyTransaction.is_voided == False,
     ).scalar()
     buyer.total_paid = total_from_buyer
     buyer.advance_received = total_from_buyer
@@ -335,6 +336,7 @@ def get_property(
     property_deal = _get_property_or_404(property_id, db)
     legacy_transactions = db.query(PropertyTransaction).filter(
         PropertyTransaction.property_deal_id == property_id,
+        PropertyTransaction.is_voided == False,
     ).order_by(PropertyTransaction.txn_date.desc(), PropertyTransaction.id.desc()).all()
     linked_partnerships = db.query(Partnership).filter(
         Partnership.linked_property_deal_id == property_id,
@@ -636,6 +638,7 @@ def get_property_transactions(
     _get_property_or_404(property_id, db)
     return db.query(PropertyTransaction).filter(
         PropertyTransaction.property_deal_id == property_id,
+        PropertyTransaction.is_voided == False,
     ).order_by(PropertyTransaction.txn_date.desc(), PropertyTransaction.id.desc()).all()
 
 
@@ -651,15 +654,15 @@ def delete_property_transaction(
     txn = db.query(PropertyTransaction).filter(
         PropertyTransaction.id == txn_id,
         PropertyTransaction.property_deal_id == property_id,
+        PropertyTransaction.is_voided == False,
     ).first()
     if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Transaction not found or already voided")
 
-    # Capture type and buyer_id before deletion for post-sync
     txn_type = txn.txn_type
     plot_buyer_id = txn.plot_buyer_id
 
-    # Reverse linked ledger entry
+    # Void linked ledger entry (keeps it in reconciliation as voided)
     if txn.account_id:
         is_inflow = txn.txn_type in INFLOW_TXN_TYPES
         matching = db.query(AccountTransaction).filter(
@@ -668,22 +671,23 @@ def delete_property_transaction(
             AccountTransaction.txn_type == ("credit" if is_inflow else "debit"),
             AccountTransaction.amount == txn.amount,
             AccountTransaction.txn_date == txn.txn_date,
+            AccountTransaction.is_voided == False,
         ).all()
         for m in matching:
-            db.delete(m)
+            m.is_voided = True
 
-    db.delete(txn)
+    txn.is_voided = True
     db.flush()
 
-    # Re-sync advance_paid
+    # Re-sync advance_paid (exclude voided)
     if txn_type == "advance_to_seller":
         deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
         total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
             PropertyTransaction.property_deal_id == property_id,
             PropertyTransaction.txn_type == "advance_to_seller",
+            PropertyTransaction.is_voided == False,
         ).scalar()
         deal.advance_paid = total_advance
-        # For site type, sync my_investment to total advance
         if (deal.property_type or "").lower() == "site":
             deal.my_investment = total_advance
 
@@ -692,7 +696,7 @@ def delete_property_transaction(
         _resync_plot_buyer(property_id, plot_buyer_id, db)
 
     db.commit()
-    return {"message": "Transaction deleted"}
+    return {"message": "Transaction voided"}
 
 
 @router.get("/{property_id}/profit-summary", response_model=dict)
@@ -704,6 +708,7 @@ def get_property_profit_summary(
     property_deal = _get_property_or_404(property_id, db)
     transactions = db.query(PropertyTransaction).filter(
         PropertyTransaction.property_deal_id == property_id,
+        PropertyTransaction.is_voided == False,
     ).order_by(PropertyTransaction.txn_date.desc(), PropertyTransaction.id.desc()).all()
     linked_partnerships = db.query(Partnership).filter(
         Partnership.linked_property_deal_id == property_id,

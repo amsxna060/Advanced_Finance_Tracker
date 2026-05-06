@@ -180,9 +180,10 @@ def get_loan(
             # Refresh outstanding after healing so the response shows ₹0
             outstanding = calculate_outstanding(loan_id, date.today(), db)
 
-    # Get payments
+    # Get payments (exclude voided)
     payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan_id
+        LoanPayment.loan_id == loan_id,
+        LoanPayment.is_voided == False,
     ).order_by(LoanPayment.payment_date.desc()).all()
     
     # Get collaterals
@@ -425,7 +426,8 @@ def force_close_loan(
 
     today = date.today()
     all_pmts = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan_id
+        LoanPayment.loan_id == loan_id,
+        LoanPayment.is_voided == False,
     ).all()
 
     principal_amount = Decimal(str(loan.principal_amount))
@@ -491,9 +493,9 @@ def get_loan_payments(
         raise HTTPException(status_code=404, detail="Loan not found")
     
     payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan_id
+        LoanPayment.loan_id == loan_id,
+        LoanPayment.is_voided == False,
     ).order_by(LoanPayment.payment_date.desc()).all()
-    
     return payments
 
 
@@ -511,12 +513,13 @@ def delete_payment(
 
     payment = db.query(LoanPayment).filter(
         LoanPayment.id == payment_id,
-        LoanPayment.loan_id == loan_id
+        LoanPayment.loan_id == loan_id,
+        LoanPayment.is_voided == False,
     ).first()
     if not payment:
-        raise HTTPException(status_code=404, detail="Payment not found")
+        raise HTTPException(status_code=404, detail="Payment not found or already voided")
 
-    # Reverse linked ledger entry
+    # Void linked ledger entry (keeps it in reconciliation as voided)
     acct_id = payment.account_id or loan.account_id
     if acct_id:
         direction = loan.loan_direction
@@ -526,18 +529,19 @@ def delete_payment(
             AccountTransaction.txn_type == ("credit" if direction == "given" else "debit"),
             AccountTransaction.amount == payment.amount_paid,
             AccountTransaction.txn_date == payment.payment_date,
+            AccountTransaction.is_voided == False,
         ).all()
         for m in matching:
-            db.delete(m)
+            m.is_voided = True
 
     # Re-open loan if it was auto-closed
     if loan.status == "closed":
         loan.status = "active"
         loan.actual_end_date = None
 
-    db.delete(payment)
+    payment.is_voided = True
     db.commit()
-    return {"message": "Payment deleted successfully"}
+    return {"message": "Payment voided successfully"}
 
 
 @router.get("/{loan_id}/outstanding", response_model=OutstandingResponse)

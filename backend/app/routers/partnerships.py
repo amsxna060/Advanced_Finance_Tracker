@@ -98,6 +98,7 @@ def _sync_property_from_partnership(partnership_id: int, db: Session) -> None:
 
     txns = db.query(PartnershipTransaction).filter(
         PartnershipTransaction.partnership_id == partnership_id,
+        PartnershipTransaction.is_voided == False,
     ).all()
 
     # Aggregate by type
@@ -159,6 +160,7 @@ def _resync_plot_buyer_from_partnership(partnership_id: int, plot_buyer_id: int,
         PartnershipTransaction.partnership_id == partnership_id,
         PartnershipTransaction.plot_buyer_id == plot_buyer_id,
         PartnershipTransaction.txn_type.in_(BUYER_INFLOW_TYPES),
+        PartnershipTransaction.is_voided == False,
     ).all()
 
     total_from_buyer = sum(_decimal(t.amount) for t in txns)
@@ -187,6 +189,7 @@ def _resync_site_plot_from_partnership(partnership_id: int, site_plot_id: int, d
         PartnershipTransaction.partnership_id == partnership_id,
         PartnershipTransaction.site_plot_id == site_plot_id,
         PartnershipTransaction.txn_type.in_(BUYER_INFLOW_TYPES),
+        PartnershipTransaction.is_voided == False,
     ).all()
 
     total_from_buyer = sum(_decimal(t.amount) for t in txns)
@@ -338,6 +341,7 @@ def get_partnership(
     ).order_by(PartnershipMember.id.asc()).all()
     transactions = db.query(PartnershipTransaction).filter(
         PartnershipTransaction.partnership_id == partnership_id,
+        PartnershipTransaction.is_voided == False,
     ).order_by(PartnershipTransaction.txn_date.desc(), PartnershipTransaction.id.desc()).all()
 
     contact_ids = [m.contact_id for m in members if m.contact_id]
@@ -730,6 +734,7 @@ def get_partnership_transactions(
     _get_partnership_or_404(partnership_id, db)
     return db.query(PartnershipTransaction).filter(
         PartnershipTransaction.partnership_id == partnership_id,
+        PartnershipTransaction.is_voided == False,
     ).order_by(PartnershipTransaction.txn_date.desc(), PartnershipTransaction.id.desc()).all()
 
 
@@ -740,7 +745,7 @@ def delete_partnership_transaction(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Delete a partnership transaction and reverse all linked effects."""
+    """Void a partnership transaction and reverse all linked effects."""
     partnership = _get_partnership_or_404(partnership_id, db)
 
     if partnership.status == "settled":
@@ -749,16 +754,17 @@ def delete_partnership_transaction(
     txn = db.query(PartnershipTransaction).filter(
         PartnershipTransaction.id == txn_id,
         PartnershipTransaction.partnership_id == partnership_id,
+        PartnershipTransaction.is_voided == False,
     ).first()
     if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found")
+        raise HTTPException(status_code=404, detail="Transaction not found or already voided")
 
     txn_type = txn.txn_type
     amount = _decimal(txn.amount)
     plot_buyer_id = txn.plot_buyer_id
     site_plot_id = txn.site_plot_id
 
-    # Reverse ledger entry
+    # Void linked ledger entry (keeps it in reconciliation as voided)
     if txn.account_id:
         ledger_type = "debit" if txn_type in OUTFLOW_TYPES else "credit"
         match = db.query(AccountTransaction).filter(
@@ -768,9 +774,10 @@ def delete_partnership_transaction(
             AccountTransaction.amount == txn.amount,
             AccountTransaction.txn_date == txn.txn_date,
             AccountTransaction.account_id == txn.account_id,
+            AccountTransaction.is_voided == False,
         ).order_by(AccountTransaction.id.desc()).first()
         if match:
-            db.delete(match)
+            match.is_voided = True
 
     # Reverse partnership totals
     if txn_type in INVESTMENT_TYPES:
@@ -792,7 +799,7 @@ def delete_partnership_transaction(
                 _decimal(member.advance_contributed) - amount, Decimal("0")
             )
 
-    db.delete(txn)
+    txn.is_voided = True
     db.flush()
 
     # Reverse obligations created by this transaction

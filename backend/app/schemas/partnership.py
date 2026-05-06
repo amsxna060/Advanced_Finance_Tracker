@@ -108,6 +108,7 @@ class PartnershipTransactionOut(BaseModel):
     site_plot_id: Optional[int] = None
     broker_name: Optional[str] = None
     from_partnership_pot: bool = False
+    is_voided: bool = False
     created_by: Optional[int]
     created_at: datetime
 

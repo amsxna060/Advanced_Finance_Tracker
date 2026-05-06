@@ -58,7 +58,10 @@ def _account_dict(account: CashAccount, include_transactions: bool = False) -> d
         "created_at": account.created_at.isoformat() if account.created_at else None,
     }
     if include_transactions:
-        result["transactions"] = [_txn_dict(t) for t in account.transactions]
+        result["transactions"] = [
+            _txn_dict(t) for t in account.transactions
+            if not getattr(t, "is_voided", False)
+        ]
     return result
 
 

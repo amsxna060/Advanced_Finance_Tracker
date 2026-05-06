@@ -108,6 +108,7 @@ class PropertyTransaction(Base):
     received_by_member_id = Column(Integer, ForeignKey("partnership_members.id"), nullable=True)
     plot_buyer_id = Column(Integer, ForeignKey("plot_buyers.id"), nullable=True)
     is_legacy = Column(Boolean, default=False)
+    is_voided = Column(Boolean, default=False, server_default="false")
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

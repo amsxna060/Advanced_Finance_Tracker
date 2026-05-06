@@ -206,6 +206,7 @@ class PropertyTransactionOut(BaseModel):
     account_id: Optional[int] = None
     received_by_member_id: Optional[int] = None
     plot_buyer_id: Optional[int] = None
+    is_voided: bool = False
     created_by: Optional[int]
     created_at: datetime
 

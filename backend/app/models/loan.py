@@ -98,6 +98,7 @@ class LoanPayment(Base):
     reference_number = Column(String(100))
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
     notes = Column(Text)
+    is_voided = Column(Boolean, default=False, server_default="false")
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
