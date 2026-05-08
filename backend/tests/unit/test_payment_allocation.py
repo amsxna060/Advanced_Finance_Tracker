@@ -101,19 +101,17 @@ class TestEmiAllocation:
         result = allocate_payment(3, Decimal("5000"), date(2024, 4, 1), db)
         assert result["allocated_to_overdue_interest"] == Decimal("0")
 
-    def test_emi_no_config_all_interest(self):
-        """EMI loan with no emi_amount/tenure_months → all treated as current_interest."""
+    def test_emi_no_config_raises(self):
+        """H-FIN-21: EMI loan with no emi_amount/tenure_months raises ValueError.
+        Silent misallocation is worse than surfacing the config error."""
         loan = _make_loan(4, "emi",
                           principal_amount=Decimal("100000"),
                           emi_amount=None,
                           tenure_months=None)
         db = _make_db(loan)
 
-        payment = Decimal("5000")
-        result = allocate_payment(4, payment, date(2024, 5, 1), db)
-
-        assert result["allocated_to_current_interest"] == payment
-        assert result["allocated_to_principal"] == Decimal("0")
+        with pytest.raises(ValueError, match="Cannot allocate payment without a valid schedule"):
+            allocate_payment(4, Decimal("5000"), date(2024, 5, 1), db)
 
     def test_emi_interest_ratio_correct(self):
         """

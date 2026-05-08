@@ -79,16 +79,18 @@ class TestRefreshToken:
         assert resp.json()["token_type"] == "bearer"
 
     def test_refresh_rotates_cookie(self, client, admin_user):
-        """C-AUTH-4: Each refresh issues a new cookie, so consecutive refreshes work."""
-        client.post(
+        """C-AUTH-4: After a refresh the original login token is blacklisted (rotation)."""
+        login = client.post(
             "/api/auth/login",
             data={"username": admin_user.username, "password": "testpass123"},
         )
+        original_token = login.json()["refresh_token"]
+        # First refresh via cookie (set by login)
         first = client.post("/api/auth/refresh")
         assert first.status_code == 200
-        # Cookie was rotated — second call should also succeed using the new cookie
-        second = client.post("/api/auth/refresh")
-        assert second.status_code == 200
+        # The original token must now be blacklisted — replaying it should fail
+        replay = client.post("/api/auth/refresh", json={"refresh_token": original_token})
+        assert replay.status_code == 401
 
     def test_refresh_blacklisted_token_rejected(self, client, admin_user):
         """C-AUTH-2: After logout the refresh token is blacklisted and must be rejected."""
