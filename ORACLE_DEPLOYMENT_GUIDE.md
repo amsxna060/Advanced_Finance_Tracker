@@ -176,15 +176,15 @@ nano /home/ubuntu/Advanced_Finance_Tracker/backend/.env
 Paste this (fill in your actual values):
 ```env
 # ─── Database ─────────────────────────────────────────────────
-DATABASE_URL=postgresql://financeapp:root@localhost:5432/finance_tracker
+DATABASE_URL=xxxx
 
 # ─── JWT ────────────────────────────────────────────────────
-SECRET_KEY=edde8f133289d4c1c6053b9e66a4119daabff95c53bcfb6e2871068e93c0cda0
+SECRET_KEY=xxxx
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
-GEMINI_API_KEY=AIzaSyCU6KyFVNe0gk3hvgOGtVcgykebFbTJnoU
+GEMINI_API_KEY=xxxx
 
 # ─── App ────────────────────────────────────────────────────
 APP_ENV=production
@@ -195,9 +195,9 @@ GOLD_API_URL=https://goldpricez.com/api/rates/currency/inr/measure/gram
 GOLD_CACHE_TTL_SECONDS=3600
 
 # ─── Seed Admin (created on first startup if no users exist) ─
-SEED_ADMIN_USERNAME=amolsaxena060
-SEED_ADMIN_PASSWORD=8268Gupt@
-SEED_ADMIN_EMAIL=amolsaxena060@gmail.com
+SEED_ADMIN_USERNAME=
+SEED_ADMIN_PASSWORD=
+SEED_ADMIN_EMAIL=
 ```
 
 Generate a SECRET_KEY:
