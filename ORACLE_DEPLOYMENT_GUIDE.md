@@ -178,8 +178,9 @@ Paste this (fill in your actual values — **never commit real secrets**):
 # ─── Database ─────────────────────────────────────────────────
 DATABASE_URL=postgresql://<DB_USER>:<DB_PASSWORD>@localhost:5432/finance_tracker
 
-# ─── JWT ────────────────────────────────────────────────────
+# ───JWT────────────────────────────────────────────
 SECRET_KEY=<generate-with-command-below>
+
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
@@ -198,7 +199,8 @@ GOLD_CACHE_TTL_SECONDS=3600
 SEED_ADMIN_USERNAME=<your-admin-username>
 SEED_ADMIN_PASSWORD=<your-strong-admin-password>
 SEED_ADMIN_EMAIL=<your-admin-email>
-```
+=======
+
 
 Generate a SECRET_KEY:
 ```bash
