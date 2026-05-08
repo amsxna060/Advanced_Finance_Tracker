@@ -3,9 +3,11 @@
 set -e
 
 BASE="http://localhost:8000"
+TEST_USERNAME="${TEST_USERNAME:-admin}"
+TEST_PASSWORD="${TEST_PASSWORD:-admin123}"
 TOKEN=$(curl -s -X POST "$BASE/api/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=admin123" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+  -d "username=${TEST_USERNAME}&password=${TEST_PASSWORD}" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 AUTH="Authorization: Bearer $TOKEN"
 
 PASS=0

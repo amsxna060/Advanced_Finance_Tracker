@@ -2,14 +2,20 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-.env
 venv/
 .venv/
+
+# Environment / Secrets — never commit real credentials
+.env
+.env.local
+.env.production
+.env.staging
+.env.*.local
+backend/.env
 
 # Node
 node_modules/
 dist/
-.env.local
 
 # DB
 *.sqlite3

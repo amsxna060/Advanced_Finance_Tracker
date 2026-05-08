@@ -2,7 +2,9 @@
 # Full API Test: Plot Lifecycle + Site Lifecycle + Edge Cases
 set -euo pipefail
 BASE="http://localhost:8000/api"
-TOKEN=$(curl -s -X POST "$BASE/auth/login" -H "Content-Type: application/x-www-form-urlencoded" -d "username=admin&password=admin123" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+TEST_USERNAME="${TEST_USERNAME:-admin}"
+TEST_PASSWORD="${TEST_PASSWORD:-admin123}"
+TOKEN=$(curl -s -X POST "$BASE/auth/login" -H "Content-Type: application/x-www-form-urlencoded" -d "username=${TEST_USERNAME}&password=${TEST_PASSWORD}" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 AUTH="Authorization: Bearer $TOKEN"
 CT="Content-Type: application/json"
 
