@@ -24,7 +24,17 @@ def upgrade() -> None:
 
     # Drop the old global unique constraint on description_normalized alone
     # since the same description can now exist once per user.
-    op.drop_constraint("category_learnings_description_normalized_key", "category_learnings", type_="unique")
+    # Use raw SQL with IF EXISTS so re-running on a DB that already dropped it
+    # (or never had it) doesn't fail.
+    op.execute(
+        "ALTER TABLE category_learnings "
+        "DROP CONSTRAINT IF EXISTS category_learnings_description_normalized_key"
+    )
+    # Also drop the per-user constraint if it already exists (idempotent re-run)
+    op.execute(
+        "ALTER TABLE category_learnings "
+        "DROP CONSTRAINT IF EXISTS uq_category_learnings_user_desc"
+    )
     # Add a per-user unique constraint
     op.create_unique_constraint(
         "uq_category_learnings_user_desc",
