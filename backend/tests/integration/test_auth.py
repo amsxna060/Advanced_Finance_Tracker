@@ -37,7 +37,7 @@ class TestLogin:
         assert resp.status_code == 401
 
     def test_login_inactive_user(self, client, db):
-        """Disabled user should receive 403 after attempting login."""
+        """Disabled user gets generic 401 (H-AUTH-5: no username enumeration)."""
         inactive = User(
             username="inactiveuser",
             email="inactive@test.local",
@@ -53,25 +53,66 @@ class TestLogin:
             "/api/auth/login",
             data={"username": "inactiveuser", "password": "somepass123"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
-
-class TestRefreshToken:
-    def test_refresh_token_returns_new_access_token(self, client, admin_user):
-        login = client.post(
+    def test_login_sets_httponly_cookie(self, client, admin_user):
+        """C-AUTH-4: Login must set a httpOnly refresh_token cookie."""
+        resp = client.post(
             "/api/auth/login",
             data={"username": admin_user.username, "password": "testpass123"},
         )
-        refresh_token = login.json()["refresh_token"]
+        assert resp.status_code == 200
+        assert "refresh_token" in resp.cookies
 
-        resp = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+
+class TestRefreshToken:
+    def test_refresh_via_cookie_returns_new_access_token(self, client, admin_user):
+        """C-AUTH-4: TestClient carries the httpOnly cookie set on login automatically."""
+        client.post(
+            "/api/auth/login",
+            data={"username": admin_user.username, "password": "testpass123"},
+        )
+        # No body — cookie is forwarded automatically by TestClient
+        resp = client.post("/api/auth/refresh")
         assert resp.status_code == 200
         assert "access_token" in resp.json()
         assert resp.json()["token_type"] == "bearer"
 
+    def test_refresh_rotates_cookie(self, client, admin_user):
+        """C-AUTH-4: Each refresh issues a new cookie, so consecutive refreshes work."""
+        client.post(
+            "/api/auth/login",
+            data={"username": admin_user.username, "password": "testpass123"},
+        )
+        first = client.post("/api/auth/refresh")
+        assert first.status_code == 200
+        # Cookie was rotated — second call should also succeed using the new cookie
+        second = client.post("/api/auth/refresh")
+        assert second.status_code == 200
+
+    def test_refresh_blacklisted_token_rejected(self, client, admin_user):
+        """C-AUTH-2: After logout the refresh token is blacklisted and must be rejected."""
+        login = client.post(
+            "/api/auth/login",
+            data={"username": admin_user.username, "password": "testpass123"},
+        )
+        access_token = login.json()["access_token"]
+        old_token = login.json()["refresh_token"]
+        # Logout blacklists the cookie token (= old_token) and clears the cookie
+        client.post("/api/auth/logout", headers={"Authorization": f"Bearer {access_token}"})
+        # Body-only request with the now-blacklisted token must fail
+        resp = client.post("/api/auth/refresh", json={"refresh_token": old_token})
+        assert resp.status_code == 401
+
     def test_refresh_invalid_token(self, client):
         resp = client.post("/api/auth/refresh", json={"refresh_token": "garbage.token.here"})
         assert resp.status_code == 401
+
+    def test_refresh_no_token_rejected(self, client):
+        """Calling /refresh with no cookie and no body must return 401."""
+        resp = client.post("/api/auth/refresh")
+        assert resp.status_code == 401
+
 
 
 class TestGetMe:
@@ -117,6 +158,52 @@ class TestRegister:
         )
         assert resp.status_code == 200
         assert resp.json()["role"] == "readonly"
+
+
+class TestLogout:
+    def test_logout_succeeds_with_valid_token(self, client, admin_user):
+        """C-AUTH-2: Logout blacklists the refresh token and clears the cookie."""
+        login = client.post(
+            "/api/auth/login",
+            data={"username": admin_user.username, "password": "testpass123"},
+        )
+        access_token = login.json()["access_token"]
+        resp = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {access_token}"})
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Logged out successfully"
+
+    def test_logout_blacklists_refresh_token(self, client, admin_user):
+        """After logout the refresh token stored in cookie must be rejected."""
+        login = client.post(
+            "/api/auth/login",
+            data={"username": admin_user.username, "password": "testpass123"},
+        )
+        access_token = login.json()["access_token"]
+        refresh_token = login.json()["refresh_token"]
+        client.post("/api/auth/logout", headers={"Authorization": f"Bearer {access_token}"})
+        # Cookie is now cleared; use the old token via body — must be rejected
+        resp = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+        assert resp.status_code == 401
+
+    def test_logout_requires_authentication(self, client):
+        """Calling /logout without a valid access token should return 401."""
+        resp = client.post("/api/auth/logout")
+        assert resp.status_code == 401
+
+
+class TestCsrfToken:
+    def test_csrf_token_endpoint_returns_token(self, client):
+        """H-SEC-2: GET /csrf-token returns a token and sets a readable cookie."""
+        resp = client.get("/api/auth/csrf-token")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "csrf_token" in body
+        assert len(body["csrf_token"]) == 64  # secrets.token_hex(32) → 64 hex chars
+
+    def test_csrf_token_cookie_is_set(self, client):
+        """The csrf_token cookie must be present in the response."""
+        resp = client.get("/api/auth/csrf-token")
+        assert "csrf_token" in resp.cookies
 
 
 class TestReadonlyEnforcement:

@@ -80,9 +80,9 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
 
 @router.post("/refresh", response_model=TokenRefresh)
 @limiter.limit("10/minute")
-def refresh(req: Request, response: Response, body: Optional[RefreshTokenRequest] = None, db: Session = Depends(get_db)):
+def refresh(request: Request, response: Response, body: Optional[RefreshTokenRequest] = None, db: Session = Depends(get_db)):
     # C-AUTH-4: Try httpOnly cookie first (browser SPA path), fall back to request body (API clients)
-    raw_token = req.cookies.get("refresh_token") or (body.refresh_token if body else None)
+    raw_token = request.cookies.get("refresh_token") or (body.refresh_token if body else None)
     if not raw_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token provided")
     try:
@@ -211,7 +211,7 @@ class LogoutRequest(BaseModel):
 
 @router.post("/logout")
 def logout(
-    req: Request,
+    request: Request,
     response: Response,
     body: Optional[LogoutRequest] = None,
     db: Session = Depends(get_db),
@@ -219,7 +219,7 @@ def logout(
 ):
     """C-AUTH-2: Blacklist the refresh token so it cannot be replayed after logout."""
     # C-AUTH-4: Try cookie first, then request body
-    raw_token = req.cookies.get("refresh_token") or (body.refresh_token if body else None)
+    raw_token = request.cookies.get("refresh_token") or (body.refresh_token if body else None)
     if raw_token:
         try:
             payload = jwt.decode(
