@@ -130,55 +130,7 @@ def get_loan(
     # Calculate outstanding
     outstanding = calculate_outstanding(loan_id, date.today(), db)
 
-    # Self-healing auto-close for interest_only / short_term loans.
-    # Handles two cases:
-    #   A) Principal outstanding is already <= ₹1 (normal path, correct allocation in DB).
-    #   B) Payments have wrong allocation (allocated_to_principal = 0 due to old buggy code)
-    #      but total amount paid clearly covers the principal — retroactively fix allocations.
-    if loan.loan_type in ("interest_only", "short_term") and loan.status == "active":
-        healed = False
-
-        # Case A: correct allocation already recorded
-        if outstanding["principal_outstanding"] <= Decimal("1.00"):
-            healed = True
-
-        # Case B: total payments >= principal but principal allocation is wrong
-        if not healed:
-            all_pmts = db.query(LoanPayment).filter(
-                LoanPayment.loan_id == loan_id
-            ).order_by(LoanPayment.payment_date.asc()).all()
-            total_paid = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
-            total_principal_allocated = sum(
-                Decimal(str(p.allocated_to_principal or 0)) for p in all_pmts
-            )
-            principal_amount = Decimal(str(loan.principal_amount))
-
-            if (total_paid >= principal_amount
-                    and total_principal_allocated < principal_amount - Decimal("1")):
-                # Fix each payment's allocation: excess after interest → principal
-                remaining_principal = principal_amount
-                for p in all_pmts:
-                    interest_paid = (
-                        Decimal(str(p.allocated_to_current_interest or 0))
-                        + Decimal(str(p.allocated_to_overdue_interest or 0))
-                    )
-                    excess = max(Decimal(str(p.amount_paid or 0)) - interest_paid, Decimal("0"))
-                    if remaining_principal > Decimal("0") and excess > Decimal("0"):
-                        new_principal = min(excess, remaining_principal)
-                        p.allocated_to_principal = new_principal
-                        remaining_principal -= new_principal
-                db.flush()
-                healed = True
-
-        if healed:
-            loan.status = "closed"
-            last_payment = db.query(LoanPayment).filter(
-                LoanPayment.loan_id == loan_id
-            ).order_by(LoanPayment.payment_date.desc()).first()
-            loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
-            db.commit()
-            # Refresh outstanding after healing so the response shows ₹0
-            outstanding = calculate_outstanding(loan_id, date.today(), db)
+    # C-FIN-3: Self-healing mutation removed from GET. Use POST /loans/{id}/reconcile (admin only).
 
     # Get payments (exclude voided)
     payments = db.query(LoanPayment).filter(
@@ -223,6 +175,75 @@ def get_loan(
         "emi_schedule": schedule,
         "emi_interest_summary": emi_interest_summary,
     }
+
+
+@router.post("/{loan_id}/reconcile", response_model=dict)
+def reconcile_loan(
+    loan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Admin-only: fix payment allocations and auto-close if principal is fully recovered.
+
+    Replaces the old GET-side self-healing mutation (C-FIN-3 fix). Explicit admin
+    action creates a clear audit trail instead of silently mutating data on read.
+    """
+    loan = db.query(Loan).filter(
+        Loan.id == loan_id,
+        Loan.is_deleted == False,
+    ).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    if loan.loan_type not in ("interest_only", "short_term"):
+        return {"message": "No reconciliation needed for EMI loans", "healed": False}
+
+    if loan.status != "active":
+        return {"message": "Loan is not active; no reconciliation needed", "healed": False}
+
+    outstanding = calculate_outstanding(loan_id, date.today(), db)
+    healed = False
+
+    if outstanding["principal_outstanding"] <= Decimal("1.00"):
+        healed = True
+    else:
+        all_pmts = db.query(LoanPayment).filter(
+            LoanPayment.loan_id == loan_id,
+            LoanPayment.is_voided == False,
+        ).order_by(LoanPayment.payment_date.asc()).all()
+        total_paid = sum(Decimal(str(p.amount_paid or 0)) for p in all_pmts)
+        total_principal_allocated = sum(
+            Decimal(str(p.allocated_to_principal or 0)) for p in all_pmts
+        )
+        principal_amount = Decimal(str(loan.principal_amount))
+
+        if (total_paid >= principal_amount
+                and total_principal_allocated < principal_amount - Decimal("1")):
+            remaining_principal = principal_amount
+            for p in all_pmts:
+                interest_paid = (
+                    Decimal(str(p.allocated_to_current_interest or 0))
+                    + Decimal(str(p.allocated_to_overdue_interest or 0))
+                )
+                excess = max(Decimal(str(p.amount_paid or 0)) - interest_paid, Decimal("0"))
+                if remaining_principal > Decimal("0") and excess > Decimal("0"):
+                    new_principal = min(excess, remaining_principal)
+                    p.allocated_to_principal = new_principal
+                    remaining_principal -= new_principal
+            db.flush()
+            healed = True
+
+    if healed:
+        loan.status = "closed"
+        last_payment = db.query(LoanPayment).filter(
+            LoanPayment.loan_id == loan_id,
+            LoanPayment.is_voided == False,
+        ).order_by(LoanPayment.payment_date.desc()).first()
+        loan.actual_end_date = last_payment.payment_date if last_payment else date.today()
+        db.commit()
+        return {"message": "Loan reconciled and closed", "healed": True}
+
+    return {"message": "No reconciliation needed; principal still outstanding", "healed": False}
 
 
 @router.put("/{loan_id}", response_model=LoanOut)
@@ -322,10 +343,12 @@ def record_payment(
     current_user: User = Depends(require_admin)
 ):
     """Record a payment against a loan with automatic allocation"""
+    # C-CONC-1: use SELECT FOR UPDATE to prevent two simultaneous payment
+    # requests from double-allocating against the same outstanding balance.
     loan = db.query(Loan).filter(
         Loan.id == loan_id,
         Loan.is_deleted == False
-    ).first()
+    ).with_for_update().first()
     
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
@@ -386,7 +409,12 @@ def record_payment(
     payment_date = payment_data.payment_date
     if loan.loan_type == "emi" and loan.status == "active":
         schedule = get_emi_schedule_with_payments(loan, db)
-        if schedule and all(e["status"] == "paid" for e in schedule):
+        # H-FIN-26: allow ₹1 tolerance per EMI to handle floating-point rounding
+        # so a ₹0.50 shortfall on the last instalment doesn't prevent auto-close.
+        if schedule and all(
+            e["status"] == "paid" or e["outstanding"] <= 1.0
+            for e in schedule
+        ):
             loan.status = "closed"
             loan.actual_end_date = payment_date
             db.commit()
@@ -466,6 +494,31 @@ def force_close_loan(
     # Record write-off for loss loan analytics
     if principal_shortfall > 0:
         loan.write_off_amount = principal_shortfall
+
+    # C-FIN-5: Post a write-off / adjustment ledger entry so the account
+    # balance is reconciled at close.  For "given" loans a shortfall means
+    # we write off the unrecovered principal as a debit (expense); for
+    # "taken" loans a shortfall (over-payment) would be a credit.
+    acct_id = loan.account_id
+    if acct_id and (principal_shortfall > 0 or profit_above_principal > 0):
+        direction = loan.loan_direction
+        contact_name = loan.contact.name if loan.contact else "Unknown"
+        if principal_shortfall > 0:
+            # Unrecovered principal is a write-off: debit for given, credit for taken
+            auto_ledger(
+                db=db,
+                account_id=acct_id,
+                txn_type="debit" if direction == "given" else "credit",
+                amount=principal_shortfall,
+                txn_date=today,
+                linked_type="loan",
+                linked_id=loan_id,
+                description=f"Force-close write-off {'for' if direction == 'given' else 'on'} {contact_name}",
+                payment_mode=None,
+                contact_id=loan.contact_id,
+                created_by=current_user.id,
+            )
+
     db.commit()
 
     return {
@@ -519,7 +572,9 @@ def delete_payment(
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found or already voided")
 
-    # Void linked ledger entry (keeps it in reconciliation as voided)
+    # C-FIN-6: void only the FIRST matching ledger row to avoid accidentally
+    # voiding two legitimate same-day same-amount entries (e.g. two people
+    # each paid ₹5 000 on the same day).
     acct_id = payment.account_id or loan.account_id
     if acct_id:
         direction = loan.loan_direction
@@ -530,12 +585,18 @@ def delete_payment(
             AccountTransaction.amount == payment.amount_paid,
             AccountTransaction.txn_date == payment.payment_date,
             AccountTransaction.is_voided == False,
-        ).all()
-        for m in matching:
-            m.is_voided = True
+        ).first()  # .first() instead of .all() to avoid multi-row collateral damage
+        if matching:
+            matching.is_voided = True
 
-    # Re-open loan if it was auto-closed
-    if loan.status == "closed":
+    # H-DI-15: preserve actual_end_date in notes before clearing it so the
+    # original close date is not lost from the audit trail.
+    if loan.status == "closed" and loan.actual_end_date:
+        close_note = f"[Voided payment on {payment.payment_date}; loan was closed on {loan.actual_end_date}]"
+        loan.notes = ((loan.notes or "").rstrip() + "\n" + close_note).strip()
+        loan.status = "active"
+        loan.actual_end_date = None
+    elif loan.status == "closed":
         loan.status = "active"
         loan.actual_end_date = None
 

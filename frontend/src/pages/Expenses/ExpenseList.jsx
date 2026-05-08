@@ -66,22 +66,8 @@ const FALLBACK_SUBCATEGORIES = {
   ],
 };
 
-/* Tier-2 Firozabad ₹90k household — sensible monthly defaults */
-const DEFAULT_BUDGETS = {
-  "Groceries & Daily Needs":  8000,
-  "Food & Dining":             5000,
-  "Housing & Utilities":       4000,
-  "Transport & Auto":          4000,
-  "Health & Medical":          3000,
-  "Education & Children":      5000,
-  "Spiritual & Social":        3000,
-  "Personal & Lifestyle":      4000,
-  "Financial & Legal":         2000,
-  "Shopping & Electronics":    3000,
-  "Entertainment & Leisure":   2000,
-  "Investment":                8000,
-  "Uncategorized":             2000,
-};
+/* Default monthly budget amounts (₹0 = no limit set, user can configure) */
+const DEFAULT_BUDGETS = {};
 
 const defaultForm = {
   category: "",
@@ -243,7 +229,8 @@ function ExpenseList() {
       if (filters.category) params.category = filters.category;
       return (await api.get("/api/expenses/analytics/summary", { params })).data;
     },
-    staleTime: 60 * 1000,
+    // L-FE-12: 10-minute staleTime to avoid unnecessary refetches on idle analytics page
+    staleTime: 10 * 60 * 1000,
   });
 
   const expenses = Array.isArray(expenseData)
@@ -310,15 +297,16 @@ function ExpenseList() {
   });
 
   const saveBudgets = async (vals, rolloverMap) => {
-    await Promise.all(
-      Object.entries(vals).map(([category, monthly_limit]) =>
-        api.post("/api/category-limits", {
-          category,
-          monthly_limit,
-          rollover_enabled: rolloverMap[category] ?? true,
-        })
-      )
-    );
+    // H-FE-4: fire saves sequentially rather than in parallel Promise.all
+    // so a single failure doesn't leave the rest silently un-saved and the
+    // user gets a clear error pointing to the offending category.
+    for (const [category, monthly_limit] of Object.entries(vals)) {
+      await api.post("/api/category-limits", {
+        category,
+        monthly_limit,
+        rollover_enabled: rolloverMap[category] ?? true,
+      });
+    }
     queryClient.invalidateQueries({ queryKey: ["category-limits"] });
     queryClient.invalidateQueries({ queryKey: ["budget-vs-actual"] });
   };
@@ -417,11 +405,13 @@ function ExpenseList() {
     let category = form.category;
     let sub_category = form.sub_category;
 
-    // Auto-categorize on save if category or sub_category not set
+    // Auto-categorize on save if category or sub_category not set,
+    // H-FE-5: skip if autoFilled is already set (user already got a suggestion from handleSuggest)
     if (
       form.description &&
       form.description.trim().length >= 3 &&
-      (!category || !sub_category)
+      (!category || !sub_category) &&
+      !autoFilled
     ) {
       try {
         const res = await api.post("/api/expenses/suggest-category", {
@@ -544,8 +534,10 @@ function ExpenseList() {
     const q = searchQuery.trim().toLowerCase().replace(/,/g, "");
     const qNum = parseFloat(q);
     return expenses.filter(e => {
-      if (!isNaN(qNum) && qNum > 0) {
-        const diff = Math.abs(Number(e.amount) - qNum);
+      // H-FE-3: use >= 0 so zero-amount expenses are found by numeric search
+      // L-FE-11: use parseFloat on the string directly to avoid Number() precision loss
+      if (!isNaN(qNum) && qNum >= 0) {
+        const diff = Math.abs(parseFloat(e.amount) - qNum);
         if (diff < 0.01) return true;
       }
       if ((e.description || "").toLowerCase().includes(q)) return true;
@@ -555,7 +547,8 @@ function ExpenseList() {
   }, [expenses, searchQuery]);
 
   const searchTotal = useMemo(
-    () => filteredExpenses.reduce((s, e) => s + Number(e.amount), 0),
+    // L-FE-11: parseFloat on the Decimal string preserves more precision than Number()
+    () => filteredExpenses.reduce((s, e) => s + parseFloat(e.amount), 0),
     [filteredExpenses]
   );
 

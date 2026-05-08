@@ -16,8 +16,40 @@ from decimal import Decimal
 router = APIRouter(prefix="/api/expenses", tags=["expenses"])
 
 
+# C-DI-3: Validate that linked_id points to an existing record in the correct table.
+# Since linked_id is a polymorphic association (no DB-level FK), we enforce referential
+# integrity at the application layer to prevent orphaned expense rows.
+_LINKED_TYPE_MODELS: dict = {}  # populated lazily to avoid circular imports
+
+
+def _get_linked_type_model(linked_type: str):
+    if not _LINKED_TYPE_MODELS:
+        from app.models.loan import Loan
+        from app.models.property_deal import PropertyDeal
+        from app.models.partnership import Partnership
+        _LINKED_TYPE_MODELS["loan"] = Loan
+        _LINKED_TYPE_MODELS["property"] = PropertyDeal
+        _LINKED_TYPE_MODELS["partnership"] = Partnership
+    return _LINKED_TYPE_MODELS.get(linked_type)
+
+
+def _validate_linked_id(linked_type: Optional[str], linked_id: Optional[int], db: Session) -> None:
+    """Raise HTTP 422 if linked_type + linked_id doesn't resolve to an existing DB row."""
+    if not linked_type or not linked_id:
+        return
+    model = _get_linked_type_model(linked_type)
+    if model is None:
+        return  # "general" or unknown types have no FK to check
+    exists = db.query(model.id).filter(model.id == linked_id).first()
+    if not exists:
+        raise HTTPException(
+            status_code=422,
+            detail=f"linked_id {linked_id} does not exist in table for linked_type '{linked_type}'",
+        )
+
+
 def _get_expense_or_404(expense_id: int, db: Session) -> Expense:
-    expense = db.query(Expense).filter(Expense.id == expense_id).first()
+    expense = db.query(Expense).filter(Expense.id == expense_id, Expense.is_deleted == False).first()  # noqa: E712
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
     return expense
@@ -37,6 +69,8 @@ def get_expenses(
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(Expense)
+    # C-DI-2: exclude soft-deleted expenses
+    query = query.filter(Expense.is_deleted == False)  # noqa: E712
 
     if category:
         query = query.filter(Expense.category == category)
@@ -74,6 +108,8 @@ def expense_analytics(
     from app.models.cash_account import CashAccount
 
     query = db.query(Expense)
+    # C-DI-2: exclude soft-deleted expenses from analytics
+    query = query.filter(Expense.is_deleted == False)  # noqa: E712
     if from_date:
         query = query.filter(Expense.expense_date >= from_date)
     if to_date:
@@ -225,7 +261,8 @@ def suggest_expense_category(
     description = payload.get("description", "")
 
     # 1. Check learned mappings first (fastest, personalized)
-    learned = suggest_from_learnings(db, description)
+    # H-DI-13: pass current_user.id to scope suggestions to this user's learnings
+    learned = suggest_from_learnings(db, description, user_id=current_user.id)
     if learned:
         return {
             "suggested_category": learned[0],
@@ -267,18 +304,26 @@ def suggest_expense_category(
                 if parent:
                     db_children.setdefault(parent.name, set()).add(c.name)
 
+            # H-INT-5: sanitize category names before interpolating into prompt
+            # to prevent a crafted category name from escaping the prompt context
+            def _safe_name(n: str) -> str:
+                return "".join(ch for ch in n if ch.isalnum() or ch in " &/()-_.,")
+
+            safe_all_cats = [_safe_name(c) for c in all_cats]
             sub_map_lines = "\n".join(
-                f"  {cat}: {', '.join(sorted(set(list(SUBCATEGORY_RULES.get(cat, {}).keys()) + list(db_children.get(cat, [])))))}"
+                f"  {_safe_name(cat)}: {', '.join(sorted(_safe_name(s) for s in set(list(SUBCATEGORY_RULES.get(cat, {}).keys()) + list(db_children.get(cat, [])))))}"
                 for cat in all_cats
             )
+            # sanitize the user-supplied description: strip control chars
+            safe_description = description.replace("\\", "").replace("\"", "'")[:500]
             prompt = (
                 f"You are a financial expense categorizer for an Indian household finance tracker.\n"
                 f"Given the expense description below, pick the BEST matching category and sub-category "
                 f"from the provided lists. Reply in JSON only: "
                 f'{{\"category\": \"<name>\", \"sub_category\": \"<name or null>\"}}\n\n'
-                f"AVAILABLE CATEGORIES: {', '.join(all_cats)}\n\n"
+                f"AVAILABLE CATEGORIES: {', '.join(safe_all_cats)}\n\n"
                 f"SUBCATEGORIES PER CATEGORY:\n{sub_map_lines}\n\n"
-                f"EXPENSE DESCRIPTION: \"{description}\"\n\n"
+                f"EXPENSE DESCRIPTION: \"{safe_description}\"\n\n"
                 f"Rules:\n"
                 f"- category MUST be exactly one of the available categories\n"
                 f"- sub_category must be from that category's list or null if no good match\n"
@@ -321,6 +366,8 @@ def create_expense(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    # C-DI-3: verify the polymorphic linked_id resolves to a real record
+    _validate_linked_id(expense_data.linked_type, expense_data.linked_id, db)
     expense = Expense(**expense_data.model_dump(), created_by=current_user.id)
 
     # Auto-categorize if no category provided
@@ -357,7 +404,7 @@ def create_expense(
     # Learn from this save for future suggestions
     if expense.description and expense.category:
         from app.services.learning import save_learning
-        save_learning(db, expense.description, expense.category, expense.sub_category)
+        save_learning(db, expense.description, expense.category, expense.sub_category, user_id=current_user.id)
         db.commit()
 
     return expense
@@ -371,11 +418,14 @@ def update_expense(
     current_user: User = Depends(require_admin),
 ):
     expense = _get_expense_or_404(expense_id, db)
+    # C-DI-3: verify polymorphic linked_id if either field is being updated
+    update_data = expense_data.model_dump(exclude_unset=True)
+    linked_type = update_data.get("linked_type", expense.linked_type)
+    linked_id = update_data.get("linked_id", expense.linked_id)
+    _validate_linked_id(linked_type, linked_id, db)
     old_account_id = expense.account_id
     old_amount = Decimal(str(expense.amount)) if expense.amount else Decimal("0")
     old_date = expense.expense_date
-
-    update_data = expense_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(expense, field, value)
 
@@ -402,10 +452,10 @@ def update_expense(
     db.commit()
     db.refresh(expense)
 
-    # Learn from this save for future suggestions
+    # Learn from this update for future suggestions
     if expense.description and expense.category:
         from app.services.learning import save_learning
-        save_learning(db, expense.description, expense.category, expense.sub_category)
+        save_learning(db, expense.description, expense.category, expense.sub_category, user_id=current_user.id)
         db.commit()
 
     return expense
@@ -420,6 +470,7 @@ def delete_expense(
     expense = _get_expense_or_404(expense_id, db)
     # Reverse linked ledger entry
     reverse_all_ledger(db, "expense", expense.id)
-    db.delete(expense)
+    # C-DI-2: soft-delete to preserve audit history
+    expense.is_deleted = True
     db.commit()
     return {"message": "Expense deleted successfully"}

@@ -1,19 +1,20 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Literal, Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
 
 class ObligationCreate(BaseModel):
-    obligation_type: str  # receivable | payable
+    # M-VAL-8: constrain obligation_type to known values at schema level
+    obligation_type: Literal["receivable", "payable"]
     contact_id: int
-    amount: Decimal
-    reason: Optional[str] = None
+    amount: Decimal = Field(..., gt=0)
+    reason: Optional[str] = Field(default=None, max_length=500)
     linked_type: Optional[str] = None
     linked_id: Optional[int] = None
     due_date: Optional[date] = None
     account_id: Optional[int] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ObligationUpdate(BaseModel):

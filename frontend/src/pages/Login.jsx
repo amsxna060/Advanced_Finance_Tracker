@@ -137,7 +137,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-indigo-300/30 text-xs mt-6">
-          Secured with end-to-end encryption
+          Secured with TLS encryption
         </p>
       </div>
     </div>

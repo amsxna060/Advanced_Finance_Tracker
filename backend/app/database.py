@@ -27,11 +27,14 @@ if _is_local:
     )
 elif ":6543" in db_url:
     # Supabase PgBouncer transaction mode pooler — NullPool prevents
-    # SQLAlchemy from managing its own pool on top of PgBouncer's
+    # SQLAlchemy from managing its own pool on top of PgBouncer's.
+    # H-DB-3: add pool_pre_ping=True so stale connections are detected even
+    # with NullPool (each new connection is validated before first use).
     engine = create_engine(
         db_url,
         connect_args={"sslmode": "require"},
         poolclass=NullPool,
+        pool_pre_ping=True,
     )
 else:
     engine = create_engine(
@@ -50,5 +53,10 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # H-DB-4: rollback on any unhandled exception so the session is not
+        # left in a dirty state before the connection is returned to the pool.
+        db.rollback()
+        raise
     finally:
         db.close()

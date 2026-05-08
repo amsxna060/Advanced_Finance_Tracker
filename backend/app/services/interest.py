@@ -86,8 +86,23 @@ def _calc_period_interest(principal: Decimal, annual_rate: Decimal, period_start
     banking=True (banking_365): actual days / 365 (actual year days). interest = principal * rate/100 * days/365.
     """
     if banking:
-        days_in_year = _days_in_year(period_start.year)
-        return (principal * annual_rate / Decimal("100") * Decimal(str(days)) / Decimal(str(days_in_year))).quantize(Decimal("0.01"))
+        # H-FIN-16: for periods that cross a year boundary, compute interest
+        # day-by-day in each calendar year so the correct year length is applied.
+        period_end = period_start + timedelta(days=days)
+        if period_start.year == period_end.year:
+            days_in_year = _days_in_year(period_start.year)
+            return (principal * annual_rate / Decimal("100") * Decimal(str(days)) / Decimal(str(days_in_year))).quantize(Decimal("0.01"))
+        # Cross-year: split at Jan 1 of each new year
+        total_interest = Decimal("0")
+        seg_start = period_start
+        seg_end = date(period_start.year + 1, 1, 1)  # first day of next year
+        while seg_start < period_end:
+            seg_end = min(date(seg_start.year + 1, 1, 1), period_end)
+            seg_days = (seg_end - seg_start).days
+            diy = _days_in_year(seg_start.year)
+            total_interest += principal * annual_rate / Decimal("100") * Decimal(str(seg_days)) / Decimal(str(diy))
+            seg_start = seg_end
+        return total_interest.quantize(Decimal("0.01"))
     monthly_rate = annual_rate / Decimal("1200")
     if full_period_days > 0 and days < full_period_days:
         return principal * monthly_rate * Decimal(str(days)) / Decimal(str(full_period_days))
@@ -142,7 +157,8 @@ def calculate_outstanding_from_loan(loan: "Loan", as_of_date: date) -> Dict[str,
     """
     cap_events = [e for e in loan.capitalization_events if e.event_date <= as_of_date]
     payments   = sorted(
-        [p for p in loan.payments if p.payment_date <= as_of_date],
+        # H-DI-9 / C-FIN-1: exclude voided payments from all outstanding calculations
+        [p for p in loan.payments if p.payment_date <= as_of_date and not getattr(p, 'is_voided', False)],
         key=lambda p: p.payment_date,
     )
     return _compute_outstanding(loan, as_of_date, cap_events, payments)
@@ -155,7 +171,11 @@ def get_emi_schedule_preloaded(loan: "Loan") -> List[Dict[str, Any]]:
         return []
     today = date.today()
     emi_amount = Decimal(str(loan.emi_amount))
-    payments = sorted(loan.payments, key=lambda p: p.payment_date)
+    # C-FIN-1 / H-DI-9: exclude voided payments from all financial calculations
+    payments = sorted(
+        [p for p in loan.payments if not getattr(p, 'is_voided', False)],
+        key=lambda p: p.payment_date,
+    )
     total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
     result = []
     credit_balance = total_paid
@@ -163,7 +183,8 @@ def get_emi_schedule_preloaded(loan: "Loan") -> List[Dict[str, Any]]:
         due_date = entry["due_date"]
         is_future = due_date > today
         if credit_balance >= emi_amount:
-            status = "paid" if not is_future else "paid"
+            # C-FIN-2: fix always-"paid" ternary — future EMIs with credit should be "future"
+            status = "paid" if not is_future else "future"
             paid_amount = emi_amount
             outstanding = Decimal("0")
             credit_balance -= emi_amount
@@ -211,9 +232,11 @@ def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[s
         LoanCapitalizationEvent.event_date <= as_of_date
     ).order_by(LoanCapitalizationEvent.event_date).all()
 
+    # C-FIN-1 / H-DI-9: exclude voided payments from all outstanding calculations
     payments = db.query(LoanPayment).filter(
         LoanPayment.loan_id == loan_id,
-        LoanPayment.payment_date <= as_of_date
+        LoanPayment.payment_date <= as_of_date,
+        LoanPayment.is_voided == False,
     ).order_by(LoanPayment.payment_date).all()
 
     return _compute_outstanding(loan, as_of_date, cap_events, payments)
@@ -261,7 +284,9 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
         total_repayment = (emi_amount * tenure).quantize(Decimal("0.01"))
         total_interest = max(total_repayment - principal, Decimal("0"))
         total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
-        total_paid = min(total_paid, total_repayment)
+        # H-FIN-17: do NOT silently cap total_paid at total_repayment.
+        # If payments exceed the scheduled repayment amount the loan is
+        # over-paid; honour the actual figures so outstanding shows ≤ 0.
         total_remaining = max(total_repayment - total_paid, Decimal("0"))
 
         if total_repayment > Decimal("0"):
@@ -395,12 +420,19 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
     else:
         principal_outstanding = max(principal_outstanding, Decimal("0")).quantize(Decimal("0.01"))
 
+    # H-FIN-25: subtract any recorded write-off amount so that a force-closed
+    # loan's outstanding correctly reflects the settlement instead of re-inflating.
+    write_off = Decimal(str(loan.write_off_amount or 0))
+    if write_off > Decimal("0"):
+        principal_outstanding = max(principal_outstanding - write_off, Decimal("0")).quantize(Decimal("0.01"))
+
     return {
         "principal_outstanding": principal_outstanding,
         "interest_outstanding": interest_outstanding,
         "total_outstanding": (principal_outstanding + interest_outstanding).quantize(Decimal("0.01")),
         "gross_interest_accrued": gross_accrued.quantize(Decimal("0.01")),
         "as_of_date": as_of_date,
+        "overdue_interest": interest_outstanding,
     }
 
 
@@ -572,9 +604,11 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
     emi_amount = Decimal(str(loan.emi_amount))
     penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
 
-    # Get all payments ordered by date asc
+    # Get all non-voided payments ordered by date asc
+    # H-DI-9 / C-FIN-1: exclude voided payments from all financial calculations
     payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan.id
+        LoanPayment.loan_id == loan.id,
+        LoanPayment.is_voided == False,
     ).order_by(LoanPayment.payment_date.asc()).all()
 
     # Build cumulative payment timeline to find per-EMI effective coverage dates.
@@ -735,9 +769,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         principal = Decimal(str(loan.principal_amount))
         rate = Decimal(str(loan.post_due_interest_rate or 0))
 
-        # Get all interest payments
+        # Get all interest payments (exclude voided)
+        # H-DI-9 / C-FIN-1: exclude voided payments from all financial calculations
         payments = db.query(LoanPayment).filter(
-            LoanPayment.loan_id == loan.id
+            LoanPayment.loan_id == loan.id,
+            LoanPayment.is_voided == False,
         ).order_by(LoanPayment.payment_date.asc()).all()
         total_interest_paid = sum(
             Decimal(str(p.allocated_to_current_interest or 0)) +

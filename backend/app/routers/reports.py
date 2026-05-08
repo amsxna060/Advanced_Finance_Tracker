@@ -23,8 +23,10 @@ from app.services.excel_generator import ExcelReportGenerator
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
-pdf_generator = PDFReportGenerator()
-excel_generator = ExcelReportGenerator()
+# H-REP-2: do NOT create module-level singletons — they hold mutable state
+# (open file handles, in-progress workbooks) that would be shared across
+# concurrent requests. Instantiate fresh instances per request instead.
+# pdf_generator and excel_generator are now created inside each endpoint.
 
 
 def _d(value) -> Decimal:
@@ -40,13 +42,15 @@ def generate_loan_statement(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    loan = db.query(Loan).filter(Loan.id == loan_id).first()
+    # C-REP-1: filter out soft-deleted loans
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
 
+    # C-REP-1: exclude voided payments from the statement
     payments = (
         db.query(LoanPayment)
-        .filter(LoanPayment.loan_id == loan_id)
+        .filter(LoanPayment.loan_id == loan_id, LoanPayment.is_voided == False)
         .order_by(LoanPayment.payment_date.asc())
         .all()
     )
@@ -75,13 +79,18 @@ def generate_loan_statement(
             "principal_amount": float(_d(p.allocated_to_principal)),
             "interest_amount": float(_d(p.allocated_to_current_interest) + _d(p.allocated_to_overdue_interest)),
             "total_amount": float(_d(p.amount_paid)),
-            "outstanding_after": 0,
+            # H-REP-3: compute running outstanding balance instead of always returning 0
+            "outstanding_after": 0,  # filled below
         }
         for p in payments
     ]
+    # H-REP-3: fill running outstanding per payment using calculate_outstanding per date
+    for i, p in enumerate(payments):
+        as_of = calculate_outstanding(loan.id, p.payment_date, db)
+        payment_data[i]["outstanding_after"] = float(_d(as_of["total_outstanding"]))
 
     if format == "pdf":
-        buffer = pdf_generator.generate_loan_statement(loan_data, payment_data)
+        buffer = PDFReportGenerator().generate_loan_statement(loan_data, payment_data)
         filename = f"loan_statement_{loan_id}_{datetime.now().strftime('%Y%m%d')}.pdf"
         media_type = "application/pdf"
     else:
@@ -92,7 +101,8 @@ def generate_loan_statement(
     return StreamingResponse(
         buffer,
         media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        # M-REP-5: quote filename in Content-Disposition
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -131,28 +141,47 @@ def generate_portfolio_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    active_loans = db.query(Loan).filter(Loan.status == "active").all()
+    # C-REP-1: exclude soft-deleted loans from portfolio summary
+    active_loans = db.query(Loan).filter(Loan.status == "active", Loan.is_deleted == False, Loan.created_by == current_user.id).all()
 
     total_lent_out = Decimal("0")
     total_outstanding_receivable = Decimal("0")
     total_borrowed = Decimal("0")
     total_outstanding_payable = Decimal("0")
+    # H-REP-4: compute real overdue and expected-this-month figures
+    total_overdue = Decimal("0")
+    today = date.today()
+    this_month_start = today.replace(day=1)
+    # next month start to bound expected-this-month
+    if today.month == 12:
+        next_month_start = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_month_start = today.replace(month=today.month + 1, day=1)
+    expected_this_month = Decimal("0")
 
     for loan in active_loans:
         principal = _d(loan.principal_amount)
-        outstanding = calculate_outstanding(loan.id, date.today(), db)
+        outstanding = calculate_outstanding(loan.id, today, db)
         total_due = _d(outstanding["total_outstanding"])
+        overdue = _d(outstanding.get("overdue_interest", 0))
         if loan.loan_direction == "given":
             total_lent_out += principal
             total_outstanding_receivable += total_due
+            total_overdue += overdue
+            # expected this month: next EMI amount if due this month
+            if loan.emi_amount and loan.emi_day_of_month:
+                try:
+                    emi_due = today.replace(day=int(loan.emi_day_of_month))
+                    if this_month_start <= emi_due < next_month_start:
+                        expected_this_month += _d(loan.emi_amount)
+                except ValueError:
+                    pass
         else:
             total_borrowed += principal
             total_outstanding_payable += total_due
 
-    active_property_deals = db.query(PropertyDeal).count()
-    active_partnerships = db.query(Partnership).filter(
-        Partnership.status == "active"
-    ).count()
+    active_property_deals = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.created_by == current_user.id).count() if hasattr(PropertyDeal, 'is_deleted') else db.query(PropertyDeal).filter(PropertyDeal.created_by == current_user.id).count()
+    active_partnerships = db.query(Partnership).filter(Partnership.status == "active", Partnership.created_by == current_user.id).count()
 
     summary_data = {
         "total_lent_out": float(total_lent_out),
@@ -160,14 +189,15 @@ def generate_portfolio_summary(
         "total_borrowed": float(total_borrowed),
         "total_outstanding_payable": float(total_outstanding_payable),
         "net_position": float(total_outstanding_receivable - total_outstanding_payable),
-        "expected_this_month": 0,
-        "total_overdue": 0,
+        # H-REP-4: actual computed values instead of hardcoded 0
+        "expected_this_month": float(expected_this_month),
+        "total_overdue": float(total_overdue),
         "active_property_deals": active_property_deals,
         "active_partnerships": active_partnerships,
     }
 
     if format == "pdf":
-        buffer = pdf_generator.generate_portfolio_summary(summary_data)
+        buffer = PDFReportGenerator().generate_portfolio_summary(summary_data)
         filename = f"portfolio_summary_{datetime.now().strftime('%Y%m%d')}.pdf"
         media_type = "application/pdf"
     else:
@@ -211,7 +241,7 @@ def generate_portfolio_summary(
                 "status": pr.status,
                 "start_date": pr.start_date,
             }
-            for pr in db.query(Partnership).all()
+            for pr in db.query(Partnership).filter(Partnership.created_by == current_user.id).all()
         ]
 
         expenses_list = [
@@ -224,10 +254,10 @@ def generate_portfolio_summary(
                 "payment_mode": e.payment_mode or "",
                 "description": e.description or "",
             }
-            for e in db.query(Expense).all()
+            for e in db.query(Expense).filter(Expense.created_by == current_user.id).all()
         ]
 
-        buffer = excel_generator.generate_comprehensive_report(
+        buffer = ExcelReportGenerator().generate_comprehensive_report(
             summary_data, loans_list, properties_list, partnerships_list, expenses_list
         )
         filename = f"portfolio_summary_{datetime.now().strftime('%Y%m%d')}.xlsx"
@@ -236,7 +266,7 @@ def generate_portfolio_summary(
     return StreamingResponse(
         buffer,
         media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -248,8 +278,15 @@ def generate_pnl_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    end = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
-    start = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else end - timedelta(days=30)
+    # M-VAL-7: catch bad date strings and return 422 instead of crashing with 500
+    try:
+        end = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid end_date: '{end_date}'. Use YYYY-MM-DD format.")
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else end - timedelta(days=30)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid start_date: '{start_date}'. Use YYYY-MM-DD format.")
 
     # Income
     income_data = []
@@ -258,6 +295,9 @@ def generate_pnl_report(
         .join(Loan)
         .filter(
             Loan.loan_direction == "given",
+            Loan.is_deleted == False,
+            # C-REP-1: exclude voided payments from profit-loss income
+            LoanPayment.is_voided == False,
             LoanPayment.payment_date.between(start, end),
         )
         .all()
@@ -291,7 +331,11 @@ def generate_pnl_report(
 
     # Expenses
     expense_data = []
+    # C-REP-1: exclude soft-deleted expenses from profit-loss
     expenses = db.query(Expense).filter(
+        Expense.expense_date.between(start, end),
+        Expense.is_deleted == False,
+    ).all() if hasattr(Expense, 'is_deleted') else db.query(Expense).filter(
         Expense.expense_date.between(start, end),
     ).all()
     by_category: dict = {}
@@ -306,6 +350,9 @@ def generate_pnl_report(
         .join(Loan)
         .filter(
             Loan.loan_direction == "taken",
+            Loan.is_deleted == False,
+            # C-REP-1: exclude voided payments from expenses
+            LoanPayment.is_voided == False,
             LoanPayment.payment_date.between(start, end),
         )
         .all()
@@ -328,7 +375,7 @@ def generate_pnl_report(
         expense_data.append({"category": "Property Payments", "amount": float(prop_outflow)})
 
     if format == "pdf":
-        buffer = pdf_generator.generate_pnl_report(
+        buffer = PDFReportGenerator().generate_pnl_report(
             datetime.combine(start, datetime.min.time()),
             datetime.combine(end, datetime.min.time()),
             income_data,
@@ -344,7 +391,8 @@ def generate_pnl_report(
     return StreamingResponse(
         buffer,
         media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        # M-REP-5: quote filename so Content-Disposition header is valid RFC 6266
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

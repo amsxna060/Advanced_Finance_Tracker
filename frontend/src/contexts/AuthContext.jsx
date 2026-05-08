@@ -1,34 +1,84 @@
-import React, { createContext, useState, useEffect } from "react";
-import api from "../lib/api";
+import React, { createContext, useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import api, { setAccessToken, getAccessToken } from "../lib/api";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export const AuthContext = createContext();
+
+// M-AUTH-10: BroadcastChannel for cross-tab logout sync
+const authChannel = typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("auth")
+  : null;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    // Check if user is logged in on mount
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
-  }, []);
+  // M-AUTH-9: handle forced logout triggered by the api interceptor
+  const handleForcedLogout = useCallback(() => {
+    setAccessToken(null);
+    setUser(null);
+    navigate("/login", { replace: true });
+  }, [navigate]);
 
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const response = await api.get("/api/auth/me");
       setUser(response.data);
     } catch (error) {
-      console.error("Failed to fetch user:", error);
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
+      setAccessToken(null);
+      setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // C-AUTH-4: On mount, attempt a silent refresh. The httpOnly refresh token cookie
+    // is sent automatically (withCredentials). If valid, we get a new access token
+    // without the user needing to re-login after a page refresh.
+    const trySilentRefresh = async () => {
+      try {
+        const response = await axios.post(
+          `${API_URL}/api/auth/refresh`,
+          {},
+          { withCredentials: true },
+        );
+        const { access_token } = response.data;
+        setAccessToken(access_token);
+        await fetchUser();
+      } catch {
+        // No valid refresh cookie — user must log in
+        setLoading(false);
+      }
+    };
+
+    trySilentRefresh();
+
+    // M-AUTH-9: listen for forced logout event from api.js interceptor
+    window.addEventListener("auth:logout", handleForcedLogout);
+
+    // M-AUTH-10: sync logout across tabs
+    if (authChannel) {
+      authChannel.onmessage = (event) => {
+        if (event.data === "logout") {
+          setAccessToken(null);
+          setUser(null);
+          navigate("/login", { replace: true });
+        }
+      };
+    }
+
+    return () => {
+      window.removeEventListener("auth:logout", handleForcedLogout);
+      if (authChannel) {
+        authChannel.onmessage = null;
+      }
+    };
+  }, [handleForcedLogout, fetchUser]);
 
   const login = async (username, password) => {
     const formData = new FormData();
@@ -39,18 +89,35 @@ export function AuthProvider({ children }) {
       headers: { "Content-Type": "multipart/form-data" },
     });
 
-    const { access_token, refresh_token } = response.data;
-    localStorage.setItem("access_token", access_token);
-    localStorage.setItem("refresh_token", refresh_token);
+    const { access_token } = response.data;
+    // C-AUTH-4: Store access token in memory only. The refresh token is stored
+    // in an httpOnly cookie by the backend — no localStorage involved.
+    setAccessToken(access_token);
+
+    // H-SEC-2: Fetch CSRF token after login so admin endpoints have the cookie available
+    try {
+      await axios.get(`${API_URL}/api/auth/csrf-token`, { withCredentials: true });
+    } catch {
+      // Non-fatal: admin operations will re-fetch if cookie is missing
+    }
 
     await fetchUser();
     return response.data;
   };
 
-  const logout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+  const logout = async () => {
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+      // Proceed with local cleanup even if backend call fails
+    }
+    setAccessToken(null);
     setUser(null);
+    // M-AUTH-10: notify other tabs
+    if (authChannel) {
+      authChannel.postMessage("logout");
+    }
+    navigate("/login", { replace: true });
   };
 
   return (

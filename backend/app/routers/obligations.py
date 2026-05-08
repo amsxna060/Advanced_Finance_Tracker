@@ -76,9 +76,8 @@ def create_obligation(
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
 
-    if data.obligation_type not in ("receivable", "payable"):
-        raise HTTPException(status_code=400, detail="obligation_type must be 'receivable' or 'payable'")
-
+    # M-VAL-8: obligation_type is now a Literal in ObligationCreate schema
+    # so the runtime string check here is no longer needed; remove it.
     ob = MoneyObligation(**data.model_dump(exclude={"account_id"}), created_by=current_user.id)
     db.add(ob)
     db.flush()  # get ob.id before ledger entry
@@ -232,6 +231,18 @@ def settle_obligation(
     ).first()
     if not ob:
         raise HTTPException(status_code=404, detail="Obligation not found")
+
+    # C-FIN-11: validate settlement amount before applying it
+    settlement_amount = _D(data.amount)
+    if settlement_amount <= Decimal("0"):
+        raise HTTPException(status_code=422, detail="Settlement amount must be greater than zero")
+
+    remaining = _D(ob.amount) - _D(ob.amount_settled)
+    if settlement_amount > remaining:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Settlement amount ({settlement_amount}) exceeds remaining unsettled amount ({remaining})",
+        )
 
     settlement = ObligationSettlement(
         obligation_id=obligation_id,

@@ -146,6 +146,10 @@ function LoanDetail() {
       });
       resetPaymentModal();
     },
+    // M-FE-10: rollback / surface error on mutation failure
+    onError: (error) => {
+      alert(error.response?.data?.detail || "Failed to record payment. Please try again.");
+    },
   });
 
   // Delete payment
@@ -160,6 +164,9 @@ function LoanDetail() {
         queryKey: ["loan-monthly-schedule", id],
       });
     },
+    onError: (error) => {
+      alert(error.response?.data?.detail || "Failed to delete payment. Please try again.");
+    },
   });
 
   // Delete loan
@@ -170,6 +177,9 @@ function LoanDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loans"] });
       navigate("/loans");
+    },
+    onError: (error) => {
+      alert(error.response?.data?.detail || "Failed to delete loan. Please try again.");
     },
   });
 

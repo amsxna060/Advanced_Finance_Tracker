@@ -32,15 +32,37 @@ def _d(v) -> Decimal:
 
 
 def _current_balance(account: CashAccount) -> Decimal:
-    balance = _d(account.opening_balance)
-    for txn in account.transactions:
-        if getattr(txn, "is_voided", False):
-            continue
-        if txn.txn_type == "credit":
-            balance += _d(txn.amount)
-        else:
-            balance -= _d(txn.amount)
-    return balance
+    """
+    H-DI-7: For credit cards the balance semantics are inverted — a "debit"
+    (spending) increases what you owe (reduces available credit), while a
+    "credit" (payment) reduces what you owe (increases available credit).
+    We expose balance as "outstanding balance" for credit cards:
+      outstanding = sum(debits) - sum(credits)
+    For all other account types the usual formula applies:
+      balance = opening_balance + sum(credits) - sum(debits)
+    """
+    is_credit_card = getattr(account, "account_type", "") == "credit_card"
+    if is_credit_card:
+        # outstanding amount owed on the card
+        outstanding = Decimal("0")
+        for txn in account.transactions:
+            if getattr(txn, "is_voided", False):
+                continue
+            if txn.txn_type == "debit":
+                outstanding += _d(txn.amount)
+            else:
+                outstanding -= _d(txn.amount)
+        return outstanding
+    else:
+        balance = _d(account.opening_balance)
+        for txn in account.transactions:
+            if getattr(txn, "is_voided", False):
+                continue
+            if txn.txn_type == "credit":
+                balance += _d(txn.amount)
+            else:
+                balance -= _d(txn.amount)
+        return balance
 
 
 def _account_dict(account: CashAccount, include_transactions: bool = False) -> dict:
@@ -157,7 +179,27 @@ def update_account(
         if field in payload:
             setattr(account, field, payload[field])
     if "opening_balance" in payload:
-        account.opening_balance = Decimal(str(payload["opening_balance"]))
+        new_ob = Decimal(str(payload["opening_balance"]))
+        old_ob = Decimal(str(account.opening_balance or 0))
+        if new_ob != old_ob:
+            # H-DI-6: record opening_balance change as an audit transaction so the
+            # ledger history is not silently altered. The delta is posted as a
+            # balance-adjustment entry (not debited/credited as regular cash flow).
+            delta = new_ob - old_ob
+            from app.services.auto_ledger import auto_ledger as _auto_ledger
+            from datetime import date as _date
+            _auto_ledger(
+                db=db,
+                account_id=account_id,
+                txn_type="credit" if delta > 0 else "debit",
+                amount=abs(delta),
+                txn_date=_date.today(),
+                linked_type="balance_adjustment",
+                linked_id=account_id,
+                description=f"Opening balance adjusted from {old_ob} to {new_ob}",
+                created_by=current_user.id,
+            )
+            account.opening_balance = new_ob
     if "credit_limit" in payload:
         account.credit_limit = Decimal(str(payload["credit_limit"])) if payload["credit_limit"] is not None else None
     if "billing_cycle_date" in payload:
@@ -179,10 +221,12 @@ def delete_account(
     ).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
-    # Delete all transactions for this account to prevent orphaned ledger entries
+    # C-FIN-8: soft-delete transactions instead of hard-deleting them
+    # Hard delete destroys audit trail needed for reconciliation.
     db.query(AccountTransaction).filter(
         AccountTransaction.account_id == account_id,
-    ).delete(synchronize_session=False)
+        AccountTransaction.is_voided == False,
+    ).update({"is_voided": True}, synchronize_session=False)
     account.is_deleted = True
     db.commit()
     return {"message": "Account deleted"}
@@ -210,7 +254,8 @@ def list_transactions(
     q = db.query(AccountTransaction).filter(AccountTransaction.account_id == account_id)
     if not include_voided:
         q = q.filter(AccountTransaction.is_voided == False)
-    txns = q.order_by(AccountTransaction.txn_date.desc()).limit(limit).all()
+    # H-DI-8: add id as tiebreaker to make ordering deterministic for same-day transactions
+    txns = q.order_by(AccountTransaction.txn_date.desc(), AccountTransaction.id.desc()).limit(limit).all()
     return [_txn_dict(t) for t in txns]
 
 
@@ -219,7 +264,7 @@ def add_transaction(
     account_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     account = db.query(CashAccount).filter(
         CashAccount.id == account_id, CashAccount.is_deleted == False
@@ -234,10 +279,29 @@ def add_transaction(
     if payload["txn_type"] not in ("credit", "debit"):
         raise HTTPException(status_code=422, detail="txn_type must be 'credit' or 'debit'")
 
+    # C-FIN-9 / C-FIN-10: amount must be strictly positive
+    raw_amount = payload.get("amount")
+    try:
+        dec_amount = Decimal(str(raw_amount))
+    except Exception:
+        raise HTTPException(status_code=422, detail="amount must be a valid number")
+    if dec_amount <= Decimal("0"):
+        raise HTTPException(status_code=422, detail="amount must be greater than zero")
+
+    # C-VAL-3: restrict linked_type to known values to prevent arbitrary string injection
+    ALLOWED_LINKED_TYPES = {None, "loan", "property", "partnership", "expense", "beesi",
+                            "transfer", "obligation", "balance_adjustment", "recurring"}
+    linked_type = payload.get("linked_type")
+    if linked_type not in ALLOWED_LINKED_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"linked_type must be one of: {sorted(t for t in ALLOWED_LINKED_TYPES if t)}",
+        )
+
     txn = AccountTransaction(
         account_id=account_id,
         txn_type=payload["txn_type"],
-        amount=Decimal(str(payload["amount"])),
+        amount=dec_amount,
         txn_date=date.fromisoformat(payload["txn_date"]),
         description=payload.get("description"),
         linked_type=payload.get("linked_type"),
@@ -256,7 +320,7 @@ def add_transaction(
 def transfer_between_accounts(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     from_id = payload.get("from_account_id")
     to_id = payload.get("to_account_id")
@@ -271,6 +335,14 @@ def transfer_between_accounts(
         )
     if from_id == to_id:
         raise HTTPException(status_code=422, detail="Cannot transfer to the same account")
+
+    # C-FIN-10: amount must be strictly positive
+    try:
+        transfer_amount = Decimal(str(amount))
+    except Exception:
+        raise HTTPException(status_code=422, detail="amount must be a valid number")
+    if transfer_amount <= Decimal("0"):
+        raise HTTPException(status_code=422, detail="Transfer amount must be greater than zero")
 
     from_account = (
         db.query(CashAccount)
@@ -295,7 +367,7 @@ def transfer_between_accounts(
     debit = AccountTransaction(
         account_id=from_id,
         txn_type="debit",
-        amount=Decimal(str(amount)),
+        amount=transfer_amount,
         txn_date=txn_date,
         description=f"Transfer to {to_account.name}: {description}",
         linked_type="transfer",
@@ -304,7 +376,7 @@ def transfer_between_accounts(
     credit = AccountTransaction(
         account_id=to_id,
         txn_type="credit",
-        amount=Decimal(str(amount)),
+        amount=transfer_amount,
         txn_date=txn_date,
         description=f"Transfer from {from_account.name}: {description}",
         linked_type="transfer",

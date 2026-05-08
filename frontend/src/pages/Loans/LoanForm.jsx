@@ -34,7 +34,9 @@ const buildLoanPayload = (formData) => {
     contact_id: parseInt(formData.contact_id, 10),
     loan_direction: formData.direction,
     loan_type: formData.type,
-    principal_amount: parseFloat(formData.principal_amount),
+    // H-FE-6: send as string so the backend Decimal field receives full precision
+    // (parseFloat would silently truncate large amounts, e.g. 10000000.50 → 10000000.5)
+    principal_amount: formData.principal_amount,
     disbursed_date: formData.start_date,
     notes: formData.notes?.trim() || null,
     account_id: formData.account_id ? parseInt(formData.account_id, 10) : null,
@@ -42,7 +44,7 @@ const buildLoanPayload = (formData) => {
 
   // interest_rate is optional for EMI and short_term
   if (formData.interest_rate && parseFloat(formData.interest_rate) > 0) {
-    payload.interest_rate = parseFloat(formData.interest_rate);
+    payload.interest_rate = formData.interest_rate;
   }
 
   if (formData.type === "interest_only") {
@@ -59,11 +61,11 @@ const buildLoanPayload = (formData) => {
   }
 
   if (formData.type === "emi") {
-    payload.emi_amount = parseFloat(formData.emi_amount);
+    payload.emi_amount = formData.emi_amount;
     payload.tenure_months = parseInt(formData.tenure_months, 10);
     payload.emi_day_of_month = parseInt(formData.emi_day, 10);
     if (formData.penalty_per_day && parseFloat(formData.penalty_per_day) > 0) {
-      payload.penalty_per_day = parseFloat(formData.penalty_per_day);
+      payload.penalty_per_day = formData.penalty_per_day;
     }
   }
 
@@ -71,9 +73,7 @@ const buildLoanPayload = (formData) => {
     payload.expected_end_date = formData.maturity_date || null;
     payload.interest_free_till = formData.interest_free_till;
     if (formData.post_due_interest_rate) {
-      payload.post_due_interest_rate = parseFloat(
-        formData.post_due_interest_rate,
-      );
+      payload.post_due_interest_rate = formData.post_due_interest_rate;
     }
   }
 
@@ -241,7 +241,12 @@ function LoanForm() {
       }
       // interest_rate only required for interest_only loans
       if (formData.type === "interest_only") {
-        if (!formData.interest_rate || parseFloat(formData.interest_rate) < 0) {
+        // M-FE-7: parseFloat("") returns NaN; NaN < 0 is false so empty string
+        // would pass the old check. Use Number() and explicit isNaN guard.
+        const ir = formData.interest_rate === "" || formData.interest_rate == null
+          ? NaN
+          : Number(formData.interest_rate);
+        if (isNaN(ir) || ir < 0) {
           newErrors.interest_rate =
             "Interest rate is required for interest-only loans";
         }

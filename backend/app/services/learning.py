@@ -35,11 +35,13 @@ def save_learning(
     description: str,
     category: str,
     sub_category: Optional[str],
+    user_id: Optional[int] = None,
 ) -> None:
     """
     Upsert a description → category mapping.
-    If the same normalized description already exists, update the category
-    and increment match_count. Does NOT commit — caller must commit.
+    If the same normalized description already exists for this user, update
+    the category and increment match_count. Does NOT commit — caller must commit.
+    H-DI-13: scope learnings by user_id so User A's saves don't affect User B.
     """
     from app.models.category_learning import CategoryLearning
 
@@ -50,11 +52,10 @@ def save_learning(
     if not norm:
         return
 
-    existing = (
-        db.query(CategoryLearning)
-        .filter(CategoryLearning.description_normalized == norm)
-        .first()
-    )
+    q = db.query(CategoryLearning).filter(CategoryLearning.description_normalized == norm)
+    if user_id is not None:
+        q = q.filter(CategoryLearning.user_id == user_id)
+    existing = q.first()
     if existing:
         existing.category = category
         existing.sub_category = sub_category
@@ -65,16 +66,20 @@ def save_learning(
             category=category,
             sub_category=sub_category,
             match_count=1,
+            user_id=user_id,
         ))
 
 
 def suggest_from_learnings(
     db: Session,
     description: str,
+    user_id: Optional[int] = None,
 ) -> Optional[tuple]:
     """
     Look up the best-matching learned mapping for a description.
     Returns (category, sub_category) or None if no confident match found.
+    H-DI-13: filter by user_id so suggestions are personalised per user.
+    H-DI-14: add .limit(500) to avoid loading the entire table into memory.
 
     Matching strategy:
     1. Exact normalized description → instant match.
@@ -91,12 +96,12 @@ def suggest_from_learnings(
     if not norm:
         return None
 
+    base_q = db.query(CategoryLearning)
+    if user_id is not None:
+        base_q = base_q.filter(CategoryLearning.user_id == user_id)
+
     # Fast path: exact match
-    exact = (
-        db.query(CategoryLearning)
-        .filter(CategoryLearning.description_normalized == norm)
-        .first()
-    )
+    exact = base_q.filter(CategoryLearning.description_normalized == norm).first()
     if exact:
         return (exact.category, exact.sub_category)
 
@@ -105,7 +110,8 @@ def suggest_from_learnings(
     if not input_kw:
         return None
 
-    learnings = db.query(CategoryLearning).all()
+    # H-DI-14: limit rows loaded to prevent full-table scan on large installations
+    learnings = base_q.order_by(CategoryLearning.match_count.desc()).limit(500).all()
     best = None
     best_score = 0
 

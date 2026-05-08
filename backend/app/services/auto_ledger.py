@@ -44,14 +44,18 @@ def reverse_all_ledger(
     linked_type: str,
     linked_id: int,
 ) -> int:
-    """Delete ALL AccountTransaction entries for a given linked_type + linked_id.
-    Returns the count of rows deleted."""
+    """Soft-delete (void) ALL AccountTransaction entries for a given linked_type + linked_id.
+
+    C-FIN-7/C-FIN-8: Previously used db.delete() which hard-deleted audit trail rows.
+    Now sets is_voided=True so reconciliation and audit reports can still see
+    the history. Returns the count of rows voided."""
     rows = db.query(AccountTransaction).filter(
         AccountTransaction.linked_type == linked_type,
         AccountTransaction.linked_id == linked_id,
+        AccountTransaction.is_voided == False,
     ).all()
     for r in rows:
-        db.delete(r)
+        r.is_voided = True
     return len(rows)
 
 

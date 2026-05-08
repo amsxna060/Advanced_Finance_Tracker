@@ -57,16 +57,28 @@ def allocate_payment(
         emi_amount = Decimal(str(loan.emi_amount or 0))
         tenure = int(loan.tenure_months or 0)
 
-        if emi_amount > 0 and tenure > 0 and principal > 0:
+        # H-FIN-24: if caller provides an explicit principal_repayment override,
+        # honour it — the rest of the payment goes to interest.
+        if principal_repayment is not None and principal_repayment >= Decimal("0"):
+            allocated_principal = min(principal_repayment, payment_amount).quantize(Decimal("0.01"))
+            allocated_current = (payment_amount - allocated_principal).quantize(Decimal("0.01"))
+        elif emi_amount > 0 and tenure > 0 and principal > 0:
             total_repayment = emi_amount * Decimal(str(tenure))
             total_interest = max(total_repayment - principal, Decimal("0"))
             interest_ratio = total_interest / total_repayment
             allocated_current = (payment_amount * interest_ratio).quantize(Decimal("0.01"))
             allocated_principal = payment_amount - allocated_current
         else:
-            # No schedule configured — treat as all interest (rare edge case)
-            allocated_current = payment_amount
-            allocated_principal = Decimal("0")
+            # H-FIN-21: malformed loan — cannot safely split the payment.
+            # Surface an error so the caller can fix the loan config rather
+            # than silently booking the full amount as interest.
+            raise ValueError(
+                f"Loan {loan_id} has emi_amount={loan.emi_amount}, "
+                f"tenure_months={loan.tenure_months}, "
+                f"principal_amount={loan.principal_amount}. "
+                "Cannot allocate payment without a valid schedule. "
+                "Please configure EMI amount and tenure before recording payments."
+            )
 
         return {
             "allocated_to_overdue_interest": Decimal("0"),
@@ -84,7 +96,11 @@ def allocate_payment(
         annual_rate = Decimal(str(loan.interest_rate or 0))
 
         # Monthly interest estimate (for the 2x threshold check)
-        monthly_estimate = (principal_outstanding * annual_rate / Decimal("1200")).quantize(Decimal("0.01"))
+        # H-FIN-23: use the original principal_amount (not live outstanding) to make
+        # the threshold deterministic — concurrent calls can observe different
+        # outstanding values if payments are in flight simultaneously.
+        base_principal = Decimal(str(loan.principal_amount or principal_outstanding))
+        monthly_estimate = (base_principal * annual_rate / Decimal("1200")).quantize(Decimal("0.01"))
         threshold = monthly_estimate * Decimal("2")
 
         allocated_overdue = Decimal("0")
@@ -93,8 +109,17 @@ def allocate_payment(
         unallocated = Decimal("0")
 
         if payment_amount < threshold:
-            # Small payment → all interest, no principal (shortfall carries automatically)
-            allocated_current = payment_amount
+            # Small payment: if there's outstanding interest, allocate to interest.
+            # H-FIN-22: if interest_outstanding is 0, route to principal instead of
+            # artificially inflating interest — loan should reduce.
+            if interest_outstanding > Decimal("0"):
+                allocated_current = min(payment_amount, interest_outstanding)
+                remainder = payment_amount - allocated_current
+                if remainder > 0 and principal_outstanding > 0:
+                    allocated_principal = min(remainder, principal_outstanding)
+            else:
+                # No interest due — route entire small payment to principal
+                allocated_principal = min(payment_amount, principal_outstanding)
         else:
             # Large payment → clear all accrued interest first, remainder to principal
             interest_cleared = min(payment_amount, interest_outstanding)

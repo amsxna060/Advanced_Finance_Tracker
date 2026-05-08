@@ -15,6 +15,7 @@ from app.models.property_anomaly import PropertyAnomaly
 from app.models.forecast_override import ForecastOverride
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.unencumbered_asset import UnencumberedAsset
+from app.models.refresh_token import RefreshTokenBlacklist
 
 __all__ = [
     "User",

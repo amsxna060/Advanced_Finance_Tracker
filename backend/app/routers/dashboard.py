@@ -140,12 +140,12 @@ def get_dashboard_summary(
 ):
     active_loans = (
         db.query(Loan)
-        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .filter(Loan.is_deleted == False, Loan.status == "active", Loan.created_by == current_user.id)
         .options(joinedload(Loan.payments))
         .all()
     )
-    active_properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled").count()
-    active_partnerships = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.status == "active").all()
+    active_properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled", PropertyDeal.created_by == current_user.id).count()
+    active_partnerships = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.status == "active", Partnership.created_by == current_user.id).all()
 
     total_lent_out = Decimal("0")
     total_borrowed = Decimal("0")
@@ -182,7 +182,7 @@ def get_dashboard_summary(
     total_partnership_received = sum(_decimal(item.total_received) for item in active_partnerships)
 
     # Beesi (chit fund) summary
-    active_beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active").all()
+    active_beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active", Beesi.created_by == current_user.id).all()
     beesi_total_invested = Decimal("0")
     for b in active_beesis:
         beesi_total_invested += sum(_decimal(i.actual_paid) for i in b.installments)
@@ -214,7 +214,7 @@ def get_dashboard_alerts(
     alerts = {"overdue": [], "collateral": [], "capitalization": []}
     active_loans = (
         db.query(Loan)
-        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .filter(Loan.is_deleted == False, Loan.status == "active", Loan.created_by == current_user.id)
         .options(joinedload(Loan.collaterals))
         .all()
     )

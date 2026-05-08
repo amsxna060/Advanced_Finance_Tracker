@@ -78,13 +78,17 @@ def _get_property_or_404(property_id: int, db: Session) -> PropertyDeal:
     return property_deal
 
 
-def _ensure_contact_exists(contact_id: Optional[int], db: Session, field_name: str) -> None:
+def _ensure_contact_exists(contact_id: Optional[int], db: Session, field_name: str, user_id: Optional[int] = None) -> None:
     if not contact_id:
         return
-    contact = db.query(Contact).filter(
+    q = db.query(Contact).filter(
         Contact.id == contact_id,
         Contact.is_deleted == False,
-    ).first()
+    )
+    # H-AUTHZ-4: optionally scope contact lookup to the requesting user
+    if user_id is not None:
+        q = q.filter(Contact.created_by == user_id)
+    contact = q.first()
     if not contact:
         raise HTTPException(status_code=404, detail=f"{field_name} contact not found")
 
@@ -367,12 +371,17 @@ def get_property(
         ).order_by(PartnershipTransaction.txn_date.desc(), PartnershipTransaction.id.desc()).all()
         all_partnership_txns.extend(lp_all_txns)
 
+        # H-PERF-3: batch-load contacts for all members at once to avoid N+1
+        lp_member_contact_ids = [m.contact_id for m in lp_members if m.contact_id]
+        lp_contact_map = {}
+        if lp_member_contact_ids:
+            lp_contacts = db.query(Contact).filter(Contact.id.in_(lp_member_contact_ids)).all()
+            lp_contact_map = {c.id: c for c in lp_contacts}
+
         for txn in lp_all_txns:
             if txn.txn_type in ("other_expense", "expense", "broker_commission", "broker_paid"):
                 payer_member = member_map.get(txn.member_id) if txn.member_id else None
-                payer_contact = None
-                if payer_member and payer_member.contact_id:
-                    payer_contact = db.query(Contact).filter(Contact.id == payer_member.contact_id).first()
+                payer_contact = lp_contact_map.get(payer_member.contact_id) if (payer_member and payer_member.contact_id) else None
                 partnership_expenses.append({
                     "id": txn.id,
                     "source": "partnership",
@@ -464,9 +473,9 @@ def update_property(
     update_data = property_data.model_dump(exclude_unset=True)
 
     if "seller_contact_id" in update_data:
-        _ensure_contact_exists(update_data["seller_contact_id"], db, "Seller")
+        _ensure_contact_exists(update_data["seller_contact_id"], db, "Seller", current_user.id)
     if "buyer_contact_id" in update_data:
-        _ensure_contact_exists(update_data["buyer_contact_id"], db, "Buyer")
+        _ensure_contact_exists(update_data["buyer_contact_id"], db, "Buyer", current_user.id)
 
     for field, value in update_data.items():
         setattr(property_deal, field, value)
@@ -877,6 +886,13 @@ def settle_property_deal(
                 PartnershipMember.partnership_id == partnership.id,
             ).all()
 
+            # H-PERF-3: batch-load contacts for all members to avoid N+1
+            contact_ids = [m.contact_id for m in members if m.contact_id]
+            contact_map_settle = {}
+            if contact_ids:
+                contacts_for_members = db.query(Contact).filter(Contact.id.in_(contact_ids)).all()
+                contact_map_settle = {c.id: c for c in contacts_for_members}
+
             # Build id -> member map for this partnership
             pm_map = {m.id: m for m in members}
 
@@ -896,9 +912,7 @@ def settle_property_deal(
                 total_to_receive = advance + other_exp_returned + profit_share
                 member.total_received = total_to_receive
 
-                contact = None
-                if member.contact_id:
-                    contact = db.query(Contact).filter(Contact.id == member.contact_id).first()
+                contact = contact_map_settle.get(member.contact_id) if member.contact_id else None
 
                 partner_settlements.append({
                     "member_id": member.id,

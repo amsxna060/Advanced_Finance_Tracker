@@ -1,7 +1,5 @@
-"""
-/api/recurring-transactions — CRUD for user-defined recurring cash flows.
-"""
-from datetime import date
+"""\n/api/recurring-transactions — CRUD for user-defined recurring cash flows.\n"""
+from datetime import date, datetime
 from typing import List, Optional
 from decimal import Decimal
 
@@ -10,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.models.recurring_transaction import RecurringTransaction, RecurringType, RecurringFrequency
 
@@ -48,7 +46,8 @@ class RecurringTransactionOut(BaseModel):
     next_due_date: date
     account_id: Optional[int]
     is_active: bool
-    created_at: Optional[date] = None
+    # M-DI-16: use datetime, not date, to avoid truncating the timestamp
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -72,8 +71,20 @@ def list_recurring(
 def create_recurring(
     body: RecurringTransactionIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    # C-AUTHZ-2: only admins may create recurring transactions (scheduler posts them to accounts)
+    current_user: User = Depends(require_admin),
 ):
+    # H-AUTHZ-3: validate that the provided account_id actually belongs to current_user
+    if body.account_id is not None:
+        from app.models.cash_account import CashAccount
+        acct = db.query(CashAccount).filter(
+            CashAccount.id == body.account_id,
+            CashAccount.created_by == current_user.id,
+            CashAccount.is_deleted == False,
+        ).first()
+        if not acct:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="account_id not found or not owned by you")
     item = RecurringTransaction(
         created_by=current_user.id,
         title=body.title,
@@ -95,7 +106,8 @@ def update_recurring(
     item_id: int,
     body: RecurringTransactionPatch,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    # C-AUTHZ-2: only admins may modify recurring transactions
+    current_user: User = Depends(require_admin),
 ):
     item = db.query(RecurringTransaction).filter(
         RecurringTransaction.id == item_id,
@@ -116,7 +128,8 @@ def update_recurring(
 def delete_recurring(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    # C-AUTHZ-2: only admins may delete recurring transactions
+    current_user: User = Depends(require_admin),
 ):
     item = db.query(RecurringTransaction).filter(
         RecurringTransaction.id == item_id,

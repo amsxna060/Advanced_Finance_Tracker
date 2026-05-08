@@ -18,6 +18,7 @@ from calendar import monthrange
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -104,6 +105,16 @@ def _resolve_period_key(supplied: Optional[str]) -> str:
 def _get_or_create_override(
     db: Session, user_id: int, item_id: str, period_key: str,
 ) -> ForecastOverride:
+    # H-CONC-3: Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING to avoid
+    # a read-then-write race that can create duplicate rows.
+    db.execute(
+        text(
+            "INSERT INTO forecast_overrides (user_id, item_id, period_key, included, status) "
+            "VALUES (:uid, :iid, :pk, true, 'pending') "
+            "ON CONFLICT (user_id, item_id, period_key) DO NOTHING"
+        ),
+        {"uid": user_id, "iid": item_id, "pk": period_key},
+    )
     ov = (
         db.query(ForecastOverride)
         .filter(
@@ -114,6 +125,7 @@ def _get_or_create_override(
         .first()
     )
     if ov is None:
+        # Fallback: should not reach here after the upsert, but guard anyway
         ov = ForecastOverride(
             user_id=user_id,
             item_id=item_id,

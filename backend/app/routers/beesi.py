@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.database import get_db
@@ -197,16 +198,87 @@ def list_beesis(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # M-PERF-5: Use SQL aggregates instead of selectinload(all installments + withdrawals).
+    # Loading all rows per beesi is O(N*M) on a large dataset; aggregating in DB is O(N).
     q = db.query(Beesi).filter(Beesi.is_deleted == False)
     if status:
         q = q.filter(Beesi.status == status)
     beesis = (q.options(
-        selectinload(Beesi.installments),
-        selectinload(Beesi.withdrawals),
         joinedload(Beesi.contact),
         joinedload(Beesi.account),
     ).order_by(Beesi.start_date.desc()).all())
-    return [_beesi_dict(b) for b in beesis]
+
+    if not beesis:
+        return []
+
+    beesi_ids = [b.id for b in beesis]
+
+    # Aggregate installments: total_invested, months_paid
+    inst_rows = (
+        db.query(
+            BeesiInstallment.beesi_id,
+            sqlfunc.coalesce(sqlfunc.sum(BeesiInstallment.actual_paid), 0).label("total_invested"),
+            sqlfunc.count(BeesiInstallment.id).label("months_paid"),
+        )
+        .filter(BeesiInstallment.beesi_id.in_(beesi_ids))
+        .group_by(BeesiInstallment.beesi_id)
+        .all()
+    )
+    inst_by_id = {r.beesi_id: r for r in inst_rows}
+
+    # Aggregate withdrawals: total_withdrawn, has_withdrawn
+    wdraw_rows = (
+        db.query(
+            BeesiWithdrawal.beesi_id,
+            sqlfunc.coalesce(sqlfunc.sum(BeesiWithdrawal.net_received), 0).label("total_withdrawn"),
+            sqlfunc.count(BeesiWithdrawal.id).label("withdrawal_count"),
+        )
+        .filter(BeesiWithdrawal.beesi_id.in_(beesi_ids))
+        .group_by(BeesiWithdrawal.beesi_id)
+        .all()
+    )
+    wdraw_by_id = {r.beesi_id: r for r in wdraw_rows}
+
+    results = []
+    for b in beesis:
+        inst = inst_by_id.get(b.id)
+        wdraw = wdraw_by_id.get(b.id)
+        total_invested = _d(inst.total_invested if inst else 0)
+        total_withdrawn = _d(wdraw.total_withdrawn if wdraw else 0)
+        months_paid = inst.months_paid if inst else 0
+        has_withdrawn = bool(wdraw and wdraw.withdrawal_count > 0)
+        profit_loss = total_withdrawn - total_invested
+        summary = {
+            "total_invested": total_invested,
+            "total_withdrawn": total_withdrawn,
+            "months_paid": months_paid,
+            "months_remaining": max(0, b.tenure_months - months_paid),
+            "profit_loss": profit_loss,
+            "profit_loss_pct": float((profit_loss / total_invested * 100).quantize(Decimal("0.01")))
+            if total_invested > 0 else 0.0,
+            "has_withdrawn": has_withdrawn,
+            # best_month_analysis omitted in list view (requires full installment data — use detail endpoint)
+            "best_month_analysis": None,
+        }
+        results.append({
+            "id": b.id,
+            "title": b.title,
+            "description": b.description,
+            "pot_size": _d(b.pot_size),
+            "member_count": b.member_count,
+            "tenure_months": b.tenure_months,
+            "base_installment": _d(b.base_installment),
+            "start_date": b.start_date.isoformat() if b.start_date else None,
+            "status": b.status,
+            "notes": b.notes,
+            "contact_id": b.contact_id,
+            "contact_name": b.contact.name if b.contact else None,
+            "account_id": b.account_id,
+            "account_name": b.account.name if b.account else None,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "summary": summary,
+        })
+    return results
 
 
 @router.post("", response_model=dict)
@@ -373,7 +445,7 @@ def add_installment(
     beesi_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Log a monthly installment payment.
@@ -401,6 +473,30 @@ def add_installment(
     month_number = _calc_month_number(beesi.start_date, payment_date)
     base_amount = _d(beesi.base_installment)
     dividend_received = max(Decimal("0"), base_amount - actual_paid)
+
+    # H-DI-10: enforce month_number within [1, tenure_months]
+    if beesi.tenure_months and month_number > beesi.tenure_months:
+        raise HTTPException(
+            status_code=422,
+            detail=f"month_number {month_number} exceeds beesi tenure of {beesi.tenure_months} months",
+        )
+    if month_number < 1:
+        raise HTTPException(status_code=422, detail="payment_date is before beesi start_date")
+
+    # H-DI-11: prevent duplicate month_number for the same beesi
+    existing = (
+        db.query(BeesiInstallment)
+        .filter(
+            BeesiInstallment.beesi_id == beesi.id,
+            BeesiInstallment.month_number == month_number,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"An installment for month {month_number} already exists for this beesi",
+        )
 
     inst = BeesiInstallment(
         beesi_id=beesi.id,
@@ -508,7 +604,7 @@ def add_withdrawal(
     beesi_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Record claiming the pot.

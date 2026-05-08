@@ -21,10 +21,23 @@ class Settings(BaseSettings):
     @validator("SECRET_KEY")
     def secret_key_must_be_strong(cls, v, values):
         env = values.get("APP_ENV", "development")
-        if env == "production" and (v == "change-this-secret-key-in-production" or len(v) < 32):
+        # C-AUTH-3: enforce strong key in both production AND staging
+        if env in ("production", "staging") and (v == "change-this-secret-key-in-production" or len(v) < 32):
             raise ValueError(
-                "SECRET_KEY must be set to a random 32+ character string in production. "
+                "SECRET_KEY must be set to a random 32+ character string in production/staging. "
                 "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
+
+    @validator("CORS_ORIGINS")
+    def cors_origins_no_wildcard(cls, v, values):
+        # H-SEC-1: prevent CORS misconfiguration with wildcard + credentials
+        # Wildcard '*' with allow_credentials=True is rejected by browsers and is insecure.
+        origins = [o.strip() for o in v.split(",")]
+        if "*" in origins:
+            raise ValueError(
+                "CORS_ORIGINS must not include '*' when allow_credentials=True. "
+                "Specify explicit origins instead."
             )
         return v
 

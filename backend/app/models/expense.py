@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, Numeric
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, Date, ForeignKey, Numeric
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -20,6 +20,9 @@ class Expense(Base):
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # C-DI-2: soft-delete flag so expense history is preserved on deletion
+    is_deleted = Column(Boolean, default=False, nullable=False, server_default="false")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     creator = relationship("User", foreign_keys=[created_by])
     account = relationship("CashAccount", foreign_keys=[account_id])
