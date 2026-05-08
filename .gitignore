@@ -28,3 +28,8 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Settings
+.claude/
+.codemap/
+.claude/settings.local.json
