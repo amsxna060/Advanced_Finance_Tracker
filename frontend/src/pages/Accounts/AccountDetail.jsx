@@ -9,12 +9,15 @@ import { PageHero, HeroStat, PageBody, Button } from "../../components/ui";
 
 const LINKED_TYPES = [
   "",
-  "loan",
-  "property",
-  "partnership",
+  "balance_adjustment",
   "beesi",
   "expense",
-  "manual",
+  "loan",
+  "obligation",
+  "partnership",
+  "property",
+  "recurring",
+  "transfer",
 ];
 const PAYMENT_MODES = [
   "",
