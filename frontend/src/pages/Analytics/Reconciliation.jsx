@@ -129,10 +129,12 @@ export default function Reconciliation() {
   const [txnTypeFilter, setTxnTypeFilter] = useState("");
   const [search,        setSearch]        = useState("");
   const [showVoided,    setShowVoided]    = useState(false);
+  const [amountMin,     setAmountMin]     = useState("");
+  const [amountMax,     setAmountMax]     = useState("");
   const [page,          setPage]          = useState(1);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [range, accountId, selectedSrcs, txnTypeFilter, search, showVoided]);
+  useEffect(() => { setPage(1); }, [range, accountId, selectedSrcs, txnTypeFilter, search, showVoided, amountMin, amountMax]);
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["reconciliation", range, accountId, showVoided],
@@ -163,19 +165,30 @@ export default function Reconciliation() {
 
   // Client-side filter — keeps server running_balance intact
   const filteredLedger = useMemo(() => {
-    const q = search.toLowerCase();
+    const q   = search.toLowerCase().replace(/[₹,]/g, "").trim();
+    const min = amountMin !== "" ? parseFloat(amountMin) : null;
+    const max = amountMax !== "" ? parseFloat(amountMax) : null;
     return ledger.filter((row) => {
       if (selectedSrcs.size > 0) {
         const effectiveSrc = row.is_unlinked ? "unlinked" : row.source;
         if (!selectedSrcs.has(effectiveSrc)) return false;
       }
       if (txnTypeFilter && row.type !== txnTypeFilter) return false;
-      if (q && !row.description.toLowerCase().includes(q) &&
-               !row.account.toLowerCase().includes(q) &&
-               !(row.payment_mode || "").toLowerCase().includes(q)) return false;
+      // Amount range filter
+      const amt = Math.abs(row.amount || 0);
+      if (min !== null && amt < min) return false;
+      if (max !== null && amt > max) return false;
+      // Text / amount search
+      if (q) {
+        const amtStr = String(Math.round(amt));
+        if (!row.description.toLowerCase().includes(q) &&
+            !row.account.toLowerCase().includes(q) &&
+            !(row.payment_mode || "").toLowerCase().includes(q) &&
+            !amtStr.includes(q)) return false;
+      }
       return true;
     });
-  }, [ledger, selectedSrcs, txnTypeFilter, search]);
+  }, [ledger, selectedSrcs, txnTypeFilter, search, amountMin, amountMax]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredLedger.length / PAGE_SIZE));
@@ -197,7 +210,7 @@ export default function Reconciliation() {
     setRange({ from_date: from, to_date: to });
   }
 
-  const hasActiveFilter = selectedSrcs.size > 0 || txnTypeFilter || search;
+  const hasActiveFilter = selectedSrcs.size > 0 || txnTypeFilter || search || amountMin !== "" || amountMax !== "";
   const voidedCount = summary.voided_count || 0;
 
   return (
@@ -294,19 +307,39 @@ export default function Reconciliation() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search…"
+                placeholder="Search desc / amount…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-7 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-44"
+                className="pl-7 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 w-48"
               />
               <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
               </svg>
             </div>
 
+            {/* Amount range */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-400">₹</span>
+              <input
+                type="number"
+                placeholder="Min"
+                value={amountMin}
+                onChange={(e) => setAmountMin(e.target.value)}
+                className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              <span className="text-xs text-slate-400">–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={amountMax}
+                onChange={(e) => setAmountMax(e.target.value)}
+                className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+
             {hasActiveFilter && (
               <button
-                onClick={() => { setSelectedSrcs(new Set()); setTxnTypeFilter(""); setSearch(""); }}
+                onClick={() => { setSelectedSrcs(new Set()); setTxnTypeFilter(""); setSearch(""); setAmountMin(""); setAmountMax(""); }}
                 className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
               >
                 Clear filters ✕
