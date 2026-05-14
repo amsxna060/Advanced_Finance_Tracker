@@ -261,8 +261,14 @@ def suggest_expense_category(
     description = payload.get("description", "")
 
     # 1. Check learned mappings first (fastest, personalized)
-    # H-DI-13: pass current_user.id to scope suggestions to this user's learnings
-    learned = suggest_from_learnings(db, description, user_id=current_user.id)
+    # H-DI-13: pass current_user.id to scope suggestions to this user's learnings.
+    # Wrapped in try/except so a DB error (e.g. missing user_id column if migration
+    # 037 is pending, or any transient connection issue) degrades gracefully to the
+    # keyword-rules fallback instead of returning 500 and breaking the button entirely.
+    try:
+        learned = suggest_from_learnings(db, description, user_id=current_user.id)
+    except Exception:
+        learned = None
     if learned:
         return {
             "suggested_category": learned[0],
@@ -401,11 +407,17 @@ def create_expense(
     db.commit()
     db.refresh(expense)
 
-    # Learn from this save for future suggestions
+    # Learn from this save for future suggestions.
+    # Wrapped in try/except: the expense is already committed above, so a learning
+    # failure (UniqueConstraint race, schema mismatch, etc.) must not surface as a
+    # 500 that makes the caller think the expense wasn't saved.
     if expense.description and expense.category:
         from app.services.learning import save_learning
-        save_learning(db, expense.description, expense.category, expense.sub_category, user_id=current_user.id)
-        db.commit()
+        try:
+            save_learning(db, expense.description, expense.category, expense.sub_category, user_id=current_user.id)
+            db.commit()
+        except Exception:
+            db.rollback()
 
     return expense
 
@@ -452,11 +464,14 @@ def update_expense(
     db.commit()
     db.refresh(expense)
 
-    # Learn from this update for future suggestions
+    # Learn from this update for future suggestions (same resilience pattern as create).
     if expense.description and expense.category:
         from app.services.learning import save_learning
-        save_learning(db, expense.description, expense.category, expense.sub_category, user_id=current_user.id)
-        db.commit()
+        try:
+            save_learning(db, expense.description, expense.category, expense.sub_category, user_id=current_user.id)
+            db.commit()
+        except Exception:
+            db.rollback()
 
     return expense
 
