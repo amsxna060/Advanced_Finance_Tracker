@@ -92,7 +92,8 @@ api.interceptors.response.use(
       try {
         // C-AUTH-4: Don't send refresh token in body — the httpOnly cookie is sent automatically
         // via withCredentials. The backend reads the cookie and returns a new access token.
-        const response = await axios.post(`${API_URL}/api/auth/refresh`, {}, {
+        // Sending null (no body) so FastAPI doesn't try to validate an empty {} as RefreshTokenRequest.
+        const response = await axios.post(`${API_URL}/api/auth/refresh`, null, {
           withCredentials: true,
         });
 

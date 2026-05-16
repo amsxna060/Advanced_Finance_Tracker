@@ -97,6 +97,7 @@ export default function AccountList() {
       const res = await api.get("/api/accounts");
       return res.data;
     },
+    staleTime: 0,
   });
 
   const transferMutation = useMutation({

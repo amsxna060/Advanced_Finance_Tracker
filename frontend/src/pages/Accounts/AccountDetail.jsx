@@ -74,7 +74,10 @@ export default function AccountDetail() {
 
   const deleteTxn = useMutation({
     mutationFn: (txnId) => api.delete(`/api/accounts/transactions/${txnId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["account", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["account", id] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
   });
 
   const deleteSelf = useMutation({
