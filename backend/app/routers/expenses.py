@@ -1,7 +1,10 @@
+import logging
 from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -335,12 +338,14 @@ def suggest_expense_category(
                 f"- sub_category must be from that category's list or null if no good match\n"
                 f"- Reply with ONLY the JSON, no explanation"
             )
+            # Use GEMINI_MODEL from settings so the model name is overridable via
+            # env var without a code deploy.  Default is "gemini-2.0-flash" (stable).
             response = _client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=settings.GEMINI_MODEL,
                 contents=prompt,
             )
             raw = (response.text or "").strip()
-            # Strip markdown code fences if present
+            # Strip markdown code fences if present (model sometimes wraps JSON)
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
@@ -356,8 +361,21 @@ def suggest_expense_category(
                     "suggested_subcategory": ai_sub,
                     "source": "gemini",
                 }
-    except Exception:
-        pass  # Gemini unavailable — return None gracefully
+            # Category returned by Gemini didn't match any known category
+            if ai_cat:
+                logger.warning(
+                    "Gemini returned unknown category %r (not in allowed list). "
+                    "description=%r model=%s",
+                    ai_cat, description[:80], settings.GEMINI_MODEL,
+                )
+    except Exception as _gemini_err:
+        # Log the actual error so it's visible in server logs — this is the
+        # primary diagnostic for "why is Gemini not working?" questions.
+        logger.warning(
+            "Gemini category suggestion failed: %s — "
+            "check GEMINI_API_KEY and GEMINI_MODEL (%s) in your .env",
+            _gemini_err, settings.GEMINI_MODEL,
+        )
 
     return {
         "suggested_category": None,

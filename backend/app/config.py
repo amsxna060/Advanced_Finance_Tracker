@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     SEED_ADMIN_EMAIL: str = "admin@finance.local"
     APP_ENV: str = "development"
     GEMINI_API_KEY: str = ""
+    # Model name used for category suggestions.  Override via env var if needed.
+    # "gemini-2.0-flash" is the stable alias available in google-genai >=1.0.
+    # Use "gemini-2.5-flash-preview-05-20" (or the current preview tag) if you
+    # specifically want the 2.5 preview.
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
     @validator("SECRET_KEY")
     def secret_key_must_be_strong(cls, v, values):
