@@ -1,27 +1,50 @@
+"""
+Application configuration loaded via pydantic-settings.
+
+How values are resolved (highest priority first):
+  1. Real environment variables  (export DATABASE_URL=... or Docker env)
+  2. .env file in the working directory
+  3. Python default declared below  (only for fields that have one)
+
+Fields marked "Required" have NO Python default.  If they are absent from
+both the environment and the .env file, pydantic-settings raises a
+ValidationError at import time — the app refuses to start rather than
+silently using wrong/insecure values.
+
+Fields marked "Safe default" are non-sensitive tunables; the hardcoded
+value is sensible for local development and can be overridden via env.
+
+Fields marked "Optional feature" default to empty/disabled; the feature
+degrades gracefully when not configured.
+"""
 from pydantic_settings import BaseSettings
 from pydantic import validator
 from typing import List
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://admin:secret@localhost:5432/finance_tracker"
-    SECRET_KEY: str = "change-this-secret-key-in-production"
+    # ── Required — no default, app won't start without these in env ──────
+    DATABASE_URL: str
+    SECRET_KEY: str
+    SEED_ADMIN_PASSWORD: str
+
+    # ── Safe defaults (override via env for production tweaks) ────────────
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30   # was 15 — now matches .env.example
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     CORS_ORIGINS: str = "http://localhost:5173"
     GOLD_API_URL: str = "https://goldpricez.com/api/rates/currency/inr/measure/gram"
     GOLD_CACHE_TTL_SECONDS: int = 3600
     SEED_ADMIN_USERNAME: str = "admin"
-    SEED_ADMIN_PASSWORD: str = "admin123"
     SEED_ADMIN_EMAIL: str = "admin@finance.local"
     APP_ENV: str = "development"
+
+    # ── Optional features — empty/disabled by default ─────────────────────
+    # Both read from env exactly like every other field; no os.environ needed.
     GEMINI_API_KEY: str = ""
-    # Model name used for category suggestions.  Override via env var if needed.
-    # "gemini-2.0-flash" is the stable alias available in google-genai >=1.0.
-    # Use "gemini-2.5-flash-preview-05-20" (or the current preview tag) if you
-    # specifically want the 2.5 preview.
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    # ── Validators ────────────────────────────────────────────────────────
 
     @validator("SECRET_KEY")
     def secret_key_must_be_strong(cls, v, values):
