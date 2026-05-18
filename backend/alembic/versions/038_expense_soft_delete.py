@@ -15,15 +15,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "expenses",
-        sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default="false"),
-    )
-    op.add_column(
-        "expenses",
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True),
-    )
-    op.create_index("ix_expenses_is_deleted", "expenses", ["is_deleted"])
+    op.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false")
+    op.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_expenses_is_deleted ON expenses (is_deleted)")
 
 
 def downgrade() -> None:

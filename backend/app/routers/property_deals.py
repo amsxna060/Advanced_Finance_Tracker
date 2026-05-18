@@ -473,9 +473,9 @@ def update_property(
     update_data = property_data.model_dump(exclude_unset=True)
 
     if "seller_contact_id" in update_data:
-        _ensure_contact_exists(update_data["seller_contact_id"], db, "Seller", current_user.id)
+        _ensure_contact_exists(update_data["seller_contact_id"], db, "Seller")
     if "buyer_contact_id" in update_data:
-        _ensure_contact_exists(update_data["buyer_contact_id"], db, "Buyer", current_user.id)
+        _ensure_contact_exists(update_data["buyer_contact_id"], db, "Buyer")
 
     for field, value in update_data.items():
         setattr(property_deal, field, value)

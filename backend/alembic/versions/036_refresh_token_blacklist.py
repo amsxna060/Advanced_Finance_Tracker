@@ -16,21 +16,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "refresh_token_blacklist",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("token_hash", sa.String(64), nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-        ),
-    )
-    op.create_index("ix_rtb_token_hash", "refresh_token_blacklist", ["token_hash"], unique=True)
-    op.create_index("ix_rtb_user_id", "refresh_token_blacklist", ["user_id"])
-    op.create_index("ix_rtb_expires_at", "refresh_token_blacklist", ["expires_at"])
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS refresh_token_blacklist (
+            id SERIAL PRIMARY KEY,
+            token_hash VARCHAR(64) NOT NULL,
+            user_id INTEGER NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_rtb_token_hash ON refresh_token_blacklist (token_hash)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_rtb_user_id ON refresh_token_blacklist (user_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_rtb_expires_at ON refresh_token_blacklist (expires_at)")
 
 
 def downgrade() -> None:
