@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -116,10 +116,16 @@ class PartnershipTransactionOut(BaseModel):
         from_attributes = True
 
 
+class MemberSettlementOverride(BaseModel):
+    member_id: int
+    final_amount: Decimal
+
+
 class PartnershipSettleRequest(BaseModel):
     total_received: Optional[Decimal] = None
     actual_end_date: Optional[date] = None
     notes: Optional[str] = None
+    member_overrides: Optional[List[MemberSettlementOverride]] = None
 
 
 class CreateBuyerRequest(BaseModel):

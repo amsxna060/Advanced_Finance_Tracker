@@ -101,9 +101,14 @@ export default function PartnershipDetail() {
   const [assignBuyerForm, setAssignBuyerForm] = useState({ contact_id: "", name: "", phone: "", city: "" });
 
   const [showSettleModal, setShowSettleModal] = useState(false);
+  const [settleStep, setSettleStep] = useState(1); // 1=preview, 2=confirm
   const [settleForm, setSettleForm] = useState({
     total_received: "", actual_end_date: "", notes: "",
   });
+  const [settlePreview, setSettlePreview] = useState(null);
+  const [settlePreviewLoading, setSettlePreviewLoading] = useState(false);
+  const [settlePreviewError, setSettlePreviewError] = useState(null);
+  const [memberOverrides, setMemberOverrides] = useState({}); // { member_id: string amount }
 
   // Plot expansion & close-deal state
   const [expandedPlotId, setExpandedPlotId] = useState(null); // "sp-{id}" or "pb-{id}"
@@ -409,11 +414,47 @@ export default function PartnershipDetail() {
     });
   };
 
+  const loadSettlePreview = async (totalReceived) => {
+    setSettlePreviewLoading(true);
+    setSettlePreviewError(null);
+    try {
+      const params = {};
+      if (totalReceived !== undefined && totalReceived !== "") params.total_received = totalReceived;
+      const res = await api.get(`/api/partnerships/${id}/settlement-preview`, { params });
+      setSettlePreview(res.data);
+      // Pre-populate overrides with calculated values so inputs are editable from the start
+      const initial = {};
+      (res.data.members || []).forEach(m => {
+        initial[m.member_id] = String(m.final_entitlement.toFixed(2));
+      });
+      setMemberOverrides(initial);
+    } catch (err) {
+      setSettlePreviewError(err?.response?.data?.detail || "Failed to load settlement preview");
+    } finally {
+      setSettlePreviewLoading(false);
+    }
+  };
+
+  const openSettleModal = () => {
+    const initTotal = totalInflow > 0 ? String(totalInflow) : "";
+    setSettleStep(1);
+    setSettlePreview(null);
+    setSettlePreviewError(null);
+    setMemberOverrides({});
+    setSettleForm(p => ({ ...p, total_received: initTotal }));
+    setShowSettleModal(true);
+    loadSettlePreview(initTotal !== "" ? parseFloat(initTotal) : undefined);
+  };
+
   const handleSettle = () => {
+    const overridesArray = Object.entries(memberOverrides)
+      .filter(([, val]) => val !== "" && !isNaN(parseFloat(val)))
+      .map(([memberId, amount]) => ({ member_id: parseInt(memberId), final_amount: parseFloat(amount) }));
     settleMutation.mutate({
       total_received: settleForm.total_received ? parseFloat(settleForm.total_received) : null,
       actual_end_date: settleForm.actual_end_date || null,
       notes: settleForm.notes?.trim() || null,
+      member_overrides: overridesArray.length > 0 ? overridesArray : null,
     });
   };
 
@@ -723,7 +764,10 @@ export default function PartnershipDetail() {
                       const sharePct = parseFloat(m.member?.share_percentage || 0);
                       const advance = parseFloat(m.member?.advance_contributed || 0);
                       const expensesPaid = transactions
-                        .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId)
+                        .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const brokerPaidByMember = transactions
+                        .filter(t => ["broker_commission", "broker_paid"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const withdrawals = transactions
                         .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId)
@@ -731,7 +775,17 @@ export default function PartnershipDetail() {
                       const profitTaken = transactions
                         .filter(t => t.txn_type === "profit_received" && t.received_by_member_id === memberId)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const buyerCashHeld = transactions
+                        .filter(t => ["buyer_advance", "buyer_payment", "buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id === memberId && !t.is_voided)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const currentStake = advance + expensesPaid - withdrawals;
+                      // Theoretical entitlement if settled today
+                      const personalInvest = transactions
+                        .filter(t => ["advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const advanceBack = personalInvest || advance;
+                      const theoreticalEntitlement = advanceBack + expensesPaid + brokerPaidByMember + (netPnl * sharePct / 100) - profitTaken;
+                      const netMoneyPosition = theoreticalEntitlement - buyerCashHeld;
                       return (
                         <div key={i} className={`rounded-xl border p-4 ${m.member?.is_self ? "bg-indigo-50 border-indigo-200" : "bg-slate-50 border-slate-200"}`}>
                           <div className="flex items-start justify-between mb-3">
@@ -766,6 +820,27 @@ export default function PartnershipDetail() {
                           {profitTaken > 0 && (
                             <p className="text-xs text-emerald-700"><span className="font-mono">{formatCurrency(profitTaken)}</span> profit already taken</p>
                           )}
+                          {/* Money tracker — buyer cash held + theoretical entitlement */}
+                          <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
+                            {buyerCashHeld > 0 && (
+                              <div className="flex justify-between text-xs">
+                                <span className="text-slate-500">Cash held from buyers</span>
+                                <span className="font-mono font-semibold text-violet-700">{formatCurrency(buyerCashHeld)}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-500">If settled today (entitlement)</span>
+                              <span className={`font-mono font-semibold ${theoreticalEntitlement >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(theoreticalEntitlement)}</span>
+                            </div>
+                            {buyerCashHeld > 0 && (
+                              <div className="flex justify-between text-xs">
+                                <span className="text-slate-500">Net {netMoneyPosition >= 0 ? "to receive" : "to pay back"}</span>
+                                <span className={`font-mono font-bold ${netMoneyPosition >= 0 ? "text-teal-700 bg-teal-50 border border-teal-200" : "text-rose-700 bg-rose-50 border border-rose-200"} rounded px-1.5 py-0.5`}>
+                                  {netMoneyPosition >= 0 ? "+" : "−"}{formatCurrency(Math.abs(netMoneyPosition))}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                           {isActive && (
                             <div className="flex gap-2 mt-2 pt-2 border-t border-slate-200">
                               <button onClick={() => openEditMember(m)} className="text-xs text-indigo-600 hover:underline">Edit</button>
@@ -1610,7 +1685,7 @@ export default function PartnershipDetail() {
               {isActive && (
                 <div className="bg-white rounded-2xl border border-slate-200 p-5">
                   <h2 className="text-base font-bold text-slate-900 mb-3">Actions</h2>
-                  <button onClick={() => { setSettleForm(p => ({ ...p, total_received: totalInflow > 0 ? String(totalInflow) : "" })); setShowSettleModal(true); }} className="w-full py-2.5 bg-emerald-600 text-slate-900 rounded-xl font-medium hover:bg-emerald-500 shadow-sm shadow-emerald-500/20 active:scale-[0.98] text-sm">
+                  <button onClick={openSettleModal} className="w-full py-2.5 bg-emerald-600 text-slate-900 rounded-xl font-medium hover:bg-emerald-500 shadow-sm shadow-emerald-500/20 active:scale-[0.98] text-sm">
                     🤝 Record Settlement
                   </button>
                 </div>
@@ -1897,80 +1972,308 @@ export default function PartnershipDetail() {
         </div>
       )}
 
-      {/* Settle Modal */}
+      {/* Settle Modal — two-step */}
       {showSettleModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md">
-            <div className="p-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Record Settlement</h2>
-            </div>
-            <div className="p-5 space-y-4">
-              <InputField label="Total Received (₹) — auto-filled from buyer payments">
-                <input type="number" value={settleForm.total_received} onChange={(e) => setSettleForm(p => ({ ...p, total_received: e.target.value }))} className={inputCls} placeholder="Total amount received from all buyers" min="0" />
-              </InputField>
-              <InputField label="Settlement Date">
-                <input type="date" value={settleForm.actual_end_date} onChange={(e) => setSettleForm(p => ({ ...p, actual_end_date: e.target.value }))} className={inputCls} />
-              </InputField>
-              <InputField label="Notes (optional)">
-                <input type="text" value={settleForm.notes} onChange={(e) => setSettleForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional" />
-              </InputField>
+          <div className="bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col">
 
-              {members.length > 0 && (
-                <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-1.5 border border-slate-200/60">
-                  <div className="font-semibold text-slate-700 mb-2">Settlement Preview</div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Total Received:</span>
-                    <span>{formatCurrency(settleTotal)}</span>
+            {/* Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {settleStep === 1 ? "Settlement Calculation" : "Confirm Settlement"}
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {settleStep === 1 ? "Review the breakdown and adjust amounts if needed" : "Review final numbers before confirming"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${settleStep === 1 ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-400"}`}>1 Review</span>
+                <span className="text-slate-300 text-xs">→</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${settleStep === 2 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>2 Confirm</span>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="overflow-y-auto flex-1 p-5 space-y-4">
+
+              {/* ── Step 1: Preview ── */}
+              {settleStep === 1 && (
+                <>
+                  {/* Adjustable inputs */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label="Total Received from Buyers (₹)">
+                      <input
+                        type="number" min="0"
+                        value={settleForm.total_received}
+                        onChange={(e) => {
+                          setSettleForm(p => ({ ...p, total_received: e.target.value }));
+                        }}
+                        onBlur={() => loadSettlePreview(settleForm.total_received !== "" ? parseFloat(settleForm.total_received) : undefined)}
+                        className={inputCls}
+                        placeholder="Auto-filled from transactions"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">Edit and click away to recalculate</p>
+                    </InputField>
+                    <InputField label="Settlement Date">
+                      <input type="date" value={settleForm.actual_end_date} onChange={(e) => setSettleForm(p => ({ ...p, actual_end_date: e.target.value }))} className={inputCls} />
+                    </InputField>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Total Outflow:</span>
-                    <span>{formatCurrency(totalOutflow)}</span>
-                  </div>
-                  <hr className="border-slate-300" />
-                  <div className="flex justify-between font-semibold">
-                    <span>Net Profit:</span>
-                    <span className={settleProfit >= 0 ? "text-emerald-600" : "text-rose-600"}>{formatCurrency(settleProfit)}</span>
-                  </div>
-                  <hr className="border-slate-300" />
-                  {members.map((m, i) => {
-                    const sharePct = parseFloat(m.member?.share_percentage || 0);
-                    const memberId = m.member?.id;
-                    // Per-member personal investment (advance + remaining + other seller payments)
-                    const PERSONAL_INVEST = ["advance_to_seller", "remaining_to_seller", "advance_given", "invested"];
-                    const personalInvest = transactions.filter(t => PERSONAL_INVEST.includes(t.txn_type) && t.member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const advanceBack = personalInvest || parseFloat(m.member?.advance_contributed || 0);
-                    const profitShare = (settleProfit * sharePct) / 100;
-                    const expensePaid = transactions.filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const alreadyReceived = transactions.filter(t => t.txn_type === "profit_received" && t.received_by_member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const entitlement = advanceBack + expensePaid + profitShare - alreadyReceived;
-                    // Buyer money physically received by this member
-                    const BUYER_TYPES = ["buyer_advance", "buyer_payment", "buyer_payment_received"];
-                    const buyerCollected = transactions.filter(t => BUYER_TYPES.includes(t.txn_type) && t.received_by_member_id === memberId).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                    const netEntitlement = entitlement - buyerCollected;
-                    const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+
+                  {settlePreviewLoading && (
+                    <div className="flex items-center justify-center py-10">
+                      <div className="animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent" />
+                      <span className="ml-3 text-sm text-slate-500">Calculating…</span>
+                    </div>
+                  )}
+
+                  {settlePreviewError && (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700">{settlePreviewError}</div>
+                  )}
+
+                  {settlePreview && !settlePreviewLoading && (() => {
+                    const p = settlePreview;
+                    const ss = p.seller_status || {};
                     return (
-                      <div key={i} className="space-y-0.5">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-600 font-medium">{name} ({sharePct}%)</span>
-                          <span className={`font-semibold ${netEntitlement >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                            {netEntitlement >= 0 ? `Gets: ${formatCurrency(netEntitlement)}` : `Owes back: ${formatCurrency(Math.abs(netEntitlement))}`}
-                          </span>
+                      <>
+                        {/* Seller status banner */}
+                        {ss.deal_value > 0 && (
+                          <div className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium border ${ss.is_fully_paid ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-300 text-amber-800"}`}>
+                            <span>{ss.is_fully_paid ? "✓" : "⚠"}</span>
+                            <span>
+                              {ss.is_fully_paid
+                                ? `Seller fully paid — ${formatCurrency(ss.total_paid_to_seller)} of ${formatCurrency(ss.deal_value)}`
+                                : `Seller partially paid — ${formatCurrency(ss.total_paid_to_seller)} of ${formatCurrency(ss.deal_value)} (${formatCurrency(ss.deal_value - ss.total_paid_to_seller)} remaining)`}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* P&L summary */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 text-sm space-y-2">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Money Flow</p>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Total from Buyers</span>
+                            <span className="font-mono font-semibold text-emerald-700">+ {formatCurrency(p.total_buyer_received)}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-500">
+                            <span>Paid to Seller</span>
+                            <span className="font-mono">− {formatCurrency(p.total_to_seller)}</span>
+                          </div>
+                          {p.broker_pool_deduction > 0 && (
+                            <div className="flex justify-between text-slate-500">
+                              <span>Broker (pool)</span>
+                              <span className="font-mono">− {formatCurrency(p.broker_pool_deduction)}</span>
+                            </div>
+                          )}
+                          {p.broker_partner_paid > 0 && (
+                            <div className="flex justify-between text-slate-500">
+                              <span>Broker (paid by partners — reimbursed to them)</span>
+                              <span className="font-mono">− {formatCurrency(p.broker_partner_paid)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-slate-500">
+                            <span>Expenses</span>
+                            <span className="font-mono">− {formatCurrency(p.expense_deduction)}</span>
+                          </div>
+                          {p.invested_total > 0 && (
+                            <div className="flex justify-between text-slate-500">
+                              <span>Other Investment</span>
+                              <span className="font-mono">− {formatCurrency(p.invested_total)}</span>
+                            </div>
+                          )}
+                          <div className="border-t border-slate-200 pt-2 flex justify-between font-bold">
+                            <span>Net Profit</span>
+                            <span className={`font-mono ${p.net_profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{p.net_profit >= 0 ? "+" : ""}{formatCurrency(p.net_profit)}</span>
+                          </div>
                         </div>
-                        <div className="text-[10px] text-slate-400 ml-2">
-                          Invest: {formatCurrency(advanceBack)} + Exp: {formatCurrency(expensePaid)} + Profit: {formatCurrency(profitShare)}{alreadyReceived > 0 ? ` − Taken: ${formatCurrency(alreadyReceived)}` : ""}{buyerCollected > 0 ? ` − Collected: ${formatCurrency(buyerCollected)}` : ""}
+
+                        {/* Per-member breakdown */}
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Partner Settlement</p>
+                          {p.members.map((pm) => {
+                            const overrideVal = memberOverrides[pm.member_id];
+                            const displayEntitlement = overrideVal !== undefined && overrideVal !== "" && !isNaN(parseFloat(overrideVal))
+                              ? parseFloat(overrideVal)
+                              : pm.final_entitlement;
+                            const netObligation = displayEntitlement - pm.buyer_cash_held;
+                            return (
+                              <div key={pm.member_id} className={`rounded-xl border p-4 ${pm.is_self ? "bg-indigo-50 border-indigo-200" : "bg-white border-slate-200"}`}>
+                                <div className="flex items-center justify-between mb-3">
+                                  <div>
+                                    <span className="text-sm font-bold text-slate-900">{pm.name}</span>
+                                    {pm.is_self && <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">YOU</span>}
+                                    <span className="ml-2 text-xs text-slate-400">{pm.share_pct}% share</span>
+                                  </div>
+                                </div>
+                                {/* Calculation breakdown */}
+                                <div className="space-y-1 text-xs text-slate-600 mb-3">
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Advance returned</span>
+                                    <span className="font-mono">{formatCurrency(pm.advance_contributed)}</span>
+                                  </div>
+                                  {pm.expenses_paid > 0 && (
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-500">Expenses reimbursed</span>
+                                      <span className="font-mono">{formatCurrency(pm.expenses_paid)}</span>
+                                    </div>
+                                  )}
+                                  {pm.broker_paid_by_member > 0 && (
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-500">Broker paid (reimbursed)</span>
+                                      <span className="font-mono">{formatCurrency(pm.broker_paid_by_member)}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Profit share ({pm.share_pct}%)</span>
+                                    <span className={`font-mono ${pm.profit_share >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{pm.profit_share >= 0 ? "+" : ""}{formatCurrency(pm.profit_share)}</span>
+                                  </div>
+                                  {pm.already_received > 0 && (
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-500">Already received</span>
+                                      <span className="font-mono text-rose-600">− {formatCurrency(pm.already_received)}</span>
+                                    </div>
+                                  )}
+                                  <div className="border-t border-slate-200 pt-1 flex justify-between font-semibold text-slate-800">
+                                    <span>Final entitlement</span>
+                                    <input
+                                      type="number"
+                                      value={memberOverrides[pm.member_id] ?? String(pm.final_entitlement.toFixed(2))}
+                                      onChange={(e) => setMemberOverrides(prev => ({ ...prev, [pm.member_id]: e.target.value }))}
+                                      className="w-32 text-right font-mono border border-indigo-300 rounded-lg px-2 py-0.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                                    />
+                                  </div>
+                                </div>
+                                {/* Cash held info */}
+                                {pm.buyer_cash_held > 0 && (
+                                  <div className="bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 text-xs space-y-1">
+                                    <div className="flex justify-between">
+                                      <span className="text-violet-700">Cash held from buyers</span>
+                                      <span className="font-mono font-semibold text-violet-800">{formatCurrency(pm.buyer_cash_held)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-bold">
+                                      <span className={netObligation >= 0 ? "text-teal-700" : "text-rose-700"}>
+                                        {netObligation >= 0 ? "→ Still to receive" : "→ Must pay back"}
+                                      </span>
+                                      <span className={`font-mono ${netObligation >= 0 ? "text-teal-700" : "text-rose-700"}`}>{formatCurrency(Math.abs(netObligation))}</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {pm.buyer_cash_held === 0 && (
+                                  <div className={`rounded-lg px-3 py-2 text-xs font-semibold flex justify-between ${netObligation >= 0 ? "bg-teal-50 border border-teal-200 text-teal-700" : "bg-rose-50 border border-rose-200 text-rose-700"}`}>
+                                    <span>{netObligation >= 0 ? "Gets" : "Owes back"}</span>
+                                    <span className="font-mono">{formatCurrency(Math.abs(netObligation))}</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                      </div>
+
+                        {/* Notes */}
+                        <InputField label="Notes (optional)">
+                          <input type="text" value={settleForm.notes} onChange={(e) => setSettleForm(p => ({ ...p, notes: e.target.value }))} className={inputCls} placeholder="Optional settlement notes" />
+                        </InputField>
+                      </>
                     );
-                  })}
+                  })()}
+                </>
+              )}
+
+              {/* ── Step 2: Confirm ── */}
+              {settleStep === 2 && settlePreview && (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm space-y-2">
+                    <p className="font-semibold text-emerald-800 mb-2">Final Settlement Summary</p>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Total Received</span>
+                      <span className="font-mono font-semibold">{formatCurrency(parseFloat(settleForm.total_received || settlePreview.total_buyer_received))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Net Profit</span>
+                      <span className={`font-mono font-semibold ${settlePreview.net_profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(settlePreview.net_profit)}</span>
+                    </div>
+                    {settleForm.actual_end_date && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Settlement Date</span>
+                        <span className="font-mono">{settleForm.actual_end_date}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Partner Payouts</p>
+                    {settlePreview.members.map((pm) => {
+                      const overrideVal = memberOverrides[pm.member_id];
+                      const finalAmt = overrideVal !== undefined && overrideVal !== "" && !isNaN(parseFloat(overrideVal))
+                        ? parseFloat(overrideVal) : pm.final_entitlement;
+                      const netObligation = finalAmt - pm.buyer_cash_held;
+                      return (
+                        <div key={pm.member_id} className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-3">
+                          <div>
+                            <span className="text-sm font-semibold text-slate-800">{pm.name}</span>
+                            <span className="text-xs text-slate-400 ml-2">{pm.share_pct}%</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-mono font-bold text-slate-900">{formatCurrency(finalAmt)}</div>
+                            {pm.buyer_cash_held > 0 && (
+                              <div className={`text-xs font-mono ${netObligation >= 0 ? "text-teal-600" : "text-rose-600"}`}>
+                                {netObligation >= 0 ? `gets ${formatCurrency(netObligation)}` : `pays back ${formatCurrency(Math.abs(netObligation))}`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {settleForm.notes && (
+                    <div className="bg-slate-100 rounded-xl px-4 py-3 text-sm text-slate-600">
+                      <span className="font-semibold">Notes: </span>{settleForm.notes}
+                    </div>
+                  )}
+
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                    ⚠ This action is irreversible. Partnership status will be set to <strong>settled</strong> and obligations will be created for each partner.
+                  </div>
                 </div>
               )}
             </div>
-            <div className="p-5 border-t border-slate-200 flex gap-3 justify-end">
-              <button onClick={() => setShowSettleModal(false)} className="px-4 py-2 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
-              <button onClick={handleSettle} disabled={settleMutation.isPending} className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50">
-                {settleMutation.isPending ? "Settling..." : "Confirm Settlement"}
+
+            {/* Footer */}
+            <div className="p-5 border-t border-slate-200 flex gap-3 justify-between flex-shrink-0">
+              <button
+                onClick={() => { setShowSettleModal(false); setSettleStep(1); setSettlePreview(null); }}
+                className="px-4 py-2 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100 border border-slate-200"
+              >
+                Cancel
               </button>
+              <div className="flex gap-2">
+                {settleStep === 2 && (
+                  <button onClick={() => setSettleStep(1)} className="px-4 py-2 bg-white text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100 border border-slate-200">
+                    ← Back
+                  </button>
+                )}
+                {settleStep === 1 && (
+                  <button
+                    onClick={() => setSettleStep(2)}
+                    disabled={!settlePreview || settlePreviewLoading}
+                    className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-indigo-600 hover:to-indigo-700 shadow-sm active:scale-[0.98] disabled:opacity-50"
+                  >
+                    Review & Confirm →
+                  </button>
+                )}
+                {settleStep === 2 && (
+                  <button
+                    onClick={handleSettle}
+                    disabled={settleMutation.isPending}
+                    className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {settleMutation.isPending ? "Settling…" : "Confirm Settlement"}
+                  </button>
+                )}
+              </div>
             </div>
+
           </div>
         </div>
       )}

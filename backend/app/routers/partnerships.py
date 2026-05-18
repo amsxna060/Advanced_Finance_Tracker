@@ -14,6 +14,7 @@ from app.models.property_deal import PropertyDeal
 from app.models.partnership import Partnership, PartnershipMember, PartnershipTransaction
 from app.models.user import User
 from app.schemas.partnership import (
+    MemberSettlementOverride,
     PartnershipCreate,
     PartnershipMemberCreate,
     PartnershipMemberOut,
@@ -983,6 +984,151 @@ def update_partnership_transaction(
     return txn
 
 
+def _build_settlement_breakdown(
+    partnership: "Partnership",
+    members: list,
+    transactions: list,
+    contacts_by_id: dict,
+    total_received_override: Optional[Decimal] = None,
+) -> dict:
+    """
+    Pure calculation — no DB writes. Used by both the preview endpoint and settle endpoint.
+
+    Broker handling:
+    - Broker txn WITH member_id → partner paid it personally; reimbursed to that partner
+      (same as expense), still reduces net_profit like any outflow.
+    - Broker txn WITHOUT member_id → paid from the shared pool; just reduces net_profit.
+    """
+    live_txns = [t for t in transactions if not getattr(t, "is_voided", False)]
+
+    # ── Inflow ──────────────────────────────────────────────────────────────
+    buyer_received = sum(_decimal(t.amount) for t in live_txns if t.txn_type in BUYER_INFLOW_TYPES)
+    profit_received_sum = sum(_decimal(t.amount) for t in live_txns if t.txn_type == "profit_received")
+    total_inflow_raw = buyer_received + profit_received_sum
+    final_received = total_received_override if total_received_override is not None else total_inflow_raw
+
+    # ── Outflow components ──────────────────────────────────────────────────
+    total_to_seller = sum(
+        _decimal(t.amount) for t in live_txns
+        if t.txn_type in ("advance_to_seller", "remaining_to_seller", "advance_given")
+    )
+    invested_total = sum(_decimal(t.amount) for t in live_txns if t.txn_type == "invested")
+    expense_total = sum(
+        _decimal(t.amount) for t in live_txns if t.txn_type in ("expense", "other_expense")
+    )
+
+    # Broker: split by whether a partner paid it or pool paid it
+    broker_pool = sum(
+        _decimal(t.amount) for t in live_txns
+        if t.txn_type in ("broker_commission", "broker_paid") and not t.member_id
+    )
+    broker_by_member: dict = {}
+    for t in live_txns:
+        if t.txn_type in ("broker_commission", "broker_paid") and t.member_id:
+            broker_by_member[t.member_id] = broker_by_member.get(t.member_id, Decimal("0")) + _decimal(t.amount)
+    broker_partner_total = sum(broker_by_member.values(), Decimal("0"))
+    broker_total = broker_pool + broker_partner_total
+
+    total_outflow = total_to_seller + broker_total + expense_total + invested_total
+    net_profit = final_received - total_outflow
+
+    # ── Per-member trackers ──────────────────────────────────────────────────
+    PERSONAL_INVEST_TYPES = {"advance_to_seller", "remaining_to_seller", "advance_given", "invested"}
+    member_investments: dict = {}
+    member_expenses: dict = {}
+    member_buyer_held: dict = {}
+
+    for t in live_txns:
+        if t.txn_type in PERSONAL_INVEST_TYPES and t.member_id:
+            member_investments[t.member_id] = member_investments.get(t.member_id, Decimal("0")) + _decimal(t.amount)
+        if t.txn_type in ("expense", "other_expense") and t.member_id:
+            member_expenses[t.member_id] = member_expenses.get(t.member_id, Decimal("0")) + _decimal(t.amount)
+        if t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id:
+            mid = t.received_by_member_id
+            member_buyer_held[mid] = member_buyer_held.get(mid, Decimal("0")) + _decimal(t.amount)
+
+    # ── Per-member breakdown ─────────────────────────────────────────────────
+    members_data = []
+    for m in members:
+        advance = member_investments.get(m.id, _decimal(m.advance_contributed))
+        # Expenses + broker paid personally by this partner
+        expense_back = member_expenses.get(m.id, Decimal("0")) + broker_by_member.get(m.id, Decimal("0"))
+        share_pct = _decimal(m.share_percentage)
+        profit_share = net_profit * (share_pct / Decimal("100"))
+        already_received = sum(
+            _decimal(t.amount) for t in live_txns
+            if t.txn_type == "profit_received" and t.received_by_member_id == m.id
+        )
+        final_entitlement = advance + expense_back + profit_share - already_received
+        buyer_cash_held = member_buyer_held.get(m.id, Decimal("0"))
+        net_obligation = final_entitlement - buyer_cash_held
+
+        contact = contacts_by_id.get(m.contact_id)
+        name = "Self (You)" if m.is_self else (contact.name if contact else f"Partner #{m.id}")
+
+        members_data.append({
+            "member_id": m.id,
+            "name": name,
+            "is_self": m.is_self,
+            "contact_id": m.contact_id,
+            "share_pct": float(share_pct),
+            "advance_contributed": float(advance),
+            "expenses_paid": float(member_expenses.get(m.id, Decimal("0"))),
+            "broker_paid_by_member": float(broker_by_member.get(m.id, Decimal("0"))),
+            "expenses_reimbursed": float(expense_back),
+            "profit_share": float(profit_share),
+            "already_received": float(already_received),
+            "final_entitlement": float(final_entitlement),
+            "buyer_cash_held": float(buyer_cash_held),
+            "net_obligation": float(net_obligation),
+        })
+
+    deal_value = _decimal(partnership.total_deal_value)
+    is_fully_paid = total_to_seller >= deal_value - Decimal("1") if deal_value > 0 else False
+
+    return {
+        "total_buyer_received_raw": float(total_inflow_raw),
+        "total_buyer_received": float(final_received),
+        "total_to_seller": float(total_to_seller),
+        "broker_pool_deduction": float(broker_pool),
+        "broker_partner_paid": float(broker_partner_total),
+        "expense_deduction": float(expense_total),
+        "invested_total": float(invested_total),
+        "total_outflow": float(total_outflow),
+        "net_profit": float(net_profit),
+        "seller_status": {
+            "total_paid_to_seller": float(total_to_seller),
+            "deal_value": float(deal_value),
+            "is_fully_paid": is_fully_paid,
+        },
+        "members": members_data,
+    }
+
+
+@router.get("/{partnership_id}/settlement-preview", response_model=dict)
+def preview_settlement(
+    partnership_id: int,
+    total_received: Optional[Decimal] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the full settlement calculation without committing anything."""
+    partnership = _get_partnership_or_404(partnership_id, db)
+    members = db.query(PartnershipMember).filter(
+        PartnershipMember.partnership_id == partnership_id,
+    ).all()
+    transactions = db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.partnership_id == partnership_id,
+    ).all()
+
+    contact_ids = [m.contact_id for m in members if m.contact_id]
+    contacts = db.query(Contact).filter(Contact.id.in_(contact_ids)).all() if contact_ids else []
+    contacts_by_id = {c.id: c for c in contacts}
+
+    total_received_dec = _decimal(total_received) if total_received is not None else None
+    return _build_settlement_breakdown(partnership, members, transactions, contacts_by_id, total_received_dec)
+
+
 @router.put("/{partnership_id}/settle", response_model=dict)
 def settle_partnership(
     partnership_id: int,
@@ -1015,74 +1161,27 @@ def settle_partnership(
         PartnershipTransaction.partnership_id == partnership_id,
     ).all()
 
-    # Compute P&L from actual transactions
-    total_to_seller = sum(
-        _decimal(t.amount) for t in transactions
-        if t.txn_type in ("advance_to_seller", "remaining_to_seller", "advance_given")
-    )
-    broker_total = sum(
-        _decimal(t.amount) for t in transactions
-        if t.txn_type in ("broker_commission", "broker_paid")
-    )
-    expense_total = sum(
-        _decimal(t.amount) for t in transactions
-        if t.txn_type in ("expense", "other_expense")
-    )
-    invested_total = sum(
-        _decimal(t.amount) for t in transactions
-        if t.txn_type == "invested"
-    )
-    total_outflow = total_to_seller + broker_total + expense_total + invested_total
-    total_buyer_inflow = sum(
-        _decimal(t.amount) for t in transactions
-        if t.txn_type in BUYER_INFLOW_TYPES
-    )
-    profit_received_total = sum(
-        _decimal(t.amount) for t in transactions
-        if t.txn_type == "profit_received"
-    )
-    total_inflow = total_buyer_inflow + profit_received_total
+    contact_ids = [m.contact_id for m in members if m.contact_id]
+    contacts = db.query(Contact).filter(Contact.id.in_(contact_ids)).all() if contact_ids else []
+    contacts_by_id = {c.id: c for c in contacts}
 
-    # If user overrides total_received, use that; otherwise use computed inflow
-    final_received = _decimal(request.total_received) if request.total_received is not None else total_inflow
-    partnership.total_received = final_received
+    total_received_dec = _decimal(request.total_received) if request.total_received is not None else None
+    breakdown = _build_settlement_breakdown(partnership, members, transactions, contacts_by_id, total_received_dec)
 
-    net_profit = final_received - total_outflow
+    partnership.total_received = _decimal(breakdown["total_buyer_received"])
 
-    # Per-member expense tracking: each member who paid expenses should be reimbursed
-    member_expenses = {}
-    for t in transactions:
-        if t.txn_type in ("expense", "other_expense") and t.member_id:
-            member_expenses[t.member_id] = member_expenses.get(t.member_id, Decimal("0")) + _decimal(t.amount)
+    # Build override map from request
+    override_map = {o.member_id: _decimal(o.final_amount) for o in (request.member_overrides or [])}
 
-    # Per-member investment tracking: all seller payments made personally by each member
-    # (advance_to_seller + remaining_to_seller + advance_given + invested with a member_id)
-    PERSONAL_INVEST_TYPES = {"advance_to_seller", "remaining_to_seller", "advance_given", "invested"}
-    member_investments = {}
-    for t in transactions:
-        if t.txn_type in PERSONAL_INVEST_TYPES and t.member_id:
-            member_investments[t.member_id] = member_investments.get(t.member_id, Decimal("0")) + _decimal(t.amount)
-
-    # Per-member buyer payments already received physically by each non-self member
-    member_buyer_received = {}
-    for t in transactions:
-        if t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id:
-            mid = t.received_by_member_id
-            member_buyer_received[mid] = member_buyer_received.get(mid, Decimal("0")) + _decimal(t.amount)
-
-    # Distribute: each member gets back their personal investment + expenses_paid + share of net profit - profit already taken
-    for member in members:
-        share_pct = _decimal(member.share_percentage)
-        # Use per-member investment sum (covers remaining_to_seller etc.); fall back to advance_contributed
-        advance_back = member_investments.get(member.id, _decimal(member.advance_contributed))
-        profit_share = net_profit * (share_pct / Decimal("100"))
-        expense_back = member_expenses.get(member.id, Decimal("0"))
-
-        already_received = sum(
-            _decimal(t.amount) for t in transactions
-            if t.txn_type == "profit_received" and t.received_by_member_id == member.id
-        )
-        member.total_received = advance_back + expense_back + profit_share - already_received
+    # Apply calculated (or overridden) entitlement to each member
+    for m_data in breakdown["members"]:
+        member = next((m for m in members if m.id == m_data["member_id"]), None)
+        if member is None:
+            continue
+        if member.id in override_map:
+            member.total_received = override_map[member.id]
+        else:
+            member.total_received = _decimal(m_data["final_entitlement"])
 
     # ── Create settlement obligations for non-self members ──────────────────
     # Clear any old partnership obligations first
@@ -1093,16 +1192,21 @@ def settle_partnership(
     ).update({"is_deleted": True})
     db.flush()
 
+    # Build buyer-cash-held map for obligation creation
+    member_buyer_received: dict = {}
+    for t in transactions:
+        if not getattr(t, "is_voided", False) and t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id:
+            mid = t.received_by_member_id
+            member_buyer_received[mid] = member_buyer_received.get(mid, Decimal("0")) + _decimal(t.amount)
+
     for member in members:
         if member.is_self or not member.contact_id:
             continue
         entitlement = _decimal(member.total_received)
-        # Deduct buyer money this member already physically received from buyers
         already_collected = member_buyer_received.get(member.id, Decimal("0"))
         net_entitlement = entitlement - already_collected
 
         if net_entitlement > Decimal("0"):
-            # We still owe this partner (they haven't collected their full share)
             db.add(MoneyObligation(
                 obligation_type="payable",
                 contact_id=member.contact_id,
@@ -1113,7 +1217,6 @@ def settle_partnership(
                 created_by=current_user.id,
             ))
         elif net_entitlement < Decimal("0"):
-            # Partner collected more than their entitlement; they owe us the difference
             db.add(MoneyObligation(
                 obligation_type="receivable",
                 contact_id=member.contact_id,
