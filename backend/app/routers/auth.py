@@ -209,6 +209,16 @@ class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None
 
 
+@router.post("/clear-cookie")
+def clear_cookie(response: Response):
+    """Clear the refresh_token cookie without requiring authentication.
+    Called when the browser holds a blacklisted/expired cookie so it doesn't
+    keep blocking the login flow on next page load.
+    """
+    response.delete_cookie(key="refresh_token", path="/api/auth")
+    return {"message": "Cookie cleared"}
+
+
 @router.post("/logout")
 def logout(
     request: Request,

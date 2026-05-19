@@ -354,7 +354,7 @@ export default function PropertyDetail() {
   const totalAdvancePool = members.reduce((s, m) => s + parseFloat(m.member?.advance_contributed || 0), 0);
 
   const furtherPaid = transactions
-    .filter(t => t.txn_type === "remaining_to_seller" || t.txn_type === "payment_to_seller")
+    .filter(t => t.txn_type === "remaining_to_seller" || t.txn_type === "payment_to_seller" || t.paid_to_seller)
     .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
   const totalSentToSeller = advancePaid + furtherPaid;
   const remainingOwedToSeller = Math.max(0, totalSeller - totalSentToSeller);
@@ -444,9 +444,9 @@ export default function PropertyDetail() {
           />
           <HeroStat
             label={isSettled ? "Net Profit" : "Projected Profit"}
-            value={formatCurrency(property.net_profit || 0)}
-            sub={myShare > 0 && property.net_profit > 0 ? `My share: ${formatCurrency(parseFloat(property.net_profit) * myShare / 100)}` : undefined}
-            accent={parseFloat(property.net_profit || 0) > 0 ? "emerald" : "rose"}
+            value={formatCurrency(data?.summary?.net_profit || 0)}
+            sub={myShare > 0 && data?.summary?.net_profit > 0 ? `My share: ${formatCurrency(parseFloat(data.summary.net_profit) * myShare / 100)}` : undefined}
+            accent={parseFloat(data?.summary?.net_profit || 0) > 0 ? "emerald" : "rose"}
           />
         </div>
       </PageHero>
@@ -491,7 +491,7 @@ export default function PropertyDetail() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <MetricCard label="Seller Cost" value={formatCurrency(property.total_seller_value)} accent="slate" />
-              <MetricCard label="Net Profit" value={formatCurrency(property.net_profit)} accent="emerald" />
+              <MetricCard label="Net Profit" value={formatCurrency(data?.summary?.net_profit || 0)} accent="emerald" />
               <MetricCard label="Broker" value={formatCurrency(property.broker_commission)} accent="violet" />
               <MetricCard label="Expenses" value={formatCurrency(property.other_expenses)} accent="amber" />
             </div>

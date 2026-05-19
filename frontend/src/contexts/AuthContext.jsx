@@ -50,7 +50,16 @@ export function AuthProvider({ children }) {
         const { access_token } = response.data;
         setAccessToken(access_token);
         await fetchUser();
-      } catch {
+      } catch (err) {
+        // If the cookie is blacklisted or expired, clear it so login works cleanly next time
+        const detail = err?.response?.data?.detail || "";
+        if (detail.includes("revoked") || detail.includes("expired") || detail.includes("Invalid")) {
+          try {
+            await axios.post(`${API_URL}/api/auth/clear-cookie`, {}, { withCredentials: true });
+          } catch {
+            // ignore — best-effort cleanup
+          }
+        }
         // No valid refresh cookie — user must log in
         setLoading(false);
       }

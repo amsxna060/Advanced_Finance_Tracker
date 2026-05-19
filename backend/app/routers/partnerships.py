@@ -150,6 +150,11 @@ def _sync_property_from_partnership(partnership_id: int, db: Session) -> None:
     partnership.our_investment = total_outflow
     partnership.total_received = buyer_inflow + profit_received_total
 
+    # Keep total_deal_value aligned with the property's seller asking price so
+    # P&L always reflects the full committed cost, not just what's been paid.
+    if prop.total_seller_value and _decimal(prop.total_seller_value) > 0:
+        partnership.total_deal_value = prop.total_seller_value
+
 
 def _resync_plot_buyer_from_partnership(partnership_id: int, plot_buyer_id: int, db: Session) -> None:
     """Re-calculate PlotBuyer.total_paid/advance from partnership buyer txns."""
@@ -250,9 +255,56 @@ def _calculate_summary(
         _decimal(txn.amount) for txn in transactions if txn.txn_type in ("received", "profit_distributed")
     )
 
-    total_outflow = advance_to_seller + remaining_to_seller + broker_commission + expense_total + invested_total
+    # Use the full committed seller value (total_deal_value) as the cost basis.
+    # This gives the true P&L rather than showing "profit" based only on what
+    # has been physically paid out so far.
+    buyer_direct_to_seller = sum(
+        _decimal(txn.amount) for txn in transactions if getattr(txn, "paid_to_seller", False)
+    )
+    seller_total_value = _decimal(partnership.total_deal_value)
+    seller_paid = advance_to_seller + remaining_to_seller + buyer_direct_to_seller
+    seller_cost = seller_total_value if seller_total_value > 0 else seller_paid
+    seller_pending = max(Decimal("0"), seller_total_value - seller_paid) if seller_total_value > 0 else Decimal("0")
+
+    total_outflow = seller_cost + broker_commission + expense_total + invested_total
     total_inflow = buyer_inflow + profit_received + received_total
     net_pnl = total_inflow - total_outflow
+
+    # ── Per-member live cashflow ─────────────────────────────────────────────
+    # Used to power the live partner tracker on the UI (not settlement — just running view).
+    PERSONAL_OUTFLOW = {"advance_to_seller", "remaining_to_seller", "advance_given",
+                        "invested", "expense", "other_expense", "broker_commission", "broker_paid"}
+    member_cash_out: dict = {}  # money they paid from their pocket
+    member_cash_in: dict = {}   # buyer payments they personally collected
+    for txn in transactions:
+        if txn.txn_type in PERSONAL_OUTFLOW and txn.member_id and not getattr(txn, "from_partnership_pot", False):
+            member_cash_out[txn.member_id] = member_cash_out.get(txn.member_id, Decimal("0")) + _decimal(txn.amount)
+        # paid_to_seller = member collected from buyer and forwarded to seller — not held
+        if txn.txn_type in BUYER_INFLOW_TYPES and txn.received_by_member_id and not getattr(txn, "paid_to_seller", False):
+            mid = txn.received_by_member_id
+            member_cash_in[mid] = member_cash_in.get(mid, Decimal("0")) + _decimal(txn.amount)
+
+    member_cashflows = []
+    for m in members:
+        share_pct = _decimal(m.share_percentage)
+        profit_share = net_pnl * (share_pct / Decimal("100"))
+        paid_out = member_cash_out.get(m.id, Decimal("0"))
+        received_in = member_cash_in.get(m.id, Decimal("0"))
+        # entitlement = what they paid out + their profit share
+        entitlement = paid_out + profit_share
+        # net: positive = should receive, negative = should pay
+        net_balance = entitlement - received_in
+        member_cashflows.append({
+            "member_id": m.id,
+            "is_self": m.is_self,
+            "contact_id": m.contact_id,
+            "share_pct": float(share_pct),
+            "cash_paid_out": float(paid_out),
+            "cash_received_in": float(received_in),
+            "profit_share": float(profit_share),
+            "entitlement": float(entitlement),
+            "net_balance": float(net_balance),
+        })
 
     return {
         "our_investment": _decimal(partnership.our_investment),
@@ -260,6 +312,9 @@ def _calculate_summary(
         "our_pnl": net_pnl,
         "advance_to_seller": advance_to_seller,
         "remaining_to_seller": remaining_to_seller,
+        "buyer_direct_to_seller": buyer_direct_to_seller,
+        "seller_total_value": seller_total_value,
+        "seller_pending": seller_pending,
         "broker_commission": broker_commission,
         "expense_total": expense_total,
         "buyer_inflow": buyer_inflow,
@@ -270,6 +325,7 @@ def _calculate_summary(
         "received_total": received_total,
         "other_expense_total": expense_total,
         "member_count": len(members),
+        "member_cashflows": member_cashflows,
     }
 
 
@@ -642,6 +698,10 @@ def create_partnership_transaction(
     if transaction_data.txn_type in INFLOW_TYPES and receiving_member and not receiving_member.is_self:
         txn_data["account_id"] = None
 
+    # paid_to_seller is only meaningful for buyer inflow types
+    if transaction_data.txn_type not in BUYER_INFLOW_TYPES:
+        txn_data["paid_to_seller"] = False
+
     transaction = PartnershipTransaction(
         partnership_id=partnership_id,
         created_by=current_user.id,
@@ -909,6 +969,7 @@ def update_partnership_transaction(
     txn.site_plot_id = transaction_data.site_plot_id
     txn.broker_name = transaction_data.broker_name
     txn.from_partnership_pot = transaction_data.from_partnership_pot
+    txn.paid_to_seller = transaction_data.paid_to_seller if new_type in BUYER_INFLOW_TYPES else False
     db.flush()
 
     # ── Apply new ledger entry ──────────────────────────────────────────────
@@ -1011,25 +1072,35 @@ def _build_settlement_breakdown(
     total_to_seller = sum(
         _decimal(t.amount) for t in live_txns
         if t.txn_type in ("advance_to_seller", "remaining_to_seller", "advance_given")
+    ) + sum(
+        _decimal(t.amount) for t in live_txns if getattr(t, "paid_to_seller", False)
     )
     invested_total = sum(_decimal(t.amount) for t in live_txns if t.txn_type == "invested")
     expense_total = sum(
         _decimal(t.amount) for t in live_txns if t.txn_type in ("expense", "other_expense")
     )
 
-    # Broker: split by whether a partner paid it or pool paid it
+    # Broker: split by whether a partner paid it from pocket, from pot, or pool paid it
     broker_pool = sum(
         _decimal(t.amount) for t in live_txns
         if t.txn_type in ("broker_commission", "broker_paid") and not t.member_id
     )
-    broker_by_member: dict = {}
+    broker_by_member: dict = {}  # pocket-only: partner paid personally, will be reimbursed
     for t in live_txns:
-        if t.txn_type in ("broker_commission", "broker_paid") and t.member_id:
+        if t.txn_type in ("broker_commission", "broker_paid") and t.member_id and not getattr(t, "from_partnership_pot", False):
             broker_by_member[t.member_id] = broker_by_member.get(t.member_id, Decimal("0")) + _decimal(t.amount)
     broker_partner_total = sum(broker_by_member.values(), Decimal("0"))
-    broker_total = broker_pool + broker_partner_total
+    broker_total = broker_pool + broker_partner_total + sum(
+        _decimal(t.amount) for t in live_txns
+        if t.txn_type in ("broker_commission", "broker_paid") and t.member_id and getattr(t, "from_partnership_pot", False)
+    )
 
-    total_outflow = total_to_seller + broker_total + expense_total + invested_total
+    # Use the full committed seller value for P&L so profit reflects the true
+    # deal economics, not just how much has been physically paid out so far.
+    deal_value = _decimal(partnership.total_deal_value)
+    seller_cost_for_pnl = deal_value if deal_value > 0 else total_to_seller
+
+    total_outflow = seller_cost_for_pnl + broker_total + expense_total + invested_total
     net_profit = final_received - total_outflow
 
     # ── Per-member trackers ──────────────────────────────────────────────────
@@ -1039,13 +1110,48 @@ def _build_settlement_breakdown(
     member_buyer_held: dict = {}
 
     for t in live_txns:
-        if t.txn_type in PERSONAL_INVEST_TYPES and t.member_id:
+        if t.txn_type in PERSONAL_INVEST_TYPES and t.member_id and not getattr(t, "from_partnership_pot", False):
             member_investments[t.member_id] = member_investments.get(t.member_id, Decimal("0")) + _decimal(t.amount)
-        if t.txn_type in ("expense", "other_expense") and t.member_id:
+        # Only pocket expenses are reimbursable; pot expenses reduce held cash instead
+        if t.txn_type in ("expense", "other_expense") and t.member_id and not getattr(t, "from_partnership_pot", False):
             member_expenses[t.member_id] = member_expenses.get(t.member_id, Decimal("0")) + _decimal(t.amount)
-        if t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id:
+        # paid_to_seller = member collected from buyer and forwarded to seller — not held as cash
+        if t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id and not getattr(t, "paid_to_seller", False):
             mid = t.received_by_member_id
             member_buyer_held[mid] = member_buyer_held.get(mid, Decimal("0")) + _decimal(t.amount)
+
+    # Reduce member_buyer_held by pot disbursements (broker/expenses paid from held cash)
+    POT_DISBURSE_TYPES = ("expense", "other_expense", "broker_commission", "broker_paid", "advance_to_seller", "remaining_to_seller", "advance_given", "invested")
+    # Capture proportions BEFORE deductions so pool attribution uses original holdings
+    total_buyer_held_gross = sum(member_buyer_held.values(), Decimal("0"))
+    buyer_proportions = {
+        mid: (held / total_buyer_held_gross)
+        for mid, held in member_buyer_held.items()
+    } if total_buyer_held_gross > 0 else {}
+    pool_pot_disb = sum(
+        _decimal(t.amount) for t in live_txns
+        if t.txn_type in POT_DISBURSE_TYPES and not t.member_id and getattr(t, "from_partnership_pot", False)
+    )
+    # Member-attributed pot (e.g. member paid broker from their held cash)
+    for t in live_txns:
+        if t.txn_type in POT_DISBURSE_TYPES and t.member_id and getattr(t, "from_partnership_pot", False):
+            mid = t.member_id
+            if mid in member_buyer_held:
+                member_buyer_held[mid] -= _decimal(t.amount)
+    # Pool pot disbursements (no member_id) — distribute proportionally to cash holders
+    if pool_pot_disb > 0:
+        for mid, proportion in buyer_proportions.items():
+            member_buyer_held[mid] = member_buyer_held.get(mid, Decimal("0")) - pool_pot_disb * proportion
+
+    # ── Profit split: deduct personal pocket payments first, then divide remainder ──
+    # total_personal_pool = all money partners paid from their own pockets (not pot)
+    # that gets reimbursed at settlement before the % split happens.
+    total_personal_pool = (
+        sum(member_investments.values(), Decimal("0"))
+        + sum(member_expenses.values(), Decimal("0"))
+        + broker_partner_total
+    )
+    profit_for_split = net_profit - total_personal_pool
 
     # ── Per-member breakdown ─────────────────────────────────────────────────
     members_data = []
@@ -1054,7 +1160,7 @@ def _build_settlement_breakdown(
         # Expenses + broker paid personally by this partner
         expense_back = member_expenses.get(m.id, Decimal("0")) + broker_by_member.get(m.id, Decimal("0"))
         share_pct = _decimal(m.share_percentage)
-        profit_share = net_profit * (share_pct / Decimal("100"))
+        profit_share = profit_for_split * (share_pct / Decimal("100"))
         already_received = sum(
             _decimal(t.amount) for t in live_txns
             if t.txn_type == "profit_received" and t.received_by_member_id == m.id
@@ -1083,25 +1189,57 @@ def _build_settlement_breakdown(
             "net_obligation": float(net_obligation),
         })
 
-    deal_value = _decimal(partnership.total_deal_value)
     is_fully_paid = total_to_seller >= deal_value - Decimal("1") if deal_value > 0 else False
+
+    # ── Who-pays-whom ────────────────────────────────────────────────────────
+    # Self is the "central" party: other partners pay Self or receive from Self.
+    # payments_flow: list of {from, to, amount} for the Step-2 obligations preview.
+    payments_flow = []
+    self_member = next((m for m in members_data if m["is_self"]), None)
+    for pm in members_data:
+        if pm["is_self"]:
+            continue
+        net = pm["net_obligation"]
+        if net > 0:
+            # Self owes this partner
+            payments_flow.append({
+                "from_name": "You (Self)",
+                "to_name": pm["name"],
+                "amount": net,
+                "obligation_type": "payable",
+                "contact_id": pm["contact_id"],
+            })
+        elif net < 0:
+            # Partner owes Self
+            payments_flow.append({
+                "from_name": pm["name"],
+                "to_name": "You (Self)",
+                "amount": abs(net),
+                "obligation_type": "receivable",
+                "contact_id": pm["contact_id"],
+            })
 
     return {
         "total_buyer_received_raw": float(total_inflow_raw),
         "total_buyer_received": float(final_received),
-        "total_to_seller": float(total_to_seller),
+        "total_to_seller": float(seller_cost_for_pnl),   # full committed cost for P&L display
+        "total_paid_to_seller": float(total_to_seller),  # actual cash paid so far
+        "seller_pending": float(max(Decimal("0"), deal_value - total_to_seller)) if deal_value > 0 else 0.0,
         "broker_pool_deduction": float(broker_pool),
         "broker_partner_paid": float(broker_partner_total),
         "expense_deduction": float(expense_total),
         "invested_total": float(invested_total),
         "total_outflow": float(total_outflow),
         "net_profit": float(net_profit),
+        "total_personal_reimbursements": float(total_personal_pool),
+        "profit_for_split": float(profit_for_split),
         "seller_status": {
             "total_paid_to_seller": float(total_to_seller),
             "deal_value": float(deal_value),
             "is_fully_paid": is_fully_paid,
         },
         "members": members_data,
+        "payments_flow": payments_flow,
     }
 
 

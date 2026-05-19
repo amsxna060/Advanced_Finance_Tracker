@@ -122,29 +122,37 @@ def _calculate_property_summary(
 
     # Prefer partnership transactions if any exist; fall back to legacy PropertyTransaction
     if partnership_transactions:
+        # BUG-1/2 guard: only process non-voided transactions
+        live_txns = [t for t in partnership_transactions if not getattr(t, "is_voided", False)]
         total_outflow = sum(
-            _decimal(t.amount) for t in partnership_transactions if t.txn_type in _P_OUTFLOW_TYPES
+            _decimal(t.amount) for t in live_txns if t.txn_type in _P_OUTFLOW_TYPES
         )
         total_inflow = sum(
-            _decimal(t.amount) for t in partnership_transactions if t.txn_type in _P_INFLOW_TYPES
+            _decimal(t.amount) for t in live_txns if t.txn_type in _P_INFLOW_TYPES
         )
         buyer_inflow = sum(
-            _decimal(t.amount) for t in partnership_transactions if t.txn_type in _P_BUYER_INFLOW_TYPES
+            _decimal(t.amount) for t in live_txns if t.txn_type in _P_BUYER_INFLOW_TYPES
         )
         broker_commission = sum(
-            _decimal(t.amount) for t in partnership_transactions if t.txn_type in ("broker_commission", "broker_paid")
+            _decimal(t.amount) for t in live_txns if t.txn_type in ("broker_commission", "broker_paid")
         )
         expense_total = sum(
-            _decimal(t.amount) for t in partnership_transactions if t.txn_type in ("expense", "other_expense")
+            _decimal(t.amount) for t in live_txns if t.txn_type in ("expense", "other_expense")
+        )
+        # BUG-3: include paid_to_seller (buyer-direct-to-seller) as part of seller cost
+        paid_to_seller_sum = sum(
+            _decimal(t.amount) for t in live_txns if getattr(t, "paid_to_seller", False)
         )
         seller_total = sum(
-            _decimal(t.amount) for t in partnership_transactions if t.txn_type in ("advance_to_seller", "remaining_to_seller", "advance_given")
-        )
+            _decimal(t.amount) for t in live_txns
+            if t.txn_type in ("advance_to_seller", "remaining_to_seller", "advance_given")
+        ) + paid_to_seller_sum
         gross_profit = buyer_inflow - seller_total if buyer_inflow > 0 else (
             _decimal(property_deal.total_buyer_value) - _decimal(property_deal.total_seller_value)
             if property_deal.total_buyer_value and property_deal.total_seller_value else Decimal("0")
         )
-        net_profit = total_inflow - total_outflow
+        # paid_to_seller txns increase both inflow AND outflow (pass-through); add to outflow so net is correct
+        net_profit = total_inflow - total_outflow - paid_to_seller_sum
     else:
         total_inflow = Decimal("0")
         total_outflow = Decimal("0")
@@ -368,6 +376,7 @@ def get_property(
 
         lp_all_txns = db.query(PartnershipTransaction).filter(
             PartnershipTransaction.partnership_id == lp.id,
+            PartnershipTransaction.is_voided == False,
         ).order_by(PartnershipTransaction.txn_date.desc(), PartnershipTransaction.id.desc()).all()
         all_partnership_txns.extend(lp_all_txns)
 
@@ -427,6 +436,8 @@ def get_property(
                     "broker_name": txn.broker_name,
                     "plot_buyer_id": txn.plot_buyer_id,
                     "site_plot_id": txn.site_plot_id,
+                    "paid_to_seller": getattr(txn, "paid_to_seller", False) or False,
+                    "is_voided": getattr(txn, "is_voided", False) or False,
                 })
     else:
         for txn in legacy_transactions:
@@ -479,6 +490,16 @@ def update_property(
 
     for field, value in update_data.items():
         setattr(property_deal, field, value)
+
+    # When total_seller_value changes, propagate to linked partnerships so P&L
+    # stays correct without needing a transaction write to trigger the sync.
+    if "total_seller_value" in update_data and update_data["total_seller_value"]:
+        linked_partnerships = db.query(Partnership).filter(
+            Partnership.linked_property_deal_id == property_id,
+            Partnership.is_deleted == False,
+        ).all()
+        for p in linked_partnerships:
+            p.total_deal_value = update_data["total_seller_value"]
 
     db.commit()
     db.refresh(property_deal)

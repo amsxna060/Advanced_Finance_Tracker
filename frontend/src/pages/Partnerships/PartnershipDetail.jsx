@@ -121,7 +121,7 @@ export default function PartnershipDetail() {
   // Edit plot modal
   const [editingPlot, setEditingPlot] = useState(null); // {type: "site_plot"|"plot_buyer", id, hasPaid}
   const [editPlotForm, setEditPlotForm] = useState({
-    plot_number: "", area_sqft: "", price_per_sqft: "", notes: "",
+    plot_number: "", area_sqft: "", price_per_sqft: "", total_value: "", notes: "",
     side_north_ft: "", side_south_ft: "", side_east_ft: "", side_west_ft: "",
   });
   // View plot detail popup
@@ -131,6 +131,8 @@ export default function PartnershipDetail() {
     queryKey: ["partnership", id],
     queryFn: async () => (await api.get(`/api/partnerships/${id}`)).data,
     retry: 2,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   const { data: contacts = [] } = useQuery({
@@ -299,7 +301,13 @@ export default function PartnershipDetail() {
 
     const isBuyerToSeller = ["buyer_advance", "buyer_payment"].includes(txnType) && txnForm.received_by_member_id === "seller";
     let receivedByMemberId = null;
-    if (isInflow && txnForm.received_by_member_id && txnForm.received_by_member_id !== "seller") receivedByMemberId = parseInt(txnForm.received_by_member_id);
+    if (isInflow && txnForm.received_by_member_id && txnForm.received_by_member_id !== "seller") {
+      receivedByMemberId = parseInt(txnForm.received_by_member_id);
+    } else if (isInflow && !txnForm.received_by_member_id && !isBuyerToSeller) {
+      // "Self (Me)" is the default empty option — explicitly attribute to the self member
+      const selfM = members.find(m => m.member?.is_self);
+      if (selfM) receivedByMemberId = selfM.member.id;
+    }
     if (isTransfer && txnForm.received_by_member_id) receivedByMemberId = parseInt(txnForm.received_by_member_id); // TO partner
 
     // Only send account_id if Self is the payer (outflow) or receiver (inflow/transfer)
@@ -330,6 +338,7 @@ export default function PartnershipDetail() {
       site_plot_id: txnForm.site_plot_id ? parseInt(txnForm.site_plot_id) : null,
       broker_name: txnType === "broker_commission" ? (txnForm.broker_name?.trim() || null) : null,
       from_partnership_pot: OUTFLOW_TYPES.includes(txnType) ? txnForm.from_partnership_pot : false,
+      paid_to_seller: isBuyerToSeller,
     });
   };
 
@@ -344,7 +353,7 @@ export default function PartnershipDetail() {
       member_id: txn.member_id ? String(txn.member_id) : "",
       received_by_member_id: txn.received_by_member_id
         ? String(txn.received_by_member_id)
-        : (["buyer_advance", "buyer_payment"].includes(txn.txn_type) && txn.description?.includes("→ Paid directly to Seller") ? "seller" : ""),
+        : (["buyer_advance", "buyer_payment"].includes(txn.txn_type) && txn.paid_to_seller ? "seller" : ""),
       description: (txn.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim(),
       plot_buyer_id: txn.plot_buyer_id ? String(txn.plot_buyer_id) : "",
       site_plot_id: txn.site_plot_id ? String(txn.site_plot_id) : "",
@@ -375,13 +384,17 @@ export default function PartnershipDetail() {
     }
 
     let memberId = editTxnForm.member_id ? parseInt(editTxnForm.member_id) : null;
+    const isBTS = ["buyer_advance", "buyer_payment"].includes(txnType) && editTxnForm.received_by_member_id === "seller";
     let receivedByMemberId = null;
     if (isTransfer) {
       receivedByMemberId = editTxnForm.received_by_member_id ? parseInt(editTxnForm.received_by_member_id) : null;
-    } else {
-      receivedByMemberId = editTxnForm.received_by_member_id && editTxnForm.received_by_member_id !== "seller" ? parseInt(editTxnForm.received_by_member_id) : null;
+    } else if (editTxnForm.received_by_member_id && editTxnForm.received_by_member_id !== "seller") {
+      receivedByMemberId = parseInt(editTxnForm.received_by_member_id);
+    } else if (isInflow && !editTxnForm.received_by_member_id && !isBTS) {
+      // "Self (Me)" default — attribute to self member so it tracks correctly
+      const selfM = members.find(m => m.member?.is_self);
+      if (selfM) receivedByMemberId = selfM.member.id;
     }
-
     updateTxnMutation.mutate({
       txnId: editingTxnId,
       payload: {
@@ -390,7 +403,6 @@ export default function PartnershipDetail() {
         txn_date: editTxnForm.txn_date,
         payment_mode: editTxnForm.payment_mode,
         description: (() => {
-          const isBTS = ["buyer_advance", "buyer_payment"].includes(txnType) && editTxnForm.received_by_member_id === "seller";
           const base = (editTxnForm.description || "").replace(" · → Paid directly to Seller", "").replace("→ Paid directly to Seller · ", "").replace("→ Paid directly to Seller", "").trim();
           return (isBTS ? [base, "→ Paid directly to Seller"].filter(Boolean).join(" · ") : base) || null;
         })(),
@@ -401,6 +413,7 @@ export default function PartnershipDetail() {
         site_plot_id: editTxnForm.site_plot_id ? parseInt(editTxnForm.site_plot_id) : null,
         broker_name: editTxnForm.broker_name?.trim() || null,
         from_partnership_pot: editTxnForm.from_partnership_pot || false,
+        paid_to_seller: isBTS,
       },
     });
   };
@@ -599,7 +612,8 @@ export default function PartnershipDetail() {
     const sellerDue = (() => {
       if (!linkedProperty) return 0;
       const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
-      const paid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+      const buyerDirectToSeller = transactions.filter(t => t.paid_to_seller).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      const paid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0) + buyerDirectToSeller;
       return Math.max(0, sellerTotal - paid);
     })();
     const lines = [
@@ -671,10 +685,16 @@ export default function PartnershipDetail() {
           {isLinkedToProperty && linkedProperty && (() => {
             const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
             if (!sellerTotal) return null;
-            const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+            const buyerDirectToSeller = transactions
+              .filter(t => t.paid_to_seller)
+              .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+            const alreadyPaid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0) + buyerDirectToSeller;
             const paidPct = Math.min(100, sellerTotal > 0 ? (alreadyPaid / sellerTotal) * 100 : 0);
             const outstanding = Math.max(0, sellerTotal - alreadyPaid);
-            const sellerTxns = transactions.filter(t => ["advance_to_seller", "advance_given", "remaining_to_seller"].includes(t.txn_type));
+            const sellerTxns = transactions.filter(t =>
+              ["advance_to_seller", "advance_given", "remaining_to_seller"].includes(t.txn_type) ||
+              t.paid_to_seller
+            );
             return (
               <div className="bg-white rounded-2xl border border-violet-200 p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -763,11 +783,16 @@ export default function PartnershipDetail() {
                       const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
                       const sharePct = parseFloat(m.member?.share_percentage || 0);
                       const advance = parseFloat(m.member?.advance_contributed || 0);
+                      // Pocket = own money, reimbursable at settlement
                       const expensesPaid = transactions
-                        .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided)
+                        .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !t.from_partnership_pot)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const brokerPaidByMember = transactions
-                        .filter(t => ["broker_commission", "broker_paid"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided)
+                        .filter(t => ["broker_commission", "broker_paid"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !t.from_partnership_pot)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      // Pot = came from buyer cash this member is holding; reduces their effective hold
+                      const potDisbursedByMe = transactions
+                        .filter(t => ["expense","other_expense","broker_commission","broker_paid","advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !!t.from_partnership_pot)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const withdrawals = transactions
                         .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId)
@@ -775,17 +800,18 @@ export default function PartnershipDetail() {
                       const profitTaken = transactions
                         .filter(t => t.txn_type === "profit_received" && t.received_by_member_id === memberId)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      // paid_to_seller = member collected from buyer and forwarded to seller; exclude from "held" cash
+                      const forwardedToSeller = transactions
+                        .filter(t => ["buyer_advance", "buyer_payment", "buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id === memberId && !t.is_voided && t.paid_to_seller)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const buyerCashHeld = transactions
-                        .filter(t => ["buyer_advance", "buyer_payment", "buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id === memberId && !t.is_voided)
+                        .filter(t => ["buyer_advance", "buyer_payment", "buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id === memberId && !t.is_voided && !t.paid_to_seller)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const currentStake = advance + expensesPaid - withdrawals;
                       // Theoretical entitlement if settled today
                       const personalInvest = transactions
-                        .filter(t => ["advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided)
+                        .filter(t => ["advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !t.from_partnership_pot)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                      const advanceBack = personalInvest || advance;
-                      const theoreticalEntitlement = advanceBack + expensesPaid + brokerPaidByMember + (netPnl * sharePct / 100) - profitTaken;
-                      const netMoneyPosition = theoreticalEntitlement - buyerCashHeld;
                       return (
                         <div key={i} className={`rounded-xl border p-4 ${m.member?.is_self ? "bg-indigo-50 border-indigo-200" : "bg-slate-50 border-slate-200"}`}>
                           <div className="flex items-start justify-between mb-3">
@@ -820,27 +846,62 @@ export default function PartnershipDetail() {
                           {profitTaken > 0 && (
                             <p className="text-xs text-emerald-700"><span className="font-mono">{formatCurrency(profitTaken)}</span> profit already taken</p>
                           )}
-                          {/* Money tracker — buyer cash held + theoretical entitlement */}
-                          <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
-                            {buyerCashHeld > 0 && (
-                              <div className="flex justify-between text-xs">
-                                <span className="text-slate-500">Cash held from buyers</span>
-                                <span className="font-mono font-semibold text-violet-700">{formatCurrency(buyerCashHeld)}</span>
+                          {/* Live cash flow tracker — actual money in/out only, no profit calc */}
+                          {(() => {
+                            const totalCashOut = personalInvest + expensesPaid + brokerPaidByMember;
+                            // Pool pot disbursements (no member_id on txn) attributed to holders proportionally
+                            const allBuyerHeld = transactions
+                              .filter(t => ["buyer_advance","buyer_payment","buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id && !t.is_voided && !t.paid_to_seller)
+                              .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                            const poolPot = transactions
+                              .filter(t => ["expense","other_expense","broker_commission","broker_paid","advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && !t.member_id && !!t.from_partnership_pot && !t.is_voided)
+                              .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                            const myPoolPot = allBuyerHeld > 0 ? poolPot * (buyerCashHeld / allBuyerHeld) : 0;
+                            const totalPotDisbursed = potDisbursedByMe + myPoolPot;
+                            const netCashPos = buyerCashHeld - totalPotDisbursed - totalCashOut;
+                            return (
+                              <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
+                                {totalCashOut > 0 && (
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">Paid from pocket (advance + expenses)</span>
+                                    <span className="font-mono text-rose-700">−{formatCurrency(totalCashOut)}</span>
+                                  </div>
+                                )}
+                                {totalPotDisbursed > 0 && (
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">Disbursed from pot (broker/expenses)</span>
+                                    <span className="font-mono text-orange-600">−{formatCurrency(totalPotDisbursed)}</span>
+                                  </div>
+                                )}
+                                {buyerCashHeld > 0 && (
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">Collected from buyers (held)</span>
+                                    <span className="font-mono text-violet-700">+{formatCurrency(buyerCashHeld)}</span>
+                                  </div>
+                                )}
+                                {forwardedToSeller > 0 && (
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-slate-400 italic text-[10px]">↳ forwarded to seller (pass-through)</span>
+                                    <span className="font-mono text-slate-400 text-[10px]">{formatCurrency(forwardedToSeller)}</span>
+                                  </div>
+                                )}
+                                {isSettled && (
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">Profit share ({sharePct}%)</span>
+                                    <span className={`font-mono ${netPnl * sharePct / 100 >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{netPnl * sharePct / 100 >= 0 ? "+" : ""}{formatCurrency(Math.abs(netPnl * sharePct / 100))}</span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between text-xs border-t border-slate-200 pt-1">
+                                  <span className="text-slate-600 font-semibold">
+                                    {isSettled ? "Settlement balance" : "Live cash position"}
+                                  </span>
+                                  <span className={`font-mono font-bold ${netCashPos <= 0 ? "text-teal-700 bg-teal-50 border border-teal-200" : "text-amber-700 bg-amber-50 border border-amber-200"} rounded px-1.5 py-0.5`}>
+                                    {netCashPos <= 0 ? `${formatCurrency(Math.abs(netCashPos))} to recover` : `holds ${formatCurrency(netCashPos)} from pot`}
+                                  </span>
+                                </div>
                               </div>
-                            )}
-                            <div className="flex justify-between text-xs">
-                              <span className="text-slate-500">If settled today (entitlement)</span>
-                              <span className={`font-mono font-semibold ${theoreticalEntitlement >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(theoreticalEntitlement)}</span>
-                            </div>
-                            {buyerCashHeld > 0 && (
-                              <div className="flex justify-between text-xs">
-                                <span className="text-slate-500">Net {netMoneyPosition >= 0 ? "to receive" : "to pay back"}</span>
-                                <span className={`font-mono font-bold ${netMoneyPosition >= 0 ? "text-teal-700 bg-teal-50 border border-teal-200" : "text-rose-700 bg-rose-50 border border-rose-200"} rounded px-1.5 py-0.5`}>
-                                  {netMoneyPosition >= 0 ? "+" : "−"}{formatCurrency(Math.abs(netMoneyPosition))}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                            );
+                          })()}
                           {isActive && (
                             <div className="flex gap-2 mt-2 pt-2 border-t border-slate-200">
                               <button onClick={() => openEditMember(m)} className="text-xs text-indigo-600 hover:underline">Edit</button>
@@ -850,33 +911,66 @@ export default function PartnershipDetail() {
                         </div>
                       );
                     })}
-                    {/* Reimbursement Queue — high-priority alert */}
+                    {/* Cash Flow Summary — who owes / is owed right now */}
                     {(() => {
-                      const queue = members
-                        .map(m => {
-                          const memberId = m.member?.id;
-                          const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
-                          const owed = transactions
-                            .filter(t => ["expense", "other_expense"].includes(t.txn_type) && t.member_id === memberId && !t.from_partnership_pot)
-                            .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                          return { name, owed, isSelf: m.member?.is_self };
-                        })
-                        .filter(r => r.owed > 0);
-                      if (queue.length === 0) return null;
+                      // Compute pool-level pot disbursements once for proportional attribution
+                      const allBuyerHeldSummary = transactions
+                        .filter(t => ["buyer_advance","buyer_payment","buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id && !t.is_voided && !t.paid_to_seller)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const poolPotSummary = transactions
+                        .filter(t => ["expense","other_expense","broker_commission","broker_paid","advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && !t.member_id && !!t.from_partnership_pot && !t.is_voided)
+                        .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                      const flows = members.map(m => {
+                        const memberId = m.member?.id;
+                        const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+                        const personalInvest = transactions
+                          .filter(t => ["advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !t.from_partnership_pot)
+                          .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                        const expPaid = transactions
+                          .filter(t => ["expense","other_expense","broker_commission","broker_paid"].includes(t.txn_type) && t.member_id === memberId && !t.from_partnership_pot && !t.is_voided)
+                          .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                        // paid_to_seller = forwarded to seller immediately — not held as cash
+                        const buyerCash = transactions
+                          .filter(t => ["buyer_advance","buyer_payment","buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id === memberId && !t.is_voided && !t.paid_to_seller)
+                          .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                        const potByMe = transactions
+                          .filter(t => ["expense","other_expense","broker_commission","broker_paid","advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !!t.from_partnership_pot && !t.is_voided)
+                          .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+                        const myPoolPot = allBuyerHeldSummary > 0 ? poolPotSummary * (buyerCash / allBuyerHeldSummary) : 0;
+                        const totalPotDisb = potByMe + myPoolPot;
+                        const cashOut = personalInvest + expPaid;
+                        const netCashPos = buyerCash - totalPotDisb - cashOut;
+                        return { name, isSelf: m.member?.is_self, expPaid, buyerCash, cashOut, totalPotDisb, netCashPos };
+                      });
+                      // +ve netCashPos = holds excess buyer cash from pot (owes back)
+                      // -ve netCashPos = put in more than collected (pot owes them)
+                      const holdsExcess = flows.filter(f => f.netCashPos > 0);
+                      const potOwes = flows.filter(f => f.netCashPos < 0);
+                      if (holdsExcess.length === 0 && potOwes.length === 0) return null;
                       return (
-                        <div className="mt-3 pt-3 border-t border-slate-200 bg-rose-50 border border-rose-200 rounded-xl p-3">
-                          <p className="text-xs font-semibold text-rose-700 mb-2 flex items-center gap-1.5">
-                            <svg className="w-3.5 h-3.5 text-rose-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-                            ⚠ Reimbursement Queue <span className="font-normal text-rose-700/60">(out-of-pocket expenses before profit split)</span>
-                          </p>
-                          <div className="space-y-1.5">
-                            {queue.map((r, i) => (
-                              <div key={i} className="flex justify-between items-center bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                                <span className="text-sm text-rose-700 font-medium">{r.name}</span>
-                                <span className="text-sm font-bold font-mono text-rose-700">{formatCurrency(r.owed)} to reimburse</span>
-                              </div>
-                            ))}
-                          </div>
+                        <div className="mt-3 pt-3 border-t border-slate-200">
+                          {holdsExcess.length > 0 && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-2">
+                              <p className="text-xs font-semibold text-amber-700 mb-2">Holds excess buyer cash from pot</p>
+                              {holdsExcess.map((r, i) => (
+                                <div key={i} className="flex justify-between items-center text-xs py-1">
+                                  <span className="text-amber-700 font-medium">{r.name}</span>
+                                  <span className="font-mono font-bold text-amber-700">collected {formatCurrency(r.buyerCash)} · paid {formatCurrency(r.cashOut)} · excess {formatCurrency(r.netCashPos)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {potOwes.length > 0 && (
+                            <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
+                              <p className="text-xs font-semibold text-teal-700 mb-2">Paid more from pocket than collected — pot owes back</p>
+                              {potOwes.map((r, i) => (
+                                <div key={i} className="flex justify-between items-center text-xs py-1">
+                                  <span className="text-teal-700 font-medium">{r.name}</span>
+                                  <span className="font-mono font-bold text-teal-700">paid {formatCurrency(r.cashOut)} · collected {formatCurrency(r.buyerCash)} · owed {formatCurrency(Math.abs(r.netCashPos))}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -1100,7 +1194,7 @@ export default function PartnershipDetail() {
                                       <button onClick={(e) => {
                                         e.stopPropagation();
                                         setEditingPlot({ type: "plot_buyer", id: b.id, hasPaid: plotTxns.some(t => parseFloat(t.amount) > 0), area_sqft: b.area_sqft });
-                                        setEditPlotForm({ plot_number: "", area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), notes: b.notes || "", side_north_ft: String(b.side_north_ft || ""), side_south_ft: String(b.side_south_ft || ""), side_east_ft: String(b.side_east_ft || ""), side_west_ft: String(b.side_west_ft || "") });
+                                        setEditPlotForm({ plot_number: "", area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), total_value: String(b.total_value || ""), notes: b.notes || "", side_north_ft: String(b.side_north_ft || ""), side_south_ft: String(b.side_south_ft || ""), side_east_ft: String(b.side_east_ft || ""), side_west_ft: String(b.side_west_ft || "") });
                                       }} className="text-xs text-indigo-600 hover:underline">Edit</button>
                                       {b.status !== "registry_done" && (
                                         <button onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "plot_buyer", id: b.id, label: b.buyer_name || `Buyer #${b.id}`, area_sqft: b.area_sqft, price_per_sqft: b.rate_per_sqft }); setCloseDealForm({ area_sqft: String(b.area_sqft || ""), price_per_sqft: String(b.rate_per_sqft || ""), registry_date: "", notes: "" }); }} className="text-xs text-emerald-600 hover:underline">Close Deal</button>
@@ -1167,7 +1261,7 @@ export default function PartnershipDetail() {
                                       <button onClick={(e) => {
                                         e.stopPropagation();
                                         setEditingPlot({ type: "site_plot", id: sp.id, hasPaid: plotTxns.some(t => parseFloat(t.amount) > 0) });
-                                        setEditPlotForm({ plot_number: sp.plot_number || "", area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), notes: sp.notes || "", side_north_ft: String(sp.side_north_ft || ""), side_south_ft: String(sp.side_south_ft || ""), side_east_ft: String(sp.side_east_ft || ""), side_west_ft: String(sp.side_west_ft || "") });
+                                        setEditPlotForm({ plot_number: sp.plot_number || "", area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), total_value: String(sp.calculated_price || ""), notes: sp.notes || "", side_north_ft: String(sp.side_north_ft || ""), side_south_ft: String(sp.side_south_ft || ""), side_east_ft: String(sp.side_east_ft || ""), side_west_ft: String(sp.side_west_ft || "") });
                                       }} className="text-xs text-indigo-600 hover:underline">Edit</button>
                                       {sp.status !== "sold" && (
                                         <button onClick={(e) => { e.stopPropagation(); setCloseDealPlot({ type: "site_plot", id: sp.id, label: sp.plot_number || `Plot #${sp.id}`, area_sqft: sp.area_sqft, price_per_sqft: sp.sold_price_per_sqft }); setCloseDealForm({ area_sqft: String(sp.area_sqft || ""), price_per_sqft: String(sp.sold_price_per_sqft || ""), registry_date: "", notes: "" }); }} className="text-xs text-emerald-600 hover:underline">Close Deal</button>
@@ -1242,7 +1336,8 @@ export default function PartnershipDetail() {
                         <input type="number" value={txnForm.amount} onChange={(e) => setTxnForm(p => ({ ...p, amount: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-sm text-slate-700 placeholder-slate-400" placeholder="0" />
                         {txnForm.txn_type === "remaining_to_seller" && isLinkedToProperty && linkedProperty && (() => {
                           const sellerTotal = parseFloat(linkedProperty.total_seller_value || 0);
-                          const paid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0);
+                          const buyerDirectToSeller = transactions.filter(t => t.paid_to_seller).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                          const paid = parseFloat(summary.advance_to_seller || 0) + parseFloat(summary.remaining_to_seller || 0) + buyerDirectToSeller;
                           const bal = Math.max(0, sellerTotal - paid);
                           return bal > 0 ? <p className="text-xs text-rose-600 mt-0.5">Balance due: {formatCurrency(bal)}</p> : null;
                         })()}
@@ -1360,8 +1455,8 @@ export default function PartnershipDetail() {
                     {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
                       <div className="flex items-center gap-2">
                         <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked, member_id: e.target.checked ? "" : p.member_id }))} className="rounded" />
-                          <span className="text-xs text-slate-400">Paid from partnership pot (no individual member)</span>
+                          <input type="checkbox" checked={txnForm.from_partnership_pot} onChange={(e) => setTxnForm(p => ({ ...p, from_partnership_pot: e.target.checked }))} className="rounded" />
+                          <span className="text-xs text-slate-400">Paid from partnership pot (from partner's held buyer cash)</span>
                         </label>
                       </div>
                     )}
@@ -1630,22 +1725,42 @@ export default function PartnershipDetail() {
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
                 <h2 className="text-base font-bold text-slate-900 mb-4">Financial Summary</h2>
                 <div className="space-y-1">
-                  <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-sm text-violet-700 font-medium">Advance to Seller</span>
-                    <span className="text-sm font-bold font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.advance_to_seller || 0)))}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-sm text-violet-700 font-medium">Remaining to Seller</span>
-                    <span className="text-sm font-bold font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.remaining_to_seller || 0)))}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-sm text-orange-400 font-medium">Broker Commission</span>
-                    <span className="text-sm font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.broker_commission || 0)))}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-sm text-blue-400 font-medium">Expenses</span>
-                    <span className="text-sm font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.expense_total || 0)))}</span>
-                  </div>
+                  {parseFloat(summary.advance_to_seller || 0) > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-200">
+                      <span className="text-sm text-violet-700 font-medium">Advance to Seller</span>
+                      <span className="text-sm font-bold font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.advance_to_seller || 0)))}</span>
+                    </div>
+                  )}
+                  {parseFloat(summary.remaining_to_seller || 0) > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-200">
+                      <span className="text-sm text-violet-700 font-medium">Remaining to Seller</span>
+                      <span className="text-sm font-bold font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.remaining_to_seller || 0)))}</span>
+                    </div>
+                  )}
+                  {parseFloat(summary.buyer_direct_to_seller || 0) > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-200">
+                      <span className="text-sm text-violet-700 font-medium">Buyer Paid to Seller</span>
+                      <span className="text-sm font-bold font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.buyer_direct_to_seller || 0)))}</span>
+                    </div>
+                  )}
+                  {parseFloat(summary.seller_pending || 0) > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-200">
+                      <span className="text-sm text-rose-500 font-medium">Seller Pending (owed)</span>
+                      <span className="text-sm font-bold font-mono text-rose-500">−{formatCurrency(scale(parseFloat(summary.seller_pending || 0)))}</span>
+                    </div>
+                  )}
+                  {parseFloat(summary.broker_commission || 0) > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-200">
+                      <span className="text-sm text-orange-400 font-medium">Broker Commission</span>
+                      <span className="text-sm font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.broker_commission || 0)))}</span>
+                    </div>
+                  )}
+                  {parseFloat(summary.expense_total || 0) > 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-200">
+                      <span className="text-sm text-blue-400 font-medium">Expenses</span>
+                      <span className="text-sm font-mono text-rose-700">−{formatCurrency(scale(parseFloat(summary.expense_total || 0)))}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between py-2">
                     <span className="text-sm font-bold text-slate-600">Total Outflow</span>
                     <span className="text-sm font-bold font-mono text-rose-700">−{formatCurrency(scale(totalOutflow))}</span>
@@ -1727,10 +1842,13 @@ export default function PartnershipDetail() {
               </div>
               {editPlotForm.area_sqft && editPlotForm.price_per_sqft && (
                 <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 text-sm">
-                  <span className="text-blue-700 font-medium">Deal Value: </span>
+                  <span className="text-blue-700 font-medium">Calculated: </span>
                   <span className="text-blue-800 font-bold">{formatCurrency(parseFloat(editPlotForm.area_sqft) * parseFloat(editPlotForm.price_per_sqft))}</span>
                 </div>
               )}
+              <InputField label="Total Deal Amount ₹ (override — use when buyer pays slightly different at registry)">
+                <input type="number" value={editPlotForm.total_value} onChange={(e) => setEditPlotForm(p => ({ ...p, total_value: e.target.value }))} className={inputCls} placeholder="Leave blank to use area × rate" min="0" />
+              </InputField>
               <div className="grid grid-cols-4 gap-2">
                 <InputField label="North (ft)">
                   <input type="number" value={editPlotForm.side_north_ft} onChange={(e) => setEditPlotForm(p => ({ ...p, side_north_ft: e.target.value }))} className={inputCls} placeholder="0" min="0" />
@@ -1758,9 +1876,11 @@ export default function PartnershipDetail() {
                     if (editPlotForm.plot_number !== "") payload.plot_number = editPlotForm.plot_number || null;
                     if (editPlotForm.area_sqft) payload.area_sqft = parseFloat(editPlotForm.area_sqft);
                     if (editPlotForm.price_per_sqft) payload.sold_price_per_sqft = parseFloat(editPlotForm.price_per_sqft);
+                    if (editPlotForm.total_value) payload.calculated_price = parseFloat(editPlotForm.total_value);
                   } else {
                     if (editPlotForm.area_sqft) payload.area_sqft = parseFloat(editPlotForm.area_sqft);
                     if (editPlotForm.price_per_sqft) payload.rate_per_sqft = parseFloat(editPlotForm.price_per_sqft);
+                    if (editPlotForm.total_value) payload.total_value = parseFloat(editPlotForm.total_value);
                   }
                   if (editPlotForm.side_north_ft) payload.side_north_ft = parseFloat(editPlotForm.side_north_ft);
                   if (editPlotForm.side_south_ft) payload.side_south_ft = parseFloat(editPlotForm.side_south_ft);
@@ -2056,9 +2176,14 @@ export default function PartnershipDetail() {
                             <span className="font-mono font-semibold text-emerald-700">+ {formatCurrency(p.total_buyer_received)}</span>
                           </div>
                           <div className="flex justify-between text-slate-500">
-                            <span>Paid to Seller</span>
+                            <span>Total Seller Cost</span>
                             <span className="font-mono">− {formatCurrency(p.total_to_seller)}</span>
                           </div>
+                          {p.seller_pending > 0 && (
+                            <div className="flex justify-between text-xs text-rose-500 pl-3">
+                              <span>↳ Paid so far: {formatCurrency(p.total_paid_to_seller)} · Still owed: {formatCurrency(p.seller_pending)}</span>
+                            </div>
+                          )}
                           {p.broker_pool_deduction > 0 && (
                             <div className="flex justify-between text-slate-500">
                               <span>Broker (pool)</span>
@@ -2085,6 +2210,18 @@ export default function PartnershipDetail() {
                             <span>Net Profit</span>
                             <span className={`font-mono ${p.net_profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{p.net_profit >= 0 ? "+" : ""}{formatCurrency(p.net_profit)}</span>
                           </div>
+                          {(p.total_personal_reimbursements || 0) > 0 && (
+                            <div className="flex justify-between text-slate-500">
+                              <span>Partner pocket payments (reimbursed first)</span>
+                              <span className="font-mono">− {formatCurrency(p.total_personal_reimbursements)}</span>
+                            </div>
+                          )}
+                          {p.profit_for_split !== undefined && (p.total_personal_reimbursements || 0) > 0 && (
+                            <div className="flex justify-between font-semibold text-indigo-700 bg-indigo-50 rounded-lg px-2 py-1">
+                              <span>Profit to split by %</span>
+                              <span className={`font-mono ${p.profit_for_split >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(p.profit_for_split)}</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Per-member breakdown */}
@@ -2124,7 +2261,9 @@ export default function PartnershipDetail() {
                                     </div>
                                   )}
                                   <div className="flex justify-between">
-                                    <span className="text-slate-500">Profit share ({pm.share_pct}%)</span>
+                                    <span className="text-slate-500">
+                                      Profit share ({pm.share_pct}%{p.profit_for_split !== undefined && p.profit_for_split !== p.net_profit ? ` of ${formatCurrency(p.profit_for_split)}` : ""})
+                                    </span>
                                     <span className={`font-mono ${pm.profit_share >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{pm.profit_share >= 0 ? "+" : ""}{formatCurrency(pm.profit_share)}</span>
                                   </div>
                                   {pm.already_received > 0 && (
@@ -2208,23 +2347,50 @@ export default function PartnershipDetail() {
                         ? parseFloat(overrideVal) : pm.final_entitlement;
                       const netObligation = finalAmt - pm.buyer_cash_held;
                       return (
-                        <div key={pm.member_id} className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-4 py-3">
-                          <div>
-                            <span className="text-sm font-semibold text-slate-800">{pm.name}</span>
-                            <span className="text-xs text-slate-400 ml-2">{pm.share_pct}%</span>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-mono font-bold text-slate-900">{formatCurrency(finalAmt)}</div>
-                            {pm.buyer_cash_held > 0 && (
+                        <div key={pm.member_id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-sm font-semibold text-slate-800">{pm.name}</span>
+                              {pm.is_self && <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">YOU</span>}
+                              <span className="text-xs text-slate-400 ml-2">{pm.share_pct}%</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-mono font-bold text-slate-900">{formatCurrency(finalAmt)}</div>
                               <div className={`text-xs font-mono ${netObligation >= 0 ? "text-teal-600" : "text-rose-600"}`}>
                                 {netObligation >= 0 ? `gets ${formatCurrency(netObligation)}` : `pays back ${formatCurrency(Math.abs(netObligation))}`}
                               </div>
-                            )}
+                            </div>
                           </div>
+                          {pm.buyer_cash_held > 0 && (
+                            <p className="text-[10px] text-slate-400">holds {formatCurrency(pm.buyer_cash_held)} buyer cash · entitlement {formatCurrency(finalAmt)}</p>
+                          )}
                         </div>
                       );
                     })}
                   </div>
+
+                  {/* Who pays whom — obligations that will be created */}
+                  {(settlePreview.payments_flow || []).length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Obligations to be Created</p>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl divide-y divide-slate-200">
+                        {(settlePreview.payments_flow || []).map((flow, i) => (
+                          <div key={i} className="flex items-center justify-between px-4 py-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${flow.obligation_type === "payable" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
+                                {flow.obligation_type === "payable" ? "PAY" : "RECEIVE"}
+                              </span>
+                              <span className="text-slate-700 font-medium">{flow.from_name}</span>
+                              <span className="text-slate-400">→</span>
+                              <span className="text-slate-700 font-medium">{flow.to_name}</span>
+                            </div>
+                            <span className="font-mono font-bold text-slate-900">{formatCurrency(flow.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-slate-400">These obligations will be created in your money tracker when you confirm settlement.</p>
+                    </div>
+                  )}
 
                   {settleForm.notes && (
                     <div className="bg-slate-100 rounded-xl px-4 py-3 text-sm text-slate-600">

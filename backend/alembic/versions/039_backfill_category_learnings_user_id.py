@@ -11,14 +11,14 @@ unique constraint (user already has a per-user row for the same description) are
 left as NULL so they don't cause an IntegrityError; they will be overwritten
 naturally as the user resaves expenses with those descriptions.
 
-Revision ID: 039_backfill_category_learnings_user_id
+Revision ID: 039_backfill_cl_user_id
 Revises: 038_expense_soft_delete
 Create Date: 2026-05-11 00:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "039_backfill_category_learnings_user_id"
+revision = "039_backfill_cl_user_id"
 down_revision = "038_expense_soft_delete"
 branch_labels = None
 depends_on = None

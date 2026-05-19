@@ -317,6 +317,7 @@ function normalizeForForm(property) {
     total_seller_value: property.total_seller_value
       ? String(property.total_seller_value)
       : "",
+    deal_locked_date: property.deal_locked_date || "",
     negotiating_date: property.negotiating_date || "",
     expected_registry_date: property.expected_registry_date || "",
     actual_registry_date: property.actual_registry_date || "",

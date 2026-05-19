@@ -76,6 +76,7 @@ class PartnershipTransaction(Base):
     broker_name = Column(String(255), nullable=True)
     # Whether this was paid from partnership pot (not from any individual's account)
     from_partnership_pot = Column(Boolean, default=False)
+    paid_to_seller = Column(Boolean, default=False, server_default="false")
     is_legacy = Column(Boolean, default=False)
     is_voided = Column(Boolean, default=False, server_default="false")
     created_by = Column(Integer, ForeignKey("users.id"))
