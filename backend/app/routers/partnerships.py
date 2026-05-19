@@ -15,6 +15,7 @@ from app.models.partnership import Partnership, PartnershipMember, PartnershipTr
 from app.models.user import User
 from app.schemas.partnership import (
     MemberSettlementOverride,
+    PartnerPaymentNote,
     PartnershipCreate,
     PartnershipMemberCreate,
     PartnershipMemberOut,
@@ -1143,15 +1144,15 @@ def _build_settlement_breakdown(
         for mid, proportion in buyer_proportions.items():
             member_buyer_held[mid] = member_buyer_held.get(mid, Decimal("0")) - pool_pot_disb * proportion
 
-    # ── Profit split: deduct personal pocket payments first, then divide remainder ──
-    # total_personal_pool = all money partners paid from their own pockets (not pot)
-    # that gets reimbursed at settlement before the % split happens.
+    # ── Profit split: full net profit divided by share % ──
+    # Pocket payments (advances, expenses) are returned to each partner in their
+    # individual entitlement; they do NOT reduce the profit before splitting.
     total_personal_pool = (
         sum(member_investments.values(), Decimal("0"))
         + sum(member_expenses.values(), Decimal("0"))
         + broker_partner_total
     )
-    profit_for_split = net_profit - total_personal_pool
+    profit_for_split = net_profit  # split the full net profit by share %
 
     # ── Per-member breakdown ─────────────────────────────────────────────────
     members_data = []
@@ -1337,12 +1338,18 @@ def settle_partnership(
             mid = t.received_by_member_id
             member_buyer_received[mid] = member_buyer_received.get(mid, Decimal("0")) + _decimal(t.amount)
 
+    # Build per-member payment notes map from request
+    partner_notes_map: dict = {}
+    for pn in (request.partner_notes or []):
+        partner_notes_map[pn.member_id] = pn.notes
+
     for member in members:
         if member.is_self or not member.contact_id:
             continue
         entitlement = _decimal(member.total_received)
         already_collected = member_buyer_received.get(member.id, Decimal("0"))
         net_entitlement = entitlement - already_collected
+        obligation_notes = partner_notes_map.get(member.id)
 
         if net_entitlement > Decimal("0"):
             db.add(MoneyObligation(
@@ -1350,6 +1357,7 @@ def settle_partnership(
                 contact_id=member.contact_id,
                 amount=net_entitlement,
                 reason=f"Partnership '{partnership.title}' settlement: partner entitlement",
+                notes=obligation_notes,
                 linked_type="partnership",
                 linked_id=partnership.id,
                 created_by=current_user.id,
@@ -1360,6 +1368,7 @@ def settle_partnership(
                 contact_id=member.contact_id,
                 amount=abs(net_entitlement),
                 reason=f"Partnership '{partnership.title}' settlement: partner owes back",
+                notes=obligation_notes,
                 linked_type="partnership",
                 linked_id=partnership.id,
                 created_by=current_user.id,

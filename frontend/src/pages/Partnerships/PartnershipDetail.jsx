@@ -109,6 +109,7 @@ export default function PartnershipDetail() {
   const [settlePreviewLoading, setSettlePreviewLoading] = useState(false);
   const [settlePreviewError, setSettlePreviewError] = useState(null);
   const [memberOverrides, setMemberOverrides] = useState({}); // { member_id: string amount }
+  const [partnerPaymentNotes, setPartnerPaymentNotes] = useState({}); // { member_id: string notes }
 
   // Plot expansion & close-deal state
   const [expandedPlotId, setExpandedPlotId] = useState(null); // "sp-{id}" or "pb-{id}"
@@ -243,7 +244,7 @@ export default function PartnershipDetail() {
 
   const settleMutation = useMutation({
     mutationFn: (payload) => api.put(`/api/partnerships/${id}/settle`, payload),
-    onSuccess: () => { invalidate(); setShowSettleModal(false); },
+    onSuccess: () => { invalidate(); setShowSettleModal(false); setPartnerPaymentNotes({}); },
     onError: (err) => alert(err?.response?.data?.detail || "Failed to settle"),
   });
 
@@ -295,8 +296,17 @@ export default function PartnershipDetail() {
     const isInflow = INFLOW_TYPES.includes(txnType);
     const isTransfer = TRANSFER_TYPES.includes(txnType);
 
+    // Validate: broker paid from pot must have a member selected (so the full
+    // amount reduces that partner's held cash, not split proportionally to all holders)
+    if (txnType === "broker_commission" && txnForm.from_partnership_pot && !txnForm.member_id) {
+      alert("Please select which partner's held cash was used to pay the broker.");
+      return;
+    }
+
     let memberId = null;
     if (isOutflow && txnForm.member_id && !txnForm.from_partnership_pot) memberId = parseInt(txnForm.member_id);
+    // For broker paid from pot, pass member_id so it reduces that partner's cash (not proportional split)
+    if (txnType === "broker_commission" && txnForm.from_partnership_pot && txnForm.member_id) memberId = parseInt(txnForm.member_id);
     if (isTransfer && txnForm.member_id) memberId = parseInt(txnForm.member_id); // FROM partner
 
     const isBuyerToSeller = ["buyer_advance", "buyer_payment"].includes(txnType) && txnForm.received_by_member_id === "seller";
@@ -463,11 +473,15 @@ export default function PartnershipDetail() {
     const overridesArray = Object.entries(memberOverrides)
       .filter(([, val]) => val !== "" && !isNaN(parseFloat(val)))
       .map(([memberId, amount]) => ({ member_id: parseInt(memberId), final_amount: parseFloat(amount) }));
+    const partnerNotesArray = Object.entries(partnerPaymentNotes)
+      .filter(([, notes]) => notes?.trim())
+      .map(([memberId, notes]) => ({ member_id: parseInt(memberId), notes: notes.trim() }));
     settleMutation.mutate({
       total_received: settleForm.total_received ? parseFloat(settleForm.total_received) : null,
       actual_end_date: settleForm.actual_end_date || null,
       notes: settleForm.notes?.trim() || null,
       member_overrides: overridesArray.length > 0 ? overridesArray : null,
+      partner_notes: partnerNotesArray.length > 0 ? partnerNotesArray : null,
     });
   };
 
@@ -955,7 +969,12 @@ export default function PartnershipDetail() {
                               {holdsExcess.map((r, i) => (
                                 <div key={i} className="flex justify-between items-center text-xs py-1">
                                   <span className="text-amber-700 font-medium">{r.name}</span>
-                                  <span className="font-mono font-bold text-amber-700">collected {formatCurrency(r.buyerCash)} · paid {formatCurrency(r.cashOut)} · excess {formatCurrency(r.netCashPos)}</span>
+                                  <span className="font-mono font-bold text-amber-700">
+                                    collected {formatCurrency(r.buyerCash)}
+                                    {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
+                                    {r.cashOut > 0 && <> · pocket paid {formatCurrency(r.cashOut)}</>}
+                                    {" · "}excess {formatCurrency(r.netCashPos)}
+                                  </span>
                                 </div>
                               ))}
                             </div>
@@ -966,7 +985,12 @@ export default function PartnershipDetail() {
                               {potOwes.map((r, i) => (
                                 <div key={i} className="flex justify-between items-center text-xs py-1">
                                   <span className="text-teal-700 font-medium">{r.name}</span>
-                                  <span className="font-mono font-bold text-teal-700">paid {formatCurrency(r.cashOut)} · collected {formatCurrency(r.buyerCash)} · owed {formatCurrency(Math.abs(r.netCashPos))}</span>
+                                  <span className="font-mono font-bold text-teal-700">
+                                    pocket paid {formatCurrency(r.cashOut)}
+                                    {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
+                                    {" · "}collected {formatCurrency(r.buyerCash)}
+                                    {" · "}owed {formatCurrency(Math.abs(r.netCashPos))}
+                                  </span>
                                 </div>
                               ))}
                             </div>
@@ -1351,11 +1375,18 @@ export default function PartnershipDetail() {
                     <div className="grid grid-cols-3 gap-3">
                       {OUTFLOW_TYPES.includes(txnForm.txn_type) && (
                         <div>
-                          <label className="block text-xs text-slate-500 mb-0.5">Paid by</label>
-                          <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value, account_id: "" }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-sm text-slate-700 placeholder-slate-400">
-                            <option value="">— From pot —</option>
+                          <label className="block text-xs mb-0.5">
+                            <span className={txnForm.txn_type === "broker_commission" && txnForm.from_partnership_pot ? "text-rose-600 font-semibold" : "text-slate-500"}>
+                              {txnForm.txn_type === "broker_commission" && txnForm.from_partnership_pot ? "Whose cash? *" : "Paid by"}
+                            </span>
+                          </label>
+                          <select value={txnForm.member_id} onChange={(e) => setTxnForm(p => ({ ...p, member_id: e.target.value, account_id: "" }))} className={`w-full bg-slate-50 border rounded-xl px-2.5 py-2 text-sm text-slate-700 placeholder-slate-400 ${txnForm.txn_type === "broker_commission" && txnForm.from_partnership_pot && !txnForm.member_id ? "border-rose-300 ring-1 ring-rose-200" : "border-slate-200"}`}>
+                            <option value="">{txnForm.txn_type === "broker_commission" && txnForm.from_partnership_pot ? "— Select partner's cash —" : "— From pot —"}</option>
                             {members.map(m => <option key={m.member?.id} value={String(m.member?.id)}>{m.member?.is_self ? "Self" : m.contact?.name || "Partner"}</option>)}
                           </select>
+                          {txnForm.txn_type === "broker_commission" && txnForm.from_partnership_pot && !txnForm.member_id && (
+                            <p className="text-[10px] text-rose-500 mt-0.5">Select who held the buyer cash used to pay the broker</p>
+                          )}
                         </div>
                       )}
                       {txnForm.txn_type === "partner_transfer" && (
@@ -2210,18 +2241,10 @@ export default function PartnershipDetail() {
                             <span>Net Profit</span>
                             <span className={`font-mono ${p.net_profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{p.net_profit >= 0 ? "+" : ""}{formatCurrency(p.net_profit)}</span>
                           </div>
-                          {(p.total_personal_reimbursements || 0) > 0 && (
-                            <div className="flex justify-between text-slate-500">
-                              <span>Partner pocket payments (reimbursed first)</span>
-                              <span className="font-mono">− {formatCurrency(p.total_personal_reimbursements)}</span>
-                            </div>
-                          )}
-                          {p.profit_for_split !== undefined && (p.total_personal_reimbursements || 0) > 0 && (
-                            <div className="flex justify-between font-semibold text-indigo-700 bg-indigo-50 rounded-lg px-2 py-1">
-                              <span>Profit to split by %</span>
-                              <span className={`font-mono ${p.profit_for_split >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(p.profit_for_split)}</span>
-                            </div>
-                          )}
+                          <div className="flex justify-between font-semibold text-indigo-700 bg-indigo-50 rounded-lg px-2 py-1">
+                            <span>Profit to split by %</span>
+                            <span className={`font-mono ${p.net_profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(p.net_profit)}</span>
+                          </div>
                         </div>
 
                         {/* Per-member breakdown */}
@@ -2262,7 +2285,7 @@ export default function PartnershipDetail() {
                                   )}
                                   <div className="flex justify-between">
                                     <span className="text-slate-500">
-                                      Profit share ({pm.share_pct}%{p.profit_for_split !== undefined && p.profit_for_split !== p.net_profit ? ` of ${formatCurrency(p.profit_for_split)}` : ""})
+                                      Profit share ({pm.share_pct}% of {formatCurrency(p.net_profit)})
                                     </span>
                                     <span className={`font-mono ${pm.profit_share >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{pm.profit_share >= 0 ? "+" : ""}{formatCurrency(pm.profit_share)}</span>
                                   </div>
@@ -2388,6 +2411,20 @@ export default function PartnershipDetail() {
                           </div>
                         ))}
                       </div>
+                      {/* Account/payment notes for each payable — saved on the obligation */}
+                      {(settlePreview.payments_flow || []).filter(f => f.obligation_type === "payable").map((flow, i) => (
+                        <div key={i} className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1.5">
+                          <p className="text-xs font-semibold text-rose-700">Payment account for {flow.to_name}</p>
+                          <input
+                            type="text"
+                            placeholder="e.g. UPI ID, bank account, IFSC, or any payment notes"
+                            value={partnerPaymentNotes[flow.member_id] ?? ""}
+                            onChange={(e) => setPartnerPaymentNotes(prev => ({ ...prev, [flow.member_id]: e.target.value }))}
+                            className="w-full bg-white border border-rose-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-300/40"
+                          />
+                          <p className="text-[10px] text-rose-400">This will be saved as notes on the payable obligation.</p>
+                        </div>
+                      ))}
                       <p className="text-[10px] text-slate-400">These obligations will be created in your money tracker when you confirm settlement.</p>
                     </div>
                   )}

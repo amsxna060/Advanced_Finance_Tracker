@@ -123,11 +123,17 @@ class MemberSettlementOverride(BaseModel):
     final_amount: Decimal
 
 
+class PartnerPaymentNote(BaseModel):
+    member_id: int
+    notes: Optional[str] = None
+
+
 class PartnershipSettleRequest(BaseModel):
     total_received: Optional[Decimal] = None
     actual_end_date: Optional[date] = None
     notes: Optional[str] = None
     member_overrides: Optional[List[MemberSettlementOverride]] = None
+    partner_notes: Optional[List[PartnerPaymentNote]] = None
 
 
 class CreateBuyerRequest(BaseModel):
