@@ -721,10 +721,11 @@ def create_partnership_transaction(
         and not receiving_member.is_self
     )
 
-    # Also skip ledger if paid from partnership pot (not from any individual's account)
+    # from_pot = logically charged to shared pot, but if account_id is set the
+    # physical payment still left that account — always create the ledger entry.
     from_pot = transaction_data.from_partnership_pot
 
-    if transaction.account_id and not buyer_received_by_partner and not from_pot:
+    if transaction.account_id and not buyer_received_by_partner:
         if txn_type in OUTFLOW_TYPES:
             auto_ledger(
                 db=db,
@@ -984,7 +985,7 @@ def update_partnership_transaction(
 
     from_pot = transaction_data.from_partnership_pot
 
-    if new_account_id and not buyer_received_by_partner and not from_pot:
+    if new_account_id and not buyer_received_by_partner:
         if new_type in OUTFLOW_TYPES:
             auto_ledger(
                 db=db,
