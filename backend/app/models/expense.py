@@ -20,6 +20,8 @@ class Expense(Base):
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_recurring = Column(Boolean, default=False, nullable=False, server_default="false")
+    recurring_till = Column(Date, nullable=True)
     # C-DI-2: soft-delete flag so expense history is preserved on deletion
     is_deleted = Column(Boolean, default=False, nullable=False, server_default="false")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

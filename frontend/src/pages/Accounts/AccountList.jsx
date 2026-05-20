@@ -155,7 +155,7 @@ export default function AccountList() {
 
   const totalAssets = assets.reduce((s, a) => s + Number(a.current_balance || 0), 0);
   // Credit card balance is typically negative (debit = spending), so current_balance shows how much is owed
-  const totalCCDebt = creditCards.reduce((s, a) => s + Math.abs(Math.min(0, Number(a.current_balance || 0))), 0);
+  const totalCCDebt = creditCards.reduce((s, a) => s + Math.max(0, Number(a.current_balance || 0)), 0);
   const netWorth = totalAssets - totalCCDebt;
 
   const liquidity = accounts
@@ -314,7 +314,7 @@ export default function AccountList() {
                         {maskedNum}
                       </div>
                     )}
-                    <div className={`text-2xl font-bold tracking-tight ${bal < 0 ? "text-rose-300" : "text-white"}`}>
+                    <div className={`text-2xl font-bold tracking-tight ${(isCreditCard && bal > 0) || bal < 0 ? "text-rose-300" : "text-white"}`}>
                       {formatCurrency(bal)}
                     </div>
                     {isCreditCard && a.credit_limit && (

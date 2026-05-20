@@ -80,6 +80,8 @@ const defaultForm = {
   payment_mode: "cash",
   receipt_url: "",
   account_id: "",
+  is_recurring: false,
+  recurring_till: "",
 };
 
 const PAGE_SIZE = 50;
@@ -439,6 +441,8 @@ function ExpenseList() {
       payment_mode: form.payment_mode || null,
       receipt_url: form.receipt_url || null,
       account_id: form.account_id ? Number(form.account_id) : null,
+      is_recurring: form.is_recurring || false,
+      recurring_till: form.is_recurring && form.recurring_till ? form.recurring_till : null,
     });
   };
 
@@ -574,6 +578,8 @@ function ExpenseList() {
       payment_mode: expense.payment_mode || "cash",
       receipt_url: expense.receipt_url || "",
       account_id: expense.account_id ? expense.account_id.toString() : "",
+      is_recurring: expense.is_recurring || false,
+      recurring_till: expense.recurring_till || "",
     });
     setErrorMessage("");
     setAutoFilled(false);
@@ -809,8 +815,15 @@ function ExpenseList() {
                       <td className="px-4 py-3 text-sm text-slate-600 capitalize hidden lg:table-cell">
                         {expense.payment_mode || "-"}
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate hidden xl:table-cell">
-                        {expense.description || "-"}
+                      <td className="px-4 py-3 text-sm text-slate-500 max-w-[200px] hidden xl:table-cell">
+                        <div className="flex items-center gap-1.5 truncate">
+                          {expense.is_recurring && (
+                            <span className="shrink-0 text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">
+                              Recurring
+                            </span>
+                          )}
+                          <span className="truncate">{expense.description || "-"}</span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
                         {user?.role === "admin" && (
@@ -1006,6 +1019,37 @@ function ExpenseList() {
                   <p className="text-xs text-amber-600 mt-1 ml-1">
                     ⚠ Selecting an account ensures proper money flow tracking
                   </p>
+                )}
+              </div>
+              {/* Recurring payment */}
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.is_recurring}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        is_recurring: e.target.checked,
+                        recurring_till: e.target.checked ? prev.recurring_till : "",
+                      }))
+                    }
+                    className="w-4 h-4 accent-indigo-600 rounded"
+                  />
+                  <span className="text-sm font-medium text-slate-700">Recurring payment</span>
+                </label>
+                {form.is_recurring && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Recurring till</span>
+                    <input
+                      type="date"
+                      value={form.recurring_till}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, recurring_till: e.target.value }))
+                      }
+                      className="px-3 py-1.5 border border-indigo-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                    />
+                  </div>
                 )}
               </div>
               <div className="space-y-2">

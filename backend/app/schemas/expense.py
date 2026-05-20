@@ -20,6 +20,8 @@ class ExpenseCreate(BaseModel):
     # C-VAL-1: restrict to http/https URLs to prevent javascript: XSS injection
     receipt_url: Optional[str] = None
     account_id: Optional[int] = None
+    is_recurring: Optional[bool] = False
+    recurring_till: Optional[date] = None
 
     @field_validator("receipt_url")
     @classmethod
@@ -52,6 +54,8 @@ class ExpenseUpdate(BaseModel):
     receipt_url: Optional[str] = None
     # H-DI-12: account_id was missing from ExpenseUpdate, making it impossible to change
     account_id: Optional[int] = None
+    is_recurring: Optional[bool] = None
+    recurring_till: Optional[date] = None
 
     @field_validator("receipt_url")
     @classmethod
@@ -75,6 +79,8 @@ class ExpenseOut(BaseModel):
     payment_mode: Optional[str]
     receipt_url: Optional[str]
     account_id: Optional[int] = None
+    is_recurring: Optional[bool] = False
+    recurring_till: Optional[date] = None
     created_by: Optional[int]
     created_at: datetime
 
