@@ -860,7 +860,7 @@ export default function PartnershipDetail() {
                           {profitTaken > 0 && (
                             <p className="text-xs text-emerald-700"><span className="font-mono">{formatCurrency(profitTaken)}</span> profit already taken</p>
                           )}
-                          {/* Live cash flow tracker — actual money in/out only, no profit calc */}
+                          {/* Live cash flow tracker with settlement position when seller is fully paid */}
                           {(() => {
                             const totalCashOut = personalInvest + expensesPaid + brokerPaidByMember;
                             // Pool pot disbursements (no member_id on txn) attributed to holders proportionally
@@ -872,7 +872,19 @@ export default function PartnershipDetail() {
                               .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                             const myPoolPot = allBuyerHeld > 0 ? poolPot * (buyerCashHeld / allBuyerHeld) : 0;
                             const totalPotDisbursed = potDisbursedByMe + myPoolPot;
-                            const netCashPos = buyerCashHeld - totalPotDisbursed - totalCashOut;
+
+                            // rawNetCashPos = how much pot cash this partner holds net of pocket investment
+                            const rawNetCashPos = buyerCashHeld - totalPotDisbursed - totalCashOut;
+
+                            // Include profit once seller is fully paid (deal economics are final)
+                            const sellerFullyPaid = parseFloat(summary.seller_pending || 0) === 0 && parseFloat(summary.seller_total_value || 0) > 0;
+                            const includeProfit = sellerFullyPaid || isSettled;
+                            const profitShare = netPnl * (sharePct / 100);
+
+                            // Settlement position = rawNetCashPos − profit entitlement
+                            // +ve → holds excess (must pay out)  |  −ve → deficit (must receive)
+                            const settlementPos = includeProfit ? rawNetCashPos - profitShare : rawNetCashPos;
+
                             return (
                               <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
                                 {totalCashOut > 0 && (
@@ -899,18 +911,35 @@ export default function PartnershipDetail() {
                                     <span className="font-mono text-slate-400 text-[10px]">{formatCurrency(forwardedToSeller)}</span>
                                   </div>
                                 )}
-                                {isSettled && (
-                                  <div className="flex justify-between text-xs">
-                                    <span className="text-slate-500">Profit share ({sharePct}%)</span>
-                                    <span className={`font-mono ${netPnl * sharePct / 100 >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{netPnl * sharePct / 100 >= 0 ? "+" : ""}{formatCurrency(Math.abs(netPnl * sharePct / 100))}</span>
+                                {includeProfit && (
+                                  <div className="flex justify-between text-xs pt-0.5 border-t border-dashed border-slate-200">
+                                    <span className="text-slate-500">Profit share ({sharePct}% of {formatCurrency(netPnl)})</span>
+                                    <span className={`font-mono ${profitShare >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{profitShare >= 0 ? "+" : "−"}{formatCurrency(Math.abs(profitShare))}</span>
                                   </div>
                                 )}
                                 <div className="flex justify-between text-xs border-t border-slate-200 pt-1">
                                   <span className="text-slate-600 font-semibold">
-                                    {isSettled ? "Settlement balance" : "Live cash position"}
+                                    {includeProfit ? "Settlement position" : "Live cash position"}
                                   </span>
-                                  <span className={`font-mono font-bold ${netCashPos <= 0 ? "text-teal-700 bg-teal-50 border border-teal-200" : "text-amber-700 bg-amber-50 border border-amber-200"} rounded px-1.5 py-0.5`}>
-                                    {netCashPos <= 0 ? `${formatCurrency(Math.abs(netCashPos))} to recover` : `holds ${formatCurrency(netCashPos)} from pot`}
+                                  <span className={`font-mono font-bold ${
+                                    includeProfit
+                                      ? settlementPos > 0
+                                        ? "text-rose-700 bg-rose-50 border border-rose-200"
+                                        : "text-teal-700 bg-teal-50 border border-teal-200"
+                                      : rawNetCashPos <= 0
+                                        ? "text-teal-700 bg-teal-50 border border-teal-200"
+                                        : "text-amber-700 bg-amber-50 border border-amber-200"
+                                  } rounded px-1.5 py-0.5`}>
+                                    {includeProfit
+                                      ? settlementPos > 0
+                                        ? `must pay ${formatCurrency(settlementPos)}`
+                                        : settlementPos < 0
+                                          ? `to receive ${formatCurrency(Math.abs(settlementPos))}`
+                                          : "settled"
+                                      : rawNetCashPos <= 0
+                                        ? `${formatCurrency(Math.abs(rawNetCashPos))} to recover`
+                                        : `holds ${formatCurrency(rawNetCashPos)} from pot`
+                                    }
                                   </span>
                                 </div>
                               </div>
@@ -925,25 +954,28 @@ export default function PartnershipDetail() {
                         </div>
                       );
                     })}
-                    {/* Cash Flow Summary — who owes / is owed right now */}
+                    {/* Settlement position summary — who pays / receives at close */}
                     {(() => {
-                      // Compute pool-level pot disbursements once for proportional attribution
+                      const sellerFullyPaid = parseFloat(summary.seller_pending || 0) === 0 && parseFloat(summary.seller_total_value || 0) > 0;
+                      const includeProfit = sellerFullyPaid || isSettled;
+
                       const allBuyerHeldSummary = transactions
                         .filter(t => ["buyer_advance","buyer_payment","buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id && !t.is_voided && !t.paid_to_seller)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const poolPotSummary = transactions
                         .filter(t => ["expense","other_expense","broker_commission","broker_paid","advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && !t.member_id && !!t.from_partnership_pot && !t.is_voided)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+
                       const flows = members.map(m => {
                         const memberId = m.member?.id;
                         const name = m.member?.is_self ? "Self (You)" : m.contact?.name || "Unknown";
+                        const sharePct = parseFloat(m.member?.share_percentage || 0);
                         const personalInvest = transactions
                           .filter(t => ["advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !t.from_partnership_pot)
                           .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                         const expPaid = transactions
                           .filter(t => ["expense","other_expense","broker_commission","broker_paid"].includes(t.txn_type) && t.member_id === memberId && !t.from_partnership_pot && !t.is_voided)
                           .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-                        // paid_to_seller = forwarded to seller immediately — not held as cash
                         const buyerCash = transactions
                           .filter(t => ["buyer_advance","buyer_payment","buyer_payment_received"].includes(t.txn_type) && t.received_by_member_id === memberId && !t.is_voided && !t.paid_to_seller)
                           .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
@@ -953,47 +985,95 @@ export default function PartnershipDetail() {
                         const myPoolPot = allBuyerHeldSummary > 0 ? poolPotSummary * (buyerCash / allBuyerHeldSummary) : 0;
                         const totalPotDisb = potByMe + myPoolPot;
                         const cashOut = personalInvest + expPaid;
-                        const netCashPos = buyerCash - totalPotDisb - cashOut;
-                        return { name, isSelf: m.member?.is_self, expPaid, buyerCash, cashOut, totalPotDisb, netCashPos };
+                        const rawNetCashPos = buyerCash - totalPotDisb - cashOut;
+                        const profitShare = netPnl * (sharePct / 100);
+                        // settlementPos: +ve = holds excess (must pay out), −ve = deficit (must receive)
+                        const settlementPos = includeProfit ? rawNetCashPos - profitShare : rawNetCashPos;
+                        return { name, isSelf: m.member?.is_self, buyerCash, cashOut, totalPotDisb, rawNetCashPos, profitShare, settlementPos };
                       });
-                      // +ve netCashPos = holds excess buyer cash from pot (owes back)
-                      // -ve netCashPos = put in more than collected (pot owes them)
-                      const holdsExcess = flows.filter(f => f.netCashPos > 0);
-                      const potOwes = flows.filter(f => f.netCashPos < 0);
-                      if (holdsExcess.length === 0 && potOwes.length === 0) return null;
+
+                      // When profit included: split by who must pay vs who must receive
+                      // When not: raw cash excess vs deficit
+                      const mustPay = flows.filter(f => f.settlementPos > 0.01);
+                      const mustReceive = flows.filter(f => f.settlementPos < -0.01);
+                      const holdsExcess = flows.filter(f => !includeProfit && f.rawNetCashPos > 0.01);
+                      const potOwes = flows.filter(f => !includeProfit && f.rawNetCashPos < -0.01);
+
+                      if (mustPay.length === 0 && mustReceive.length === 0 && holdsExcess.length === 0 && potOwes.length === 0) return null;
+
                       return (
-                        <div className="mt-3 pt-3 border-t border-slate-200">
-                          {holdsExcess.length > 0 && (
-                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-2">
-                              <p className="text-xs font-semibold text-amber-700 mb-2">Holds excess buyer cash from pot</p>
-                              {holdsExcess.map((r, i) => (
-                                <div key={i} className="flex justify-between items-center text-xs py-1">
-                                  <span className="text-amber-700 font-medium">{r.name}</span>
-                                  <span className="font-mono font-bold text-amber-700">
-                                    collected {formatCurrency(r.buyerCash)}
-                                    {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
-                                    {r.cashOut > 0 && <> · pocket paid {formatCurrency(r.cashOut)}</>}
-                                    {" · "}excess {formatCurrency(r.netCashPos)}
-                                  </span>
+                        <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                          {includeProfit ? (
+                            <>
+                              {mustPay.length > 0 && (
+                                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
+                                  <p className="text-xs font-semibold text-rose-700 mb-2">Must pay to settle</p>
+                                  {mustPay.map((r, i) => (
+                                    <div key={i} className="flex justify-between items-center text-xs py-1">
+                                      <span className="text-rose-700 font-medium">{r.name}</span>
+                                      <span className="font-mono font-bold text-rose-700">
+                                        collected {formatCurrency(r.buyerCash)}
+                                        {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
+                                        {r.cashOut > 0 && <> · pocket {formatCurrency(r.cashOut)}</>}
+                                        {" · "}profit {formatCurrency(r.profitShare)}
+                                        {" → "}pays {formatCurrency(r.settlementPos)}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                          {potOwes.length > 0 && (
-                            <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
-                              <p className="text-xs font-semibold text-teal-700 mb-2">Paid more from pocket than collected — pot owes back</p>
-                              {potOwes.map((r, i) => (
-                                <div key={i} className="flex justify-between items-center text-xs py-1">
-                                  <span className="text-teal-700 font-medium">{r.name}</span>
-                                  <span className="font-mono font-bold text-teal-700">
-                                    pocket paid {formatCurrency(r.cashOut)}
-                                    {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
-                                    {" · "}collected {formatCurrency(r.buyerCash)}
-                                    {" · "}owed {formatCurrency(Math.abs(r.netCashPos))}
-                                  </span>
+                              )}
+                              {mustReceive.length > 0 && (
+                                <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
+                                  <p className="text-xs font-semibold text-teal-700 mb-2">To receive at settlement</p>
+                                  {mustReceive.map((r, i) => (
+                                    <div key={i} className="flex justify-between items-center text-xs py-1">
+                                      <span className="text-teal-700 font-medium">{r.name}</span>
+                                      <span className="font-mono font-bold text-teal-700">
+                                        collected {formatCurrency(r.buyerCash)}
+                                        {r.cashOut > 0 && <> · pocket {formatCurrency(r.cashOut)}</>}
+                                        {" · "}profit {formatCurrency(r.profitShare)}
+                                        {" → "}receives {formatCurrency(Math.abs(r.settlementPos))}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {holdsExcess.length > 0 && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                                  <p className="text-xs font-semibold text-amber-700 mb-2">Holds excess buyer cash from pot</p>
+                                  {holdsExcess.map((r, i) => (
+                                    <div key={i} className="flex justify-between items-center text-xs py-1">
+                                      <span className="text-amber-700 font-medium">{r.name}</span>
+                                      <span className="font-mono font-bold text-amber-700">
+                                        collected {formatCurrency(r.buyerCash)}
+                                        {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
+                                        {r.cashOut > 0 && <> · pocket paid {formatCurrency(r.cashOut)}</>}
+                                        {" · "}excess {formatCurrency(r.rawNetCashPos)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {potOwes.length > 0 && (
+                                <div className="bg-teal-50 border border-teal-200 rounded-xl p-3">
+                                  <p className="text-xs font-semibold text-teal-700 mb-2">Paid more from pocket than collected — pot owes back</p>
+                                  {potOwes.map((r, i) => (
+                                    <div key={i} className="flex justify-between items-center text-xs py-1">
+                                      <span className="text-teal-700 font-medium">{r.name}</span>
+                                      <span className="font-mono font-bold text-teal-700">
+                                        pocket paid {formatCurrency(r.cashOut)}
+                                        {r.totalPotDisb > 0 && <> · pot paid {formatCurrency(r.totalPotDisb)}</>}
+                                        {" · "}collected {formatCurrency(r.buyerCash)}
+                                        {" · "}owed {formatCurrency(Math.abs(r.rawNetCashPos))}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       );
