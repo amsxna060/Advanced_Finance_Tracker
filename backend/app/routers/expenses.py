@@ -420,6 +420,8 @@ def create_expense(
             description=f"Expense: {expense.category or 'misc'} — {expense.description or ''}".strip(),
             payment_mode=expense.payment_mode,
             created_by=current_user.id,
+            source_type="expense",
+            source_id=expense.id,
         )
 
     db.commit()
@@ -459,9 +461,14 @@ def update_expense(
     for field, value in update_data.items():
         setattr(expense, field, value)
 
-    # If amount, date, or account changed, update the ledger entry
+    # If amount, date, or account changed, update the ledger entry.
+    # Also handles the case where the expense had NO account before and one is
+    # being attached now (old_account_id is None) — previously no entry was created.
     new_amount = Decimal(str(expense.amount)) if expense.amount else Decimal("0")
-    if old_account_id and (old_amount != new_amount or old_date != expense.expense_date or old_account_id != expense.account_id):
+    if (old_account_id or expense.account_id) and (
+            old_amount != new_amount
+            or old_date != expense.expense_date
+            or old_account_id != expense.account_id):
         # Remove old ledger entry
         reverse_all_ledger(db, "expense", expense.id)
         # Create new one if account is set
@@ -477,6 +484,8 @@ def update_expense(
                 description=f"Expense: {expense.category or 'misc'} — {expense.description or ''}".strip(),
                 payment_mode=expense.payment_mode,
                 created_by=current_user.id,
+                source_type="expense",
+                source_id=expense.id,
             )
 
     db.commit()

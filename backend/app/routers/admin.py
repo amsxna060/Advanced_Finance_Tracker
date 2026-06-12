@@ -12,6 +12,29 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
+# #11 (FIX): Single source of truth for every table name that may appear in an
+# interpolated f-string SQL statement below. The values are already hardcoded
+# (never user input), but routing them through this allowlist guarantees a
+# future edit can't turn the f-strings into a SQL-injection vector.
+_ALLOWED_TABLES = frozenset({
+    "partnership_transactions",
+    "partnership_members",
+    "property_transactions",
+    "plot_buyers",
+    "site_plots",
+    "partnerships",
+    "property_deals",
+    "contacts",
+})
+
+
+def _safe_table(name: str) -> str:
+    """Return the table name only if it is in the allowlist; otherwise refuse.
+    Defends the f-string interpolated SQL below against any non-literal value."""
+    if name not in _ALLOWED_TABLES:
+        raise ValueError(f"Refusing to use non-allowlisted table name in SQL: {name!r}")
+    return name
+
 
 @router.post("/mark-legacy")
 def mark_all_existing_as_legacy(
@@ -33,7 +56,7 @@ def mark_all_existing_as_legacy(
     ]
     counts = {}
     for table in tables:
-        result = db.execute(text(f"UPDATE {table} SET is_legacy = true WHERE is_legacy = false"))
+        result = db.execute(text(f"UPDATE {_safe_table(table)} SET is_legacy = true WHERE is_legacy = false"))
         counts[table] = result.rowcount
     db.commit()
     # C-DI-4: write audit log after commit
@@ -65,7 +88,7 @@ def unmark_all_legacy(
     ]
     counts = {}
     for table in tables:
-        result = db.execute(text(f"UPDATE {table} SET is_legacy = false WHERE is_legacy = true"))
+        result = db.execute(text(f"UPDATE {_safe_table(table)} SET is_legacy = false WHERE is_legacy = true"))
         counts[table] = result.rowcount
     db.commit()
     # C-DI-4: audit log
@@ -99,14 +122,14 @@ def delete_all_legacy_data(
     ]
     for table in soft_delete_tables:
         result = db.execute(text(
-            f"UPDATE {table} SET is_deleted = true WHERE is_legacy = true AND is_deleted = false"
+            f"UPDATE {_safe_table(table)} SET is_deleted = true WHERE is_legacy = true AND is_deleted = false"
         ))
         counts[f"{table}_soft_deleted"] = result.rowcount
 
     # Tables without is_deleted: soft-delete via is_legacy flag (leave as-is, just hide)
     # partnership_members and site_plots have no is_deleted column — mark noted in counts
     for table in ("partnership_members", "site_plots"):
-        result = db.execute(text(f"SELECT COUNT(*) FROM {table} WHERE is_legacy = true"))
+        result = db.execute(text(f"SELECT COUNT(*) FROM {_safe_table(table)} WHERE is_legacy = true"))
         row = result.fetchone()
         counts[f"{table}_legacy_count"] = row[0] if row else 0
 

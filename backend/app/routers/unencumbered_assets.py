@@ -7,13 +7,13 @@ Unencumbered Assets CRUD — standalone owned assets not linked to any loan or d
   DELETE /api/unencumbered-assets/{id}     – soft delete
 """
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.user import User
 
@@ -27,6 +27,18 @@ VALID_CATEGORIES = {
 
 def _d(v) -> Decimal:
     return Decimal("0") if v is None else Decimal(str(v))
+
+
+def _parse_estimated_value(v) -> Decimal:
+    """Validate and parse estimated_value. Rejects non-numeric / non-positive
+    input with a 422 instead of bubbling up a 500 from Decimal()."""
+    try:
+        d = Decimal(str(v))
+    except (InvalidOperation, ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="estimated_value must be a number")
+    if d <= 0:
+        raise HTTPException(status_code=422, detail="estimated_value must be greater than 0")
+    return d
 
 
 def _serialize(a: UnencumberedAsset) -> dict:
@@ -60,12 +72,13 @@ def list_assets(
 def create_asset(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     if not payload.get("title"):
         raise HTTPException(status_code=422, detail="title is required")
-    if not payload.get("estimated_value"):
+    if payload.get("estimated_value") in (None, ""):
         raise HTTPException(status_code=422, detail="estimated_value is required")
+    estimated_value = _parse_estimated_value(payload["estimated_value"])
 
     category = payload.get("category", "other")
     if category not in VALID_CATEGORIES:
@@ -81,7 +94,7 @@ def create_asset(
     asset = UnencumberedAsset(
         title=payload["title"],
         category=category,
-        estimated_value=_d(payload["estimated_value"]),
+        estimated_value=estimated_value,
         date_acquired=acquired,
         notes=payload.get("notes"),
         created_by=current_user.id,
@@ -97,7 +110,7 @@ def update_asset(
     asset_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     asset = db.query(UnencumberedAsset).filter(
         UnencumberedAsset.id == asset_id,
@@ -114,7 +127,7 @@ def update_asset(
             raise HTTPException(status_code=422, detail=f"Invalid category.")
         asset.category = cat
     if "estimated_value" in payload:
-        asset.estimated_value = _d(payload["estimated_value"])
+        asset.estimated_value = _parse_estimated_value(payload["estimated_value"])
     if "date_acquired" in payload:
         if payload["date_acquired"]:
             try:
@@ -135,7 +148,7 @@ def update_asset(
 def delete_asset(
     asset_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     asset = db.query(UnencumberedAsset).filter(
         UnencumberedAsset.id == asset_id,

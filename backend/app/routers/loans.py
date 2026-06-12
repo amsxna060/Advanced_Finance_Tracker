@@ -20,7 +20,8 @@ from app.services.interest import (
     generate_monthly_interest_schedule,
 )
 from app.services.payment_allocation import allocate_payment
-from app.services.auto_ledger import auto_ledger, reverse_all_ledger
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_ledger_by_source
+from app.services.loan_void import void_loan_payment
 from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -105,6 +106,8 @@ def create_loan(
             payment_mode=None,
             contact_id=new_loan.contact_id,
             created_by=current_user.id,
+            source_type="loan_disbursement",
+            source_id=new_loan.id,
         )
 
     db.commit()
@@ -276,17 +279,20 @@ def update_loan(
     # Re-sync disbursement ledger entry if any ledger-relevant field changed
     ledger_fields = {"account_id", "principal_amount", "disbursed_date", "loan_direction"}
     if ledger_fields & set(update_data.keys()):
-        # Remove old disbursement ledger entry (if one existed)
+        # Void old disbursement ledger entry (exact source link; legacy rows
+        # fall back to the heuristic match)
         if old_account_id:
-            old_entry = db.query(AccountTransaction).filter(
-                AccountTransaction.linked_type == "loan",
-                AccountTransaction.linked_id == loan_id,
-                AccountTransaction.txn_type == ("debit" if old_direction == "given" else "credit"),
-                AccountTransaction.amount == old_principal,
-                AccountTransaction.txn_date == old_disbursed_date,
-            ).first()
-            if old_entry:
-                db.delete(old_entry)
+            if reverse_ledger_by_source(db, "loan_disbursement", loan_id) == 0:
+                old_entry = db.query(AccountTransaction).filter(
+                    AccountTransaction.linked_type == "loan",
+                    AccountTransaction.linked_id == loan_id,
+                    AccountTransaction.txn_type == ("debit" if old_direction == "given" else "credit"),
+                    AccountTransaction.amount == old_principal,
+                    AccountTransaction.txn_date == old_disbursed_date,
+                    AccountTransaction.is_voided == False,
+                ).first()
+                if old_entry:
+                    old_entry.is_voided = True
 
         # Create new disbursement ledger entry with updated values
         if loan.account_id and loan.disbursed_date:
@@ -305,6 +311,8 @@ def update_loan(
                 payment_mode=None,
                 contact_id=loan.contact_id,
                 created_by=current_user.id,
+                source_type="loan_disbursement",
+                source_id=loan_id,
             )
 
     db.commit()
@@ -400,6 +408,8 @@ def record_payment(
             payment_mode=payment_data.payment_mode,
             contact_id=loan.contact_id,
             created_by=current_user.id,
+            source_type="loan_payment",
+            source_id=new_payment.id,
         )
 
     db.commit()
@@ -428,6 +438,12 @@ def record_payment(
                 profit_note = f" [Extra received as profit: ₹{float(profit):.2f}]"
                 new_payment.notes = (new_payment.notes or "") + profit_note
                 db.flush()
+            # Record any interest forgiven by closing so it isn't silently lost
+            # (closed loans report zero outstanding everywhere).
+            forgiven = outstanding.get("interest_outstanding", Decimal("0"))
+            if forgiven > Decimal("0.50"):
+                fnote = f"[Auto-closed on {payment_date} with uncollected interest: ₹{float(forgiven):.2f}]"
+                loan.notes = ((loan.notes or "").rstrip() + "\n" + fnote).strip()
             loan.status = "closed"
             loan.actual_end_date = payment_date
             db.commit()
@@ -495,29 +511,10 @@ def force_close_loan(
     if principal_shortfall > 0:
         loan.write_off_amount = principal_shortfall
 
-    # C-FIN-5: Post a write-off / adjustment ledger entry so the account
-    # balance is reconciled at close.  For "given" loans a shortfall means
-    # we write off the unrecovered principal as a debit (expense); for
-    # "taken" loans a shortfall (over-payment) would be a credit.
-    acct_id = loan.account_id
-    if acct_id and (principal_shortfall > 0 or profit_above_principal > 0):
-        direction = loan.loan_direction
-        contact_name = loan.contact.name if loan.contact else "Unknown"
-        if principal_shortfall > 0:
-            # Unrecovered principal is a write-off: debit for given, credit for taken
-            auto_ledger(
-                db=db,
-                account_id=acct_id,
-                txn_type="debit" if direction == "given" else "credit",
-                amount=principal_shortfall,
-                txn_date=today,
-                linked_type="loan",
-                linked_id=loan_id,
-                description=f"Force-close write-off {'for' if direction == 'given' else 'on'} {contact_name}",
-                payment_mode=None,
-                contact_id=loan.contact_id,
-                created_by=current_user.id,
-            )
+    # NOTE: no ledger entry is posted for a write-off — no cash actually moves
+    # at force-close (the money left the account at disbursement). Posting a
+    # phantom debit made the app balance diverge from the real bank balance.
+    # The loss is tracked via loan.write_off_amount and the note above.
 
     db.commit()
 
@@ -572,35 +569,11 @@ def delete_payment(
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found or already voided")
 
-    # C-FIN-6: void only the FIRST matching ledger row to avoid accidentally
-    # voiding two legitimate same-day same-amount entries (e.g. two people
-    # each paid ₹5 000 on the same day).
-    acct_id = payment.account_id or loan.account_id
-    if acct_id:
-        direction = loan.loan_direction
-        matching = db.query(AccountTransaction).filter(
-            AccountTransaction.linked_type == "loan",
-            AccountTransaction.linked_id == loan_id,
-            AccountTransaction.txn_type == ("credit" if direction == "given" else "debit"),
-            AccountTransaction.amount == payment.amount_paid,
-            AccountTransaction.txn_date == payment.payment_date,
-            AccountTransaction.is_voided == False,
-        ).first()  # .first() instead of .all() to avoid multi-row collateral damage
-        if matching:
-            matching.is_voided = True
+    # Shared with the ledger-side void (two-way sync): reverses the ledger
+    # entry exactly (source link, heuristic fallback for legacy rows), reopens
+    # the loan if needed, voids the payment and re-allocates later payments.
+    void_loan_payment(db, loan, payment, void_ledger=True)
 
-    # H-DI-15: preserve actual_end_date in notes before clearing it so the
-    # original close date is not lost from the audit trail.
-    if loan.status == "closed" and loan.actual_end_date:
-        close_note = f"[Voided payment on {payment.payment_date}; loan was closed on {loan.actual_end_date}]"
-        loan.notes = ((loan.notes or "").rstrip() + "\n" + close_note).strip()
-        loan.status = "active"
-        loan.actual_end_date = None
-    elif loan.status == "closed":
-        loan.status = "active"
-        loan.actual_end_date = None
-
-    payment.is_voided = True
     db.commit()
     return {"message": "Payment voided successfully"}
 
@@ -664,7 +637,18 @@ def capitalize_interest(
     
     if not loan.capitalization_enabled:
         raise HTTPException(status_code=400, detail="Capitalization not enabled for this loan")
-    
+
+    if (loan.capitalization_after_months or 0) > 0:
+        # Auto-cap loans compound automatically every N months; a manual event
+        # would be ignored by the outstanding calculation (and previously
+        # reported success while having no effect).
+        raise HTTPException(
+            status_code=400,
+            detail="This loan auto-capitalizes every "
+                   f"{loan.capitalization_after_months} months; manual capitalization "
+                   "is not applicable. Clear capitalization_after_months to capitalize manually.",
+        )
+
     # Calculate current outstanding
     outstanding = calculate_outstanding(loan_id, request.event_date, db)
     interest_outstanding = outstanding["interest_outstanding"]
@@ -762,9 +746,10 @@ def get_client_statement(
 
     contact = loan.contact
 
-    # Get all payments
+    # Get all payments (exclude voided — statement is a borrower-facing document)
     payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan_id
+        LoanPayment.loan_id == loan_id,
+        LoanPayment.is_voided == False,
     ).order_by(LoanPayment.payment_date.asc()).all()
 
     # Get capitalization events

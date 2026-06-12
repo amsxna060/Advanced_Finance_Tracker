@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_write_access
 from app.models.category import Category
 from app.models.user import User
 
@@ -65,7 +65,7 @@ def list_categories(
 def create_category(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write_access),
 ):
     """
     Create a new category (parent_id=None) or sub-category (parent_id=<id>).

@@ -44,7 +44,9 @@ def _current_balance(account: CashAccount) -> Decimal:
     is_credit_card = getattr(account, "account_type", "") == "credit_card"
     if is_credit_card:
         # outstanding amount owed on the card
-        outstanding = Decimal("0")
+        # opening_balance for a credit card = amount already owed when the
+        # account was added (was previously ignored entirely).
+        outstanding = _d(account.opening_balance)
         for txn in account.transactions:
             if getattr(txn, "is_voided", False):
                 continue
@@ -97,6 +99,8 @@ def _txn_dict(txn: AccountTransaction) -> dict:
         "description": txn.description,
         "linked_type": txn.linked_type,
         "linked_id": txn.linked_id,
+        "source_type": getattr(txn, "source_type", None),
+        "source_id": getattr(txn, "source_id", None),
         "reference_number": txn.reference_number,
         "payment_mode": txn.payment_mode,
         "is_voided": bool(getattr(txn, "is_voided", False)),
@@ -182,23 +186,12 @@ def update_account(
         new_ob = Decimal(str(payload["opening_balance"]))
         old_ob = Decimal(str(account.opening_balance or 0))
         if new_ob != old_ob:
-            # H-DI-6: record opening_balance change as an audit transaction so the
-            # ledger history is not silently altered. The delta is posted as a
-            # balance-adjustment entry (not debited/credited as regular cash flow).
-            delta = new_ob - old_ob
-            from app.services.auto_ledger import auto_ledger as _auto_ledger
-            from datetime import date as _date
-            _auto_ledger(
-                db=db,
-                account_id=account_id,
-                txn_type="credit" if delta > 0 else "debit",
-                amount=abs(delta),
-                txn_date=_date.today(),
-                linked_type="balance_adjustment",
-                linked_id=account_id,
-                description=f"Opening balance adjusted from {old_ob} to {new_ob}",
-                created_by=current_user.id,
-            )
+            # Apply the correction ONCE: update opening_balance only.
+            # (Previously this ALSO posted a balance_adjustment ledger entry for
+            # the delta — since balance = opening + credits − debits, the change
+            # was applied twice. The audit trail lives in account.notes instead.)
+            audit_note = f"[Opening balance adjusted from {old_ob} to {new_ob} on {date.today()}]"
+            account.notes = ((account.notes or "").rstrip() + "\n" + audit_note).strip()
             account.opening_balance = new_ob
     if "credit_limit" in payload:
         account.credit_limit = Decimal(str(payload["credit_limit"])) if payload["credit_limit"] is not None else None
@@ -390,20 +383,94 @@ def transfer_between_accounts(
     return {"debit": _txn_dict(debit), "credit": _txn_dict(credit), "message": "Transfer successful"}
 
 
+# Module-managed rows the ledger side cannot safely cascade — deleting them
+# here would desync the module's own totals/status, so direct the admin to the
+# owning page instead (force=true overrides for emergency cleanup).
+_BLOCKED_SOURCE_GUIDANCE = {
+    "loan_disbursement": "edit or delete the loan itself (Loans page)",
+    "partnership_txn": "delete the transaction on the Partnership page",
+    "beesi_installment": "delete the installment on the Beesi page",
+    "beesi_withdrawal": "delete the withdrawal on the Beesi page",
+    "obligation_create": "delete the obligation (Obligations page)",
+    "obligation_settlement": "delete the settlement on the Obligations page",
+}
+_LEGACY_MODULE_LINKED = {"loan", "partnership", "property", "beesi", "obligation"}
+
+
 @router.delete("/transactions/{txn_id}", response_model=dict)
 def void_transaction(
     txn_id: int,
+    force: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Soft-void a transaction. The row is kept for audit trail; is_voided=True
-    excludes it from all balance calculations and default ledger queries."""
+    """Soft-void a transaction with two-way sync back to the source record.
+
+    - loan payments  → the payment is voided too (loan reopens, later
+      payments re-allocated)
+    - expenses       → the expense is soft-deleted too
+    - other module-managed rows → 409 directing to the owning page
+      (pass ?force=true to void just the ledger row anyway — the module's own
+      record is then intentionally left untouched)
+    - manual / transfer / adjustment rows → plain void
+    """
     txn = db.query(AccountTransaction).filter(
         AccountTransaction.id == txn_id,
         AccountTransaction.is_voided == False,
     ).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # ── Cascades (two-way sync) ──────────────────────────────────────────
+    if txn.source_type == "loan_payment" and txn.source_id:
+        from app.models.loan import Loan, LoanPayment
+        from app.services.loan_void import void_loan_payment
+        payment = db.query(LoanPayment).filter(
+            LoanPayment.id == txn.source_id,
+            LoanPayment.is_voided == False,
+        ).first()
+        loan = db.query(Loan).filter(Loan.id == payment.loan_id).first() if payment else None
+        if payment and loan:
+            # void_ledger=True voids this very row via the source link
+            void_loan_payment(db, loan, payment, void_ledger=True)
+            db.commit()
+            return {"message": "Transaction voided; linked loan payment voided too",
+                    "id": txn_id, "cascaded": "loan_payment", "payment_id": payment.id}
+        txn.is_voided = True  # source already gone — just void the row
+        db.commit()
+        return {"message": "Transaction voided", "id": txn_id}
+
+    if txn.source_type == "expense" and txn.source_id:
+        from app.models.expense import Expense
+        from app.services.auto_ledger import reverse_all_ledger
+        expense = db.query(Expense).filter(
+            Expense.id == txn.source_id, Expense.is_deleted == False,
+        ).first()
+        if expense:
+            expense.is_deleted = True
+            reverse_all_ledger(db, "expense", expense.id)
+            db.commit()
+            return {"message": "Transaction voided; linked expense deleted too",
+                    "id": txn_id, "cascaded": "expense", "expense_id": expense.id}
+        txn.is_voided = True
+        db.commit()
+        return {"message": "Transaction voided", "id": txn_id}
+
+    # ── Blocked module-managed rows ──────────────────────────────────────
+    blocked_reason = None
+    if txn.source_type in _BLOCKED_SOURCE_GUIDANCE:
+        blocked_reason = _BLOCKED_SOURCE_GUIDANCE[txn.source_type]
+    elif txn.source_type is None and txn.linked_type in _LEGACY_MODULE_LINKED:
+        blocked_reason = f"manage it from the {txn.linked_type} page"
+    if blocked_reason and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This entry is managed by its source record — {blocked_reason}. "
+                   "Voiding only the ledger row would desync the module's totals. "
+                   "Add ?force=true to void it here anyway.",
+        )
+
     txn.is_voided = True
     db.commit()
-    return {"message": "Transaction voided", "id": txn_id}
+    return {"message": "Transaction voided", "id": txn_id,
+            "forced": bool(blocked_reason and force)}

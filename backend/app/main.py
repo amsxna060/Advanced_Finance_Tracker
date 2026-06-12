@@ -35,10 +35,17 @@ from app.services.scheduler import start_scheduler, stop_scheduler
 # M-SEC-4: use 60/minute (was 200/minute) to limit abuse potential
 limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
+# #8 (FIX): Hide the interactive docs / OpenAPI schema in production so the
+# full API surface isn't advertised publicly. Still available in dev/staging.
+_DOCS_ENABLED = settings.APP_ENV != "production"
+
 app = FastAPI(
     title="Advanced Finance Tracker",
     description="Personal finance management for money lending and property deals",
-    version="0.1.0"
+    version="0.1.0",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
 # Attach limiter to app state so slowapi can find it
@@ -54,6 +61,22 @@ app.add_middleware(
     # H-SEC-2: include X-CSRF-Token in allowed headers for the CSRF double-submit cookie pattern
     allow_headers=["Authorization", "Content-Type", "Accept", "X-CSRF-Token"],
 )
+
+
+# ── Security headers middleware (FIX #4) ──────────────────────────────────────
+# Adds standard hardening headers to every response: block MIME sniffing,
+# deny framing (clickjacking), constrain the Referer, and pin HTTPS in prod.
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if settings.APP_ENV == "production":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 # ── CSRF double-submit cookie middleware ─────────────────────────────────────
 # H-SEC-2 / M-SEC-5: Protect state-changing /api/admin/* endpoints with a CSRF
@@ -178,8 +201,17 @@ def startup():
         logger.error("Could not connect to database after 10 attempts")
         return
 
-    # Apply pending Alembic migrations
-    try:
+    # Apply pending Alembic migrations.
+    # #7 (FIX): On Postgres, guard the migration with a session-scoped advisory
+    # lock so that with multiple workers/replicas only ONE process runs
+    # `alembic upgrade head` at a time (the others skip and proceed once the
+    # lock holder finishes). On non-Postgres engines (e.g. sqlite in CI) the
+    # advisory-lock functions don't exist, so we run the migration directly —
+    # preserving the previous behavior.
+    from sqlalchemy import text as _sql_text
+    _MIGRATION_LOCK_KEY = 202605291001
+
+    def _run_migrations():
         import subprocess
         result = subprocess.run(
             ["alembic", "upgrade", "head"],
@@ -189,6 +221,26 @@ def startup():
             logger.info("Alembic migrations applied successfully")
         else:
             logger.error("Alembic migration failed: %s", result.stderr)
+
+    try:
+        if engine.dialect.name == "postgresql":
+            with engine.connect() as lock_conn:
+                got_lock = lock_conn.execute(
+                    _sql_text("SELECT pg_try_advisory_lock(:k)"),
+                    {"k": _MIGRATION_LOCK_KEY},
+                ).scalar()
+                if got_lock:
+                    try:
+                        _run_migrations()
+                    finally:
+                        lock_conn.execute(
+                            _sql_text("SELECT pg_advisory_unlock(:k)"),
+                            {"k": _MIGRATION_LOCK_KEY},
+                        )
+                else:
+                    logger.info("Another worker holds the migration lock; skipping migrations on this worker")
+        else:
+            _run_migrations()
     except Exception as e:
         logger.error("Could not run Alembic migrations: %s", e)
 

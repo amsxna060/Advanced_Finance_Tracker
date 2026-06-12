@@ -27,7 +27,7 @@ class Loan(Base):
     disbursed_date = Column(Date, nullable=False)
 
     # Interest configuration
-    interest_rate = Column(Numeric(6, 3))  # % per MONTH
+    interest_rate = Column(Numeric(6, 3))  # % per ANNUM (all calcs divide by 1200 for monthly)
     interest_start_date = Column(Date)
     interest_free_till = Column(Date)  # short_term: no interest until this date
     post_due_interest_rate = Column(Numeric(6, 3))  # short_term: rate after interest_free_till

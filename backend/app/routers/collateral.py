@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
@@ -39,7 +40,10 @@ async def create_collateral(
     current_user: User = Depends(require_admin)
 ):
     """Create a new collateral for a loan"""
-    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
+    # async endpoint (awaits the gold API) — DB work goes to the threadpool so
+    # the event loop never blocks on sync SQLAlchemy calls.
+    loan = await run_in_threadpool(
+        lambda: db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first())
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     
@@ -77,9 +81,13 @@ async def create_collateral(
             collateral_data.estimated_value = collateral_data.gold_manual_rate
     
     new_collateral = Collateral(**collateral_data.model_dump())
-    db.add(new_collateral)
-    db.commit()
-    db.refresh(new_collateral)
+
+    def _persist():
+        db.add(new_collateral)
+        db.commit()
+        db.refresh(new_collateral)
+
+    await run_in_threadpool(_persist)
     return new_collateral
 
 
@@ -91,7 +99,8 @@ async def update_collateral(
     current_user: User = Depends(require_admin)
 ):
     """Update a collateral"""
-    collateral = db.query(Collateral).filter(Collateral.id == collateral_id).first()
+    collateral = await run_in_threadpool(
+        lambda: db.query(Collateral).filter(Collateral.id == collateral_id).first())
     if not collateral:
         raise HTTPException(status_code=404, detail="Collateral not found")
     
@@ -118,9 +127,12 @@ async def update_collateral(
     
     for field, value in update_data.items():
         setattr(collateral, field, value)
-    
-    db.commit()
-    db.refresh(collateral)
+
+    def _persist():
+        db.commit()
+        db.refresh(collateral)
+
+    await run_in_threadpool(_persist)
     return collateral
 
 
@@ -147,7 +159,8 @@ async def get_gold_rate(
     current_user: User = Depends(get_current_user)
 ):
     """Fetch current gold rate and calculate value for gold collateral"""
-    collateral = db.query(Collateral).filter(Collateral.id == collateral_id).first()
+    collateral = await run_in_threadpool(
+        lambda: db.query(Collateral).filter(Collateral.id == collateral_id).first())
     if not collateral:
         raise HTTPException(status_code=404, detail="Collateral not found")
     

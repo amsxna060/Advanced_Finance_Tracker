@@ -1,0 +1,40 @@
+# Reference systemd unit for the FastAPI backend on the Oracle instance.
+# Compare against the live unit (likely /etc/systemd/system/...service on the
+# server) and adopt the ExecStart flags — they matter for performance and for
+# correct client IPs behind the reverse proxy:
+#
+#   --workers 2            two processes ≈ right size for a small OCI shape;
+#                          each worker has its own threadpool for the sync
+#                          DB endpoints, so requests don't queue behind one
+#                          heavy analytics call
+#   --loop uvloop          faster event loop (ships with uvicorn[standard])
+#   --proxy-headers        trust X-Forwarded-For from nginx so rate limiting
+#   --forwarded-allow-ips  and logs see the real client IP, not 127.0.0.1
+#
+# Install/update:
+#   sudo cp deploy/financerbuddy-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl restart financerbuddy-backend
+
+[Unit]
+Description=FinancerBuddy FastAPI backend
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Advanced_Finance_Tracker/backend
+EnvironmentFile=/home/ubuntu/Advanced_Finance_Tracker/backend/.env
+ExecStart=/home/ubuntu/Advanced_Finance_Tracker/backend/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 \
+    --workers 2 \
+    --loop uvloop \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
+Restart=always
+RestartSec=3
+# Survive transient DB outages without thrashing
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

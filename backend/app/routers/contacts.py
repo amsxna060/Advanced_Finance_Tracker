@@ -85,11 +85,12 @@ def _build_interest_segments(loan, as_of_date: date) -> Optional[list]:
         calc_principal = Decimal(str(loan.principal_amount))
         calc_rate = Decimal(str(loan.interest_rate or 0))
 
-        # Total interest already paid (across all payments on this loan)
+        # Total interest already paid (across all non-voided payments on this loan)
         interest_paid_total = sum(
             Decimal(str(p.allocated_to_current_interest or 0)) +
             Decimal(str(p.allocated_to_overdue_interest or 0))
             for p in loan.payments
+            if not getattr(p, "is_voided", False)
         )
         interest_paid_remaining = interest_paid_total
 
@@ -526,8 +527,11 @@ def generate_statement(
         interest_outstanding = out.get("interest_outstanding", Decimal("0"))
         gross_interest = out.get("gross_interest_accrued", interest_outstanding)
 
-        # Payments up to as_of_date
-        paid_before = [p for p in loan.payments if p.payment_date <= as_of]
+        # Payments up to as_of_date (exclude voided)
+        paid_before = [
+            p for p in loan.payments
+            if p.payment_date <= as_of and not getattr(p, "is_voided", False)
+        ]
         already_paid_principal = sum(Decimal(str(p.allocated_to_principal or 0)) for p in paid_before)
         already_paid_interest = sum(
             Decimal(str(p.allocated_to_current_interest or 0)) +

@@ -28,7 +28,7 @@ from app.dependencies import get_current_user, require_admin
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import AccountTransaction
 from app.models.user import User
-from app.services.auto_ledger import reverse_all_ledger
+from app.services.auto_ledger import reverse_all_ledger, reverse_ledger_by_source
 
 router = APIRouter(prefix="/api/beesi", tags=["beesi"])
 
@@ -467,10 +467,31 @@ def add_installment(
         if field not in payload:
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
 
-    payment_date = date.fromisoformat(payload["payment_date"])
-    actual_paid = Decimal(str(payload["actual_paid"]))
+    try:
+        payment_date = date.fromisoformat(payload["payment_date"])
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="payment_date must be a valid YYYY-MM-DD date")
+    try:
+        actual_paid = Decimal(str(payload["actual_paid"]))
+    except Exception:
+        raise HTTPException(status_code=422, detail="actual_paid must be a valid number")
+    if actual_paid <= Decimal("0"):
+        raise HTTPException(status_code=422, detail="actual_paid must be greater than zero")
 
-    month_number = _calc_month_number(beesi.start_date, payment_date)
+    # Month number: explicit value wins; otherwise the next unpaid month in
+    # sequence. (Deriving it from the payment date broke for late payments —
+    # month 3 paid 5 days late was recorded as month 4 and then blocked the
+    # real month-4 installment with a duplicate error.)
+    if payload.get("month_number") is not None:
+        try:
+            month_number = int(payload["month_number"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="month_number must be an integer")
+    else:
+        existing_months = {i.month_number for i in beesi.installments}
+        month_number = 1
+        while month_number in existing_months:
+            month_number += 1
     base_amount = _d(beesi.base_installment)
     dividend_received = max(Decimal("0"), base_amount - actual_paid)
 
@@ -509,6 +530,7 @@ def add_installment(
         created_by=current_user.id,
     )
     db.add(inst)
+    db.flush()  # inst.id needed for the ledger source link
 
     # Auto-log a debit on the linked account (money paid out)
     acct_id = payload.get("account_id") or beesi.account_id
@@ -521,6 +543,8 @@ def add_installment(
             description=f"BC installment – Month {month_number} – {beesi.title}",
             linked_type="beesi",
             linked_id=beesi.id,
+            source_type="beesi_installment",
+            source_id=inst.id,
             created_by=current_user.id,
         )
         db.add(txn)
@@ -551,16 +575,20 @@ def delete_installment(
     ).first()
     if not inst:
         raise HTTPException(status_code=404, detail="Installment not found")
-    # Reverse linked ledger entry (debit for this installment)
-    matching = db.query(AccountTransaction).filter(
-        AccountTransaction.linked_type == "beesi",
-        AccountTransaction.linked_id == beesi_id,
-        AccountTransaction.txn_type == "debit",
-        AccountTransaction.amount == inst.actual_paid,
-        AccountTransaction.txn_date == inst.payment_date,
-    ).all()
-    for m in matching:
-        db.delete(m)
+    # Reverse linked ledger entry (debit for this installment).
+    # Void only the FIRST live match (C-FIN-6 policy) — hard-deleting every
+    # same-amount same-date row destroyed unrelated entries.
+    if reverse_ledger_by_source(db, "beesi_installment", inst.id) == 0:
+        matching = db.query(AccountTransaction).filter(
+            AccountTransaction.linked_type == "beesi",
+            AccountTransaction.linked_id == beesi_id,
+            AccountTransaction.txn_type == "debit",
+            AccountTransaction.amount == inst.actual_paid,
+            AccountTransaction.txn_date == inst.payment_date,
+            AccountTransaction.is_voided == False,
+        ).order_by(AccountTransaction.id.desc()).first()
+        if matching:
+            matching.is_voided = True
     db.delete(inst)
     db.commit()
     return {"message": "Installment deleted"}
@@ -579,16 +607,19 @@ def delete_withdrawal(
     ).first()
     if not w:
         raise HTTPException(status_code=404, detail="Withdrawal not found")
-    # Reverse linked ledger entry (credit for this withdrawal)
-    matching = db.query(AccountTransaction).filter(
-        AccountTransaction.linked_type == "beesi",
-        AccountTransaction.linked_id == beesi_id,
-        AccountTransaction.txn_type == "credit",
-        AccountTransaction.amount == w.net_received,
-        AccountTransaction.txn_date == w.withdrawal_date,
-    ).all()
-    for m in matching:
-        db.delete(m)
+    # Reverse linked ledger entry (credit for this withdrawal).
+    # Void only the FIRST live match (C-FIN-6 policy).
+    if reverse_ledger_by_source(db, "beesi_withdrawal", w.id) == 0:
+        matching = db.query(AccountTransaction).filter(
+            AccountTransaction.linked_type == "beesi",
+            AccountTransaction.linked_id == beesi_id,
+            AccountTransaction.txn_type == "credit",
+            AccountTransaction.amount == w.net_received,
+            AccountTransaction.txn_date == w.withdrawal_date,
+            AccountTransaction.is_voided == False,
+        ).order_by(AccountTransaction.id.desc()).first()
+        if matching:
+            matching.is_voided = True
     db.delete(w)
     db.commit()
     return {"message": "Withdrawal deleted"}
@@ -629,10 +660,29 @@ def add_withdrawal(
         if field not in payload:
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
 
-    withdrawal_date = date.fromisoformat(payload["withdrawal_date"])
-    net_received = Decimal(str(payload["net_received"]))
+    try:
+        withdrawal_date = date.fromisoformat(payload["withdrawal_date"])
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="withdrawal_date must be a valid YYYY-MM-DD date")
+    try:
+        net_received = Decimal(str(payload["net_received"]))
+    except Exception:
+        raise HTTPException(status_code=422, detail="net_received must be a valid number")
+    if net_received <= Decimal("0"):
+        raise HTTPException(status_code=422, detail="net_received must be greater than zero")
 
-    month_number = _calc_month_number(beesi.start_date, withdrawal_date)
+    if payload.get("month_number") is not None:
+        try:
+            month_number = int(payload["month_number"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="month_number must be an integer")
+    else:
+        month_number = _calc_month_number(beesi.start_date, withdrawal_date)
+    if beesi.tenure_months and not (1 <= month_number <= beesi.tenure_months):
+        raise HTTPException(
+            status_code=422,
+            detail=f"month_number {month_number} is outside the beesi tenure of {beesi.tenure_months} months",
+        )
     gross_amount = _d(beesi.pot_size)
     discount_offered = max(Decimal("0"), gross_amount - net_received)
 
@@ -647,6 +697,7 @@ def add_withdrawal(
         created_by=current_user.id,
     )
     db.add(w)
+    db.flush()  # w.id needed for the ledger source link
 
     # Auto-log a credit on the linked account (money received)
     w_acct_id = payload.get("account_id") or beesi.account_id
@@ -659,6 +710,8 @@ def add_withdrawal(
             description=f"BC pot withdrawal – Month {month_number} – {beesi.title}",
             linked_type="beesi",
             linked_id=beesi.id,
+            source_type="beesi_withdrawal",
+            source_id=w.id,
             created_by=current_user.id,
         )
         db.add(txn)

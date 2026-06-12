@@ -2,7 +2,7 @@
 
 > Living index of the entire codebase. Update this file whenever you add, move, rename, or delete anything significant. Treat it as the first thing to read in a new session.
 >
-> **Last updated:** 2026-05-02 (Forecast v3 Enterprise — recurring_transactions table, loan.priority column, APScheduler daily job, account_ids filter, recurring injection, principal_amount, smart defaults, Settle Principal, Manage Recurring modal)
+> **Last updated:** 2026-06-12 r3 (perf/async pass: N+1 fixes in analytics overview/assets + dashboard, collateral async-DB offload, deploy/financerbuddy-backend.service. r2: Ledger source-link redesign: migration 042 adds account_transactions.source_type/source_id; two-way void from Accounts page; projected vs realized P&L fields; deprecated property txn/settle endpoints deleted; scripts/recon_report.py read-only prod scanner. Earlier same day: calculation-bug remediation pass — see `CALC_FEATURE_BUG_AUDIT_2026-06-11.md`: voided/deleted-record filters across dashboard/analytics/forecast, opening-balance fix, manual-capitalization rebasing, EMI penalty handling, partnership settlement parity + partner_transfer support, beesi sequential months, recurring forecast expansion. New scenario test suite at `backend/tests/scenarios/` — run with `backend/.venv/bin/python -m pytest tests/ -q`.)
 
 ---
 

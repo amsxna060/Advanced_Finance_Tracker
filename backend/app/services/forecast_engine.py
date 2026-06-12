@@ -115,6 +115,8 @@ def _build_last_payment_map(loans_given: List[Loan]) -> Dict[int, date]:
     out: Dict[int, date] = {}
     for loan in loans_given:
         for p in (loan.payments or []):
+            if getattr(p, "is_voided", False):
+                continue
             if p.payment_date:
                 cur = out.get(loan.id)
                 if cur is None or p.payment_date > cur:
@@ -143,7 +145,10 @@ def _given_loan_confidence(loan: Loan, today: date, last_pay: Dict[int, date]) -
 
 
 def _remaining_principal(loan: Loan) -> Decimal:
-    paid = sum(_D(p.allocated_to_principal) for p in (loan.payments or []) if p.allocated_to_principal)
+    paid = sum(
+        _D(p.allocated_to_principal) for p in (loan.payments or [])
+        if p.allocated_to_principal and not getattr(p, "is_voided", False)
+    )
     return max(_D(loan.principal_amount) - paid, _ZERO)
 
 
@@ -557,15 +562,27 @@ def _recurring_items(
     to_dt: date,
     account_ids: Optional[List[int]],
 ) -> List[dict]:
-    """Inject active RecurringTransaction items whose next_due_date falls in the window."""
+    """Inject active RecurringTransaction items, expanded by frequency.
+
+    A monthly item in a 90-day window contributes ~3 occurrences (previously
+    only the single next_due_date was injected, understating the forecast).
+    The first occurrence keeps the legacy id (so existing overrides still
+    apply); later occurrences get a date-suffixed id.
+    """
     items: List[dict] = []
     today = date.today()
+
+    def _next_occurrence(d: date, freq: str) -> date:
+        if freq == "weekly":
+            return d + timedelta(days=7)
+        if freq == "yearly":
+            return _add_months(d, 12)
+        return _add_months(d, 1)  # monthly default
 
     try:
         query = db.query(RecurringTransaction).filter(
             RecurringTransaction.created_by == user_id,
             RecurringTransaction.is_active == True,
-            RecurringTransaction.next_due_date >= from_dt,
             RecurringTransaction.next_due_date < to_dt,
         )
         if account_ids:
@@ -575,30 +592,42 @@ def _recurring_items(
             )
         for rt in query.all():
             direction = "inflow" if rt.type.value == "inflow" else "outflow"
-            is_overdue = rt.next_due_date < today
             prefix = "recurring_in" if direction == "inflow" else "recurring_out"
-            items.append({
-                "id": f"{prefix}:{rt.id}",
-                "kind": "recurring",
-                "direction": direction,
-                "entity_key": f"recurring:{rt.id}",
-                "entity_name": rt.title,
-                "entity_type": "recurring",
-                "entity_url": None,
-                "linked_id": rt.id,
-                "linked_url": None,
-                "label": f"{rt.title} ({rt.frequency.value})",
-                "amount": float(_D(rt.amount)),
-                "due_date": rt.next_due_date.isoformat(),
-                "is_overdue": is_overdue,
-                "confidence": "high",
-                "period_key": rt.next_due_date.strftime("%Y-%m"),
-                "principal_amount": None,
-                "remaining_principal": None,
-                "loan_priority": None,
-                "is_recurring": True,
-                "frequency": rt.frequency.value,
-            })
+            freq = rt.frequency.value
+
+            occurrence = rt.next_due_date
+            first = True
+            # Safety bound: at most ~2 years of weekly occurrences per item
+            for _ in range(120):
+                if occurrence >= to_dt:
+                    break
+                if occurrence >= from_dt:
+                    is_overdue = occurrence < today
+                    item_id = f"{prefix}:{rt.id}" if first else f"{prefix}:{rt.id}:{occurrence.isoformat()}"
+                    items.append({
+                        "id": item_id,
+                        "kind": "recurring",
+                        "direction": direction,
+                        "entity_key": f"recurring:{rt.id}",
+                        "entity_name": rt.title,
+                        "entity_type": "recurring",
+                        "entity_url": None,
+                        "linked_id": rt.id,
+                        "linked_url": None,
+                        "label": f"{rt.title} ({freq})",
+                        "amount": float(_D(rt.amount)),
+                        "due_date": occurrence.isoformat(),
+                        "is_overdue": is_overdue,
+                        "confidence": "high",
+                        "period_key": occurrence.strftime("%Y-%m"),
+                        "principal_amount": None,
+                        "remaining_principal": None,
+                        "loan_priority": None,
+                        "is_recurring": True,
+                        "frequency": freq,
+                    })
+                    first = False
+                occurrence = _next_occurrence(occurrence, freq)
     except Exception as exc:
         # Table may not yet exist during migration window — degrade gracefully
         print(f"[forecast] recurring_items skipped: {exc}")
@@ -774,6 +803,8 @@ def _compute_balances(db: Session, account_ids: Optional[List[int]] = None) -> d
     for acct in accounts:
         running = _D(acct.opening_balance)
         for t in (acct.transactions or []):
+            if getattr(t, "is_voided", False):
+                continue
             if t.txn_type == "credit":
                 running += _D(t.amount)
             else:

@@ -21,8 +21,14 @@ def auto_ledger(
     payment_mode: str | None = None,
     contact_id: int | None = None,
     created_by: int | None = None,
+    source_type: str | None = None,   # exact creator, e.g. "loan_payment"
+    source_id: int | None = None,     # id of that record
 ) -> AccountTransaction:
-    """Create an AccountTransaction entry linked to a source module."""
+    """Create an AccountTransaction entry linked to a source module.
+
+    Pass source_type/source_id whenever the entry is created by a specific
+    record — reversals then match exactly instead of by (type, amount, date).
+    """
     txn = AccountTransaction(
         account_id=account_id,
         txn_type=txn_type,
@@ -34,9 +40,27 @@ def auto_ledger(
         contact_id=contact_id,
         payment_mode=payment_mode,
         created_by=created_by,
+        source_type=source_type,
+        source_id=source_id,
     )
     db.add(txn)
     return txn
+
+
+def reverse_ledger_by_source(db: Session, source_type: str, source_id: int) -> int:
+    """Void all live ledger rows created by the given source record.
+
+    Returns the number of rows voided — 0 means the row predates migration 042
+    (no source stamp); callers should fall back to their legacy heuristic match.
+    """
+    rows = db.query(AccountTransaction).filter(
+        AccountTransaction.source_type == source_type,
+        AccountTransaction.source_id == source_id,
+        AccountTransaction.is_voided == False,
+    ).all()
+    for r in rows:
+        r.is_voided = True
+    return len(rows)
 
 
 def reverse_all_ledger(

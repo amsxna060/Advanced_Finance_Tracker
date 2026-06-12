@@ -52,9 +52,17 @@ class AccountTransaction(Base):
     txn_date = Column(Date, nullable=False)
     description = Column(Text)
 
-    # Optional source/destination linkage
+    # Optional source/destination linkage (module-level grouping)
     linked_type = Column(String(30))                       # loan | property | partnership | beesi | expense | manual
     linked_id = Column(Integer)                            # FK-less (works across all modules)
+
+    # Exact link to the specific record that created this entry, e.g.
+    # ("loan_payment", 17) or ("beesi_installment", 4). Reversals match on this
+    # instead of the old (type, amount, date) heuristics; NULL on legacy rows
+    # created before migration 042 and on manual entries.
+    source_type = Column(String(40), index=True)
+    source_id = Column(Integer)
+
     contact_id = Column(Integer, ForeignKey("contacts.id"))  # Who is on the other side of this txn
 
     reference_number = Column(String(100))

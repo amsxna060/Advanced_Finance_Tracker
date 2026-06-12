@@ -136,6 +136,16 @@ export default function PartnershipDetail() {
     gcTime: 0,
   });
 
+  // Authoritative settlement math from the backend — the Partner Net Position
+  // card uses this instead of re-deriving it client-side (kept in sync with
+  // what /settle will actually create).
+  const { data: livePreview } = useQuery({
+    queryKey: ["partnership", id, "settlement-preview"],
+    queryFn: async () => (await api.get(`/api/partnerships/${id}/settlement-preview`)).data,
+    staleTime: 0,
+    gcTime: 0,
+  });
+
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts", "for-form"],
     queryFn: async () => (await api.get("/api/contacts", { params: { limit: 500 } })).data,
@@ -675,7 +685,12 @@ export default function PartnershipDetail() {
         <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <HeroStat label="Total Invested" value={formatCurrency(totalOutflow)} accent="indigo" />
           <HeroStat label="Total Inflow" value={formatCurrency(totalInflow)} accent="emerald" />
-          <HeroStat label="Net P&L" value={formatCurrency(netPnl)} accent={netPnl >= 0 ? "emerald" : "rose"} />
+          <HeroStat
+            label="Projected P&L"
+            value={formatCurrency(netPnl)}
+            sub={`Realized so far: ${formatCurrency(parseFloat(summary.realized_pnl ?? netPnl))}`}
+            accent={netPnl >= 0 ? "emerald" : "rose"}
+          />
           <HeroStat label="Your Share" value={selfShare > 0 ? `${selfShare}%` : "—"} accent="violet" />
         </div>
       </PageHero>
@@ -809,7 +824,7 @@ export default function PartnershipDetail() {
                         .filter(t => ["expense","other_expense","broker_commission","broker_paid","advance_to_seller","remaining_to_seller","advance_given","invested"].includes(t.txn_type) && t.member_id === memberId && !t.is_voided && !!t.from_partnership_pot)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const withdrawals = transactions
-                        .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId)
+                        .filter(t => t.txn_type === "partner_transfer" && t.member_id === memberId && !t.is_voided)
                         .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
                       const profitTaken = transactions
                         .filter(t => t.txn_type === "profit_received" && t.received_by_member_id === memberId)
@@ -881,9 +896,14 @@ export default function PartnershipDetail() {
                             const includeProfit = sellerFullyPaid || isSettled;
                             const profitShare = netPnl * (sharePct / 100);
 
-                            // Settlement position = rawNetCashPos − profit entitlement
-                            // +ve → holds excess (must pay out)  |  −ve → deficit (must receive)
-                            const settlementPos = includeProfit ? rawNetCashPos - profitShare : rawNetCashPos;
+                            // Settlement position: authoritative number from the
+                            // backend settlement-preview (the same math /settle
+                            // uses); local calc only as fallback while loading.
+                            const previewRow = livePreview?.members?.find(pm => pm.member_id === memberId);
+                            const localSettlementPos = includeProfit ? rawNetCashPos - profitShare : rawNetCashPos;
+                            const settlementPos = previewRow != null
+                              ? -previewRow.net_obligation   // preview: +ve = should receive → flip to "+ve = must pay"
+                              : localSettlementPos;
 
                             return (
                               <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
@@ -987,8 +1007,13 @@ export default function PartnershipDetail() {
                         const cashOut = personalInvest + expPaid;
                         const rawNetCashPos = buyerCash - totalPotDisb - cashOut;
                         const profitShare = netPnl * (sharePct / 100);
-                        // settlementPos: +ve = holds excess (must pay out), −ve = deficit (must receive)
-                        const settlementPos = includeProfit ? rawNetCashPos - profitShare : rawNetCashPos;
+                        // settlementPos: +ve = holds excess (must pay out), −ve = deficit (must receive).
+                        // Prefer the backend settlement-preview figure (the same math /settle uses).
+                        const previewRow = livePreview?.members?.find(pm => pm.member_id === memberId);
+                        const localPos = includeProfit ? rawNetCashPos - profitShare : rawNetCashPos;
+                        const settlementPos = (includeProfit && previewRow != null)
+                          ? -previewRow.net_obligation
+                          : localPos;
                         return { name, isSelf: m.member?.is_self, buyerCash, cashOut, totalPotDisb, rawNetCashPos, profitShare, settlementPos };
                       });
 

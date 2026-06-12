@@ -31,7 +31,7 @@ from app.schemas.partnership import (
 )
 from app.schemas.property_deal import PropertyDealOut, PlotBuyerOut, SitePlotOut, SitePlotUpdate, PlotBuyerUpdate
 from app.schemas.loan import ContactBrief
-from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_ledger_match
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_ledger_match, reverse_ledger_by_source
 from app.models.cash_account import AccountTransaction, CashAccount
 from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot, PlotBuyer
 
@@ -54,6 +54,9 @@ INVESTMENT_TYPES = {"advance_to_seller", "remaining_to_seller", "expense", "brok
 RECEIVED_TYPES = {"buyer_advance", "buyer_payment", "buyer_payment_received", "received", "profit_distributed"}
 # Buyer-related inflow types
 BUYER_INFLOW_TYPES = {"buyer_advance", "buyer_payment", "buyer_payment_received"}
+# Internal member-to-member rebalancing: member_id = payer, received_by_member_id = receiver.
+# Affects who holds pot cash; never affects our_investment / total_received.
+TRANSFER_TYPES = {"partner_transfer"}
 
 
 def _decimal(value: Optional[Decimal]) -> Decimal:
@@ -145,10 +148,16 @@ def _sync_property_from_partnership(partnership_id: int, db: Session) -> None:
         else:
             prop.status = "negotiating"
 
-    # Sync partnership aggregates (include legacy 'invested' type)
+    # Sync partnership aggregates (include legacy 'invested' type).
+    # Pot-funded outflows are recycled buyer money, not fresh capital — exclude
+    # them from our_investment so "invested" reflects actual pocket money.
     invested_total = sum(_decimal(t.amount) for t in txns if t.txn_type == "invested")
+    pot_funded_total = sum(
+        _decimal(t.amount) for t in txns
+        if t.txn_type in INVESTMENT_TYPES and getattr(t, "from_partnership_pot", False)
+    )
     total_outflow = advance_to_seller + remaining_to_seller + broker_commission + expenses + invested_total
-    partnership.our_investment = total_outflow
+    partnership.our_investment = max(total_outflow - pot_funded_total, Decimal("0"))
     partnership.total_received = buyer_inflow + profit_received_total
 
     # Keep total_deal_value aligned with the property's seller asking price so
@@ -181,7 +190,7 @@ def _resync_plot_buyer_from_partnership(partnership_id: int, plot_buyer_id: int,
         else:
             buyer.status = "available"
     elif buyer_total_value > 0 and total_from_buyer >= buyer_total_value:
-        buyer.status = "payment_done"
+        buyer.status = "fully_paid"
     elif buyer.status in ("negotiating", "available", "pending"):
         buyer.status = "advance_received"
 
@@ -210,7 +219,7 @@ def _resync_site_plot_from_partnership(partnership_id: int, site_plot_id: int, d
         else:
             plot.status = "available"
     elif plot_total_value > 0 and total_from_buyer >= plot_total_value:
-        plot.status = "payment_done"
+        plot.status = "fully_paid"
     elif plot.status in ("available", "negotiating"):
         plot.status = "advance_received"
 
@@ -271,6 +280,13 @@ def _calculate_summary(
     total_inflow = buyer_inflow + profit_received + received_total
     net_pnl = total_inflow - total_outflow
 
+    # Two explicit profit views (PR3):
+    #   projected_pnl — against the FULL committed seller cost (deal economics
+    #                   at completion; negative mid-deal until buyers pay)
+    #   realized_pnl  — against cash actually paid out so far
+    realized_outflow = seller_paid + broker_commission + expense_total + invested_total
+    realized_pnl = total_inflow - realized_outflow
+
     # ── Per-member live cashflow ─────────────────────────────────────────────
     # Used to power the live partner tracker on the UI (not settlement — just running view).
     PERSONAL_OUTFLOW = {"advance_to_seller", "remaining_to_seller", "advance_given",
@@ -284,6 +300,14 @@ def _calculate_summary(
         if txn.txn_type in BUYER_INFLOW_TYPES and txn.received_by_member_id and not getattr(txn, "paid_to_seller", False):
             mid = txn.received_by_member_id
             member_cash_in[mid] = member_cash_in.get(mid, Decimal("0")) + _decimal(txn.amount)
+        # partner_transfer: receiver now holds the cash, payer no longer does
+        if txn.txn_type in TRANSFER_TYPES:
+            if txn.received_by_member_id:
+                mid = txn.received_by_member_id
+                member_cash_in[mid] = member_cash_in.get(mid, Decimal("0")) + _decimal(txn.amount)
+            if txn.member_id:
+                mid = txn.member_id
+                member_cash_in[mid] = member_cash_in.get(mid, Decimal("0")) - _decimal(txn.amount)
 
     member_cashflows = []
     for m in members:
@@ -310,7 +334,9 @@ def _calculate_summary(
     return {
         "our_investment": _decimal(partnership.our_investment),
         "total_received": _decimal(partnership.total_received),
-        "our_pnl": net_pnl,
+        "our_pnl": net_pnl,  # back-compat alias for projected_pnl
+        "projected_pnl": net_pnl,
+        "realized_pnl": realized_pnl,
         "advance_to_seller": advance_to_seller,
         "remaining_to_seller": remaining_to_seller,
         "buyer_direct_to_seller": buyer_direct_to_seller,
@@ -585,18 +611,18 @@ def delete_partnership_member(
     if partnership.status == "settled":
         raise HTTPException(status_code=400, detail="Cannot remove members from a settled partnership")
 
-    # If self-member with advance, reverse associated transactions + ledger
+    # If self-member with advance, reverse associated advance transactions + ledger
+    # (covers both the legacy 'advance_given' and current 'advance_to_seller' types)
     if member.is_self and _decimal(member.advance_contributed) > 0:
-        # Delete advance transaction(s) for this member
         adv_txns = db.query(PartnershipTransaction).filter(
             PartnershipTransaction.partnership_id == partnership_id,
             PartnershipTransaction.member_id == member_id,
-            PartnershipTransaction.txn_type == "advance_given",
+            PartnershipTransaction.txn_type.in_(("advance_given", "advance_to_seller")),
         ).all()
         total_advance_reversed = Decimal("0")
         for t in adv_txns:
             # Reverse ledger for each advance transaction
-            if t.account_id:
+            if t.account_id and reverse_ledger_by_source(db, "partnership_txn", t.id) == 0:
                 match = db.query(AccountTransaction).filter(
                     AccountTransaction.linked_type == "partnership",
                     AccountTransaction.linked_id == partnership_id,
@@ -604,15 +630,33 @@ def delete_partnership_member(
                     AccountTransaction.amount == t.amount,
                     AccountTransaction.txn_date == t.txn_date,
                     AccountTransaction.account_id == t.account_id,
+                    AccountTransaction.is_voided == False,
                 ).order_by(AccountTransaction.id.desc()).first()
                 if match:
-                    db.delete(match)
-            total_advance_reversed += _decimal(t.amount)
+                    match.is_voided = True
+            if not getattr(t, "is_voided", False) and not getattr(t, "from_partnership_pot", False):
+                total_advance_reversed += _decimal(t.amount)
             db.delete(t)
         # Adjust partnership investment total
         partnership.our_investment = max(
             _decimal(partnership.our_investment) - total_advance_reversed,
             Decimal("0"),
+        )
+
+    # Any other transactions still referencing this member would violate the
+    # FK on delete (previously a 500). Surface a clear, actionable error.
+    remaining_refs = db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.partnership_id == partnership_id,
+        or_(
+            PartnershipTransaction.member_id == member_id,
+            PartnershipTransaction.received_by_member_id == member_id,
+        ),
+    ).count()
+    if remaining_refs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot remove this partner: {remaining_refs} transaction(s) still "
+                   "reference them. Delete or reassign those transactions first.",
         )
 
     db.delete(member)
@@ -690,14 +734,21 @@ def create_partnership_transaction(
                 raise HTTPException(status_code=400, detail="Site plot not found for this property")
 
     # BUG-013: Null out account_id if payer/receiver is not Self
-    if transaction_data.txn_type in OUTFLOW_TYPES and transaction_data.member_id:
+    paying_member = None
+    if transaction_data.member_id:
         paying_member = db.query(PartnershipMember).filter(
             PartnershipMember.id == transaction_data.member_id,
         ).first()
-        if paying_member and not paying_member.is_self:
-            txn_data["account_id"] = None
+    if transaction_data.txn_type in OUTFLOW_TYPES and paying_member and not paying_member.is_self:
+        txn_data["account_id"] = None
     if transaction_data.txn_type in INFLOW_TYPES and receiving_member and not receiving_member.is_self:
         txn_data["account_id"] = None
+    # Transfers: account only meaningful when self pays or self receives
+    if transaction_data.txn_type in TRANSFER_TYPES:
+        self_pays = bool(paying_member and paying_member.is_self)
+        self_receives = bool(receiving_member and receiving_member.is_self)
+        if not (self_pays or self_receives):
+            txn_data["account_id"] = None
 
     # paid_to_seller is only meaningful for buyer inflow types
     if transaction_data.txn_type not in BUYER_INFLOW_TYPES:
@@ -738,6 +789,8 @@ def create_partnership_transaction(
                 description=f"Partnership ({partnership.title}): {txn_type.replace('_', ' ')}",
                 payment_mode=transaction_data.payment_mode,
                 created_by=current_user.id,
+                source_type="partnership_txn",
+                source_id=transaction.id,
             )
         elif txn_type in INFLOW_TYPES:
             auto_ledger(
@@ -751,10 +804,30 @@ def create_partnership_transaction(
                 description=f"Partnership ({partnership.title}): {txn_type.replace('_', ' ')}",
                 payment_mode=transaction_data.payment_mode,
                 created_by=current_user.id,
+                source_type="partnership_txn",
+                source_id=transaction.id,
+            )
+        elif txn_type in TRANSFER_TYPES:
+            # credit when self receives the transfer, debit when self pays it
+            self_receives = bool(receiving_member and receiving_member.is_self)
+            auto_ledger(
+                db=db,
+                account_id=transaction.account_id,
+                txn_type="credit" if self_receives else "debit",
+                amount=amount,
+                txn_date=transaction_data.txn_date,
+                linked_type="partnership",
+                linked_id=partnership_id,
+                description=f"Partnership ({partnership.title}): partner transfer",
+                payment_mode=transaction_data.payment_mode,
+                created_by=current_user.id,
+                source_type="partnership_txn",
+                source_id=transaction.id,
             )
 
-    # Update partnership totals
-    if txn_type in INVESTMENT_TYPES:
+    # Update partnership totals (pot-funded outflows are recycled buyer money,
+    # not fresh capital — they must not inflate our_investment)
+    if txn_type in INVESTMENT_TYPES and not transaction_data.from_partnership_pot:
         partnership.our_investment = _decimal(partnership.our_investment) + amount
     if txn_type in RECEIVED_TYPES:
         if not buyer_received_by_partner:
@@ -763,8 +836,10 @@ def create_partnership_transaction(
         if not buyer_received_by_partner:
             partnership.total_received = _decimal(partnership.total_received) + amount
 
-    # Auto-sync advance_contributed on member for advance types
-    if txn_type in ("advance_to_seller", "advance_given") and transaction_data.member_id:
+    # Auto-sync advance_contributed on member for advance types (pocket money only)
+    if (txn_type in ("advance_to_seller", "advance_given")
+            and transaction_data.member_id
+            and not transaction_data.from_partnership_pot):
         member = db.query(PartnershipMember).filter(
             PartnershipMember.id == transaction_data.member_id,
         ).first()
@@ -827,9 +902,16 @@ def delete_partnership_transaction(
     plot_buyer_id = txn.plot_buyer_id
     site_plot_id = txn.site_plot_id
 
-    # Void linked ledger entry (keeps it in reconciliation as voided)
-    if txn.account_id:
-        ledger_type = "debit" if txn_type in OUTFLOW_TYPES else "credit"
+    # Void linked ledger entry (exact source link; legacy rows fall back to
+    # the heuristic match)
+    if txn.account_id and reverse_ledger_by_source(db, "partnership_txn", txn.id) == 0:
+        if txn_type in TRANSFER_TYPES:
+            recv_m = db.query(PartnershipMember).filter(
+                PartnershipMember.id == txn.received_by_member_id,
+            ).first() if txn.received_by_member_id else None
+            ledger_type = "credit" if (recv_m and recv_m.is_self) else "debit"
+        else:
+            ledger_type = "debit" if txn_type in OUTFLOW_TYPES else "credit"
         match = db.query(AccountTransaction).filter(
             AccountTransaction.linked_type == "partnership",
             AccountTransaction.linked_id == partnership_id,
@@ -842,18 +924,27 @@ def delete_partnership_transaction(
         if match:
             match.is_voided = True
 
-    # Reverse partnership totals
-    if txn_type in INVESTMENT_TYPES:
+    # Reverse partnership totals — mirror the create-side conditions exactly
+    if txn_type in INVESTMENT_TYPES and not getattr(txn, "from_partnership_pot", False):
         partnership.our_investment = max(
             _decimal(partnership.our_investment) - amount, Decimal("0")
         )
     if txn_type in RECEIVED_TYPES or txn_type == "profit_received":
-        partnership.total_received = max(
-            _decimal(partnership.total_received) - amount, Decimal("0")
+        recv_member = db.query(PartnershipMember).filter(
+            PartnershipMember.id == txn.received_by_member_id,
+        ).first() if txn.received_by_member_id else None
+        was_partner_held = (
+            txn_type in BUYER_INFLOW_TYPES and recv_member is not None and not recv_member.is_self
         )
+        if not was_partner_held:
+            partnership.total_received = max(
+                _decimal(partnership.total_received) - amount, Decimal("0")
+            )
 
-    # Reverse advance_contributed on member
-    if txn_type in ("advance_to_seller", "advance_given") and txn.member_id:
+    # Reverse advance_contributed on member (pocket money only — pot-funded
+    # advances were never added)
+    if (txn_type in ("advance_to_seller", "advance_given") and txn.member_id
+            and not getattr(txn, "from_partnership_pot", False)):
         member = db.query(PartnershipMember).filter(
             PartnershipMember.id == txn.member_id,
         ).first()
@@ -915,6 +1006,8 @@ def update_partnership_transaction(
     old_account_id = txn.account_id
     old_date = txn.txn_date
     old_member_id = txn.member_id
+    old_received_by_member_id = txn.received_by_member_id
+    old_from_pot = bool(getattr(txn, "from_partnership_pot", False))
     old_plot_buyer_id = txn.plot_buyer_id
     old_site_plot_id = txn.site_plot_id
 
@@ -924,9 +1017,18 @@ def update_partnership_transaction(
     new_date = transaction_data.txn_date
     new_member_id = transaction_data.member_id
 
-    # ── Reverse old ledger entry ────────────────────────────────────────────
-    if old_account_id:
-        old_ledger_type = "debit" if old_type in OUTFLOW_TYPES else "credit"
+    def _member_is_self(member_id: Optional[int]) -> bool:
+        if not member_id:
+            return False
+        m = db.query(PartnershipMember).filter(PartnershipMember.id == member_id).first()
+        return bool(m and m.is_self)
+
+    # ── Reverse old ledger entry (void, keep audit trail) ───────────────────
+    if old_account_id and reverse_ledger_by_source(db, "partnership_txn", txn.id) == 0:
+        if old_type in TRANSFER_TYPES:
+            old_ledger_type = "credit" if _member_is_self(old_received_by_member_id) else "debit"
+        else:
+            old_ledger_type = "debit" if old_type in OUTFLOW_TYPES else "credit"
         match = db.query(AccountTransaction).filter(
             AccountTransaction.linked_type == "partnership",
             AccountTransaction.linked_id == partnership_id,
@@ -934,22 +1036,29 @@ def update_partnership_transaction(
             AccountTransaction.amount == old_amount,
             AccountTransaction.txn_date == old_date,
             AccountTransaction.account_id == old_account_id,
+            AccountTransaction.is_voided == False,
         ).order_by(AccountTransaction.id.desc()).first()
         if match:
-            db.delete(match)
+            match.is_voided = True
 
-    # ── Reverse old partnership totals ──────────────────────────────────────
-    if old_type in INVESTMENT_TYPES:
+    # ── Reverse old partnership totals — mirror create-side conditions ──────
+    if old_type in INVESTMENT_TYPES and not old_from_pot:
         partnership.our_investment = max(
             _decimal(partnership.our_investment) - old_amount, Decimal("0")
         )
     if old_type in RECEIVED_TYPES or old_type == "profit_received":
-        partnership.total_received = max(
-            _decimal(partnership.total_received) - old_amount, Decimal("0")
+        old_was_partner_held = (
+            old_type in BUYER_INFLOW_TYPES
+            and old_received_by_member_id is not None
+            and not _member_is_self(old_received_by_member_id)
         )
+        if not old_was_partner_held:
+            partnership.total_received = max(
+                _decimal(partnership.total_received) - old_amount, Decimal("0")
+            )
 
-    # ── Reverse old advance_contributed ─────────────────────────────────────
-    if old_type in ("advance_to_seller", "advance_given") and old_member_id:
+    # ── Reverse old advance_contributed (pocket money only) ─────────────────
+    if old_type in ("advance_to_seller", "advance_given") and old_member_id and not old_from_pot:
         old_member = db.query(PartnershipMember).filter(
             PartnershipMember.id == old_member_id,
         ).first()
@@ -998,6 +1107,8 @@ def update_partnership_transaction(
                 description=f"Partnership ({partnership.title}): {new_type.replace('_', ' ')}",
                 payment_mode=transaction_data.payment_mode,
                 created_by=current_user.id,
+                source_type="partnership_txn",
+                source_id=txn.id,
             )
         elif new_type in INFLOW_TYPES:
             auto_ledger(
@@ -1011,10 +1122,27 @@ def update_partnership_transaction(
                 description=f"Partnership ({partnership.title}): {new_type.replace('_', ' ')}",
                 payment_mode=transaction_data.payment_mode,
                 created_by=current_user.id,
+                source_type="partnership_txn",
+                source_id=txn.id,
+            )
+        elif new_type in TRANSFER_TYPES:
+            auto_ledger(
+                db=db,
+                account_id=new_account_id,
+                txn_type="credit" if _member_is_self(transaction_data.received_by_member_id) else "debit",
+                amount=new_amount,
+                txn_date=new_date,
+                linked_type="partnership",
+                linked_id=partnership_id,
+                description=f"Partnership ({partnership.title}): partner transfer",
+                payment_mode=transaction_data.payment_mode,
+                created_by=current_user.id,
+                source_type="partnership_txn",
+                source_id=txn.id,
             )
 
-    # ── Apply new partnership totals ────────────────────────────────────────
-    if new_type in INVESTMENT_TYPES:
+    # ── Apply new partnership totals (mirror create-side conditions) ────────
+    if new_type in INVESTMENT_TYPES and not transaction_data.from_partnership_pot:
         partnership.our_investment = _decimal(partnership.our_investment) + new_amount
     if new_type in RECEIVED_TYPES:
         if not buyer_received_by_partner:
@@ -1023,8 +1151,9 @@ def update_partnership_transaction(
         if not buyer_received_by_partner:
             partnership.total_received = _decimal(partnership.total_received) + new_amount
 
-    # ── Apply new advance_contributed ───────────────────────────────────────
-    if new_type in ("advance_to_seller", "advance_given") and new_member_id:
+    # ── Apply new advance_contributed (pocket money only) ───────────────────
+    if (new_type in ("advance_to_seller", "advance_given") and new_member_id
+            and not transaction_data.from_partnership_pot):
         new_member = db.query(PartnershipMember).filter(
             PartnershipMember.id == new_member_id,
         ).first()
@@ -1144,6 +1273,18 @@ def _build_settlement_breakdown(
     if pool_pot_disb > 0:
         for mid, proportion in buyer_proportions.items():
             member_buyer_held[mid] = member_buyer_held.get(mid, Decimal("0")) - pool_pot_disb * proportion
+
+    # partner_transfer: pot cash moved between members — receiver holds more,
+    # payer holds less. Settlement must see the post-transfer holdings.
+    for t in live_txns:
+        if t.txn_type in TRANSFER_TYPES:
+            amt = _decimal(t.amount)
+            if t.received_by_member_id:
+                member_buyer_held[t.received_by_member_id] = member_buyer_held.get(
+                    t.received_by_member_id, Decimal("0")) + amt
+            if t.member_id:
+                member_buyer_held[t.member_id] = member_buyer_held.get(
+                    t.member_id, Decimal("0")) - amt
 
     # ── Profit split: full net profit divided by share % ──
     # Pocket payments (advances, expenses) are returned to each partner in their
@@ -1332,12 +1473,15 @@ def settle_partnership(
     ).update({"is_deleted": True})
     db.flush()
 
-    # Build buyer-cash-held map for obligation creation
-    member_buyer_received: dict = {}
-    for t in transactions:
-        if not getattr(t, "is_voided", False) and t.txn_type in BUYER_INFLOW_TYPES and t.received_by_member_id:
-            mid = t.received_by_member_id
-            member_buyer_received[mid] = member_buyer_received.get(mid, Decimal("0")) + _decimal(t.amount)
+    # Use the NET buyer-cash-held from the settlement breakdown (after pot
+    # disbursements and partner transfers) so the obligations created here
+    # match exactly what the preview endpoint showed. Previously this used
+    # gross collections, which over-charged any partner who had spent pot
+    # money on broker/expenses/seller payments.
+    member_held_map: dict = {
+        m_data["member_id"]: Decimal(str(m_data["buyer_cash_held"]))
+        for m_data in breakdown["members"]
+    }
 
     # Build per-member payment notes map from request
     partner_notes_map: dict = {}
@@ -1348,7 +1492,7 @@ def settle_partnership(
         if member.is_self or not member.contact_id:
             continue
         entitlement = _decimal(member.total_received)
-        already_collected = member_buyer_received.get(member.id, Decimal("0"))
+        already_collected = member_held_map.get(member.id, Decimal("0"))
         net_entitlement = entitlement - already_collected
         obligation_notes = partner_notes_map.get(member.id)
 
@@ -1717,7 +1861,6 @@ def update_site_plot_in_partnership(
     """Update a site plot's fields (area, price, status, registry date). Used for 'Close Deal'."""
     partnership = db.query(Partnership).filter(
         Partnership.id == partnership_id,
-        Partnership.created_by == current_user.id,
         Partnership.is_deleted == False,
     ).first()
     if not partnership:
@@ -1780,7 +1923,6 @@ def update_plot_buyer_in_partnership(
     """Update a plot buyer's fields (area, price, status, registry date). Used for 'Close Deal'."""
     partnership = db.query(Partnership).filter(
         Partnership.id == partnership_id,
-        Partnership.created_by == current_user.id,
         Partnership.is_deleted == False,
     ).first()
     if not partnership:
@@ -1840,7 +1982,6 @@ def delete_site_plot(
     """Delete a site plot subdivision and all its associated transactions, then re-sync."""
     partnership = db.query(Partnership).filter(
         Partnership.id == partnership_id,
-        Partnership.created_by == current_user.id,
         Partnership.is_deleted == False,
     ).first()
     if not partnership:
@@ -1879,7 +2020,6 @@ def delete_plot_buyer(
     """Delete a plot buyer subdivision and all its associated transactions, then re-sync."""
     partnership = db.query(Partnership).filter(
         Partnership.id == partnership_id,
-        Partnership.created_by == current_user.id,
         Partnership.is_deleted == False,
     ).first()
     if not partnership:

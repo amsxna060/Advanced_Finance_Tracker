@@ -30,8 +30,21 @@ INFLOW_PROPERTY_TXN_TYPES = {"received_from_buyer", "sale_proceeds", "refund"}
 OUTFLOW_PROPERTY_TXN_TYPES = {"advance_to_seller", "payment_to_seller", "commission_paid", "expense", "other"}
 # Only these transaction types represent actual personal cash invested in a property
 _PERSONAL_OUTFLOW_TXNS = ("advance_to_seller", "payment_to_seller", "remaining_to_seller")
-INFLOW_PARTNERSHIP_TXN_TYPES = {"received", "profit_distributed"}
-OUTFLOW_PARTNERSHIP_TXN_TYPES = {"invested", "expense"}
+# Full partnership type vocabulary (new + legacy) — previously only the legacy
+# types were listed, so all current partnership money was missing from cashflow.
+INFLOW_PARTNERSHIP_TXN_TYPES = {
+    "buyer_advance", "buyer_payment", "profit_received",
+    "buyer_payment_received", "received", "profit_distributed",
+}
+OUTFLOW_PARTNERSHIP_TXN_TYPES = {
+    "advance_to_seller", "remaining_to_seller", "broker_commission", "expense",
+    "advance_given", "broker_paid", "invested", "other_expense",
+}
+
+
+def _live_payments(loan: Loan) -> list:
+    """Non-voided payments from a (pre)loaded relationship."""
+    return [p for p in (loan.payments or []) if not getattr(p, "is_voided", False)]
 
 
 def _decimal(value: Optional[Decimal]) -> Decimal:
@@ -81,7 +94,7 @@ def _loan_monthly_expected(loan: Loan) -> Decimal:
 def _recent_activity(db: Session, limit: int = 10) -> List[dict]:
     items = []
 
-    loan_payments = db.query(LoanPayment).order_by(LoanPayment.created_at.desc()).limit(limit).all()
+    loan_payments = db.query(LoanPayment).filter(LoanPayment.is_voided == False).order_by(LoanPayment.created_at.desc()).limit(limit).all()
     for payment in loan_payments:
         items.append(
             {
@@ -93,7 +106,7 @@ def _recent_activity(db: Session, limit: int = 10) -> List[dict]:
             }
         )
 
-    property_transactions = db.query(PropertyTransaction).order_by(PropertyTransaction.created_at.desc()).limit(limit).all()
+    property_transactions = db.query(PropertyTransaction).filter(PropertyTransaction.is_voided == False).order_by(PropertyTransaction.created_at.desc()).limit(limit).all()
     for transaction in property_transactions:
         items.append(
             {
@@ -105,7 +118,7 @@ def _recent_activity(db: Session, limit: int = 10) -> List[dict]:
             }
         )
 
-    partnership_transactions = db.query(PartnershipTransaction).order_by(PartnershipTransaction.created_at.desc()).limit(limit).all()
+    partnership_transactions = db.query(PartnershipTransaction).filter(PartnershipTransaction.is_voided == False).order_by(PartnershipTransaction.created_at.desc()).limit(limit).all()
     for transaction in partnership_transactions:
         items.append(
             {
@@ -117,7 +130,7 @@ def _recent_activity(db: Session, limit: int = 10) -> List[dict]:
             }
         )
 
-    expenses = db.query(Expense).order_by(Expense.created_at.desc()).limit(limit).all()
+    expenses = db.query(Expense).filter(Expense.is_deleted == False).order_by(Expense.created_at.desc()).limit(limit).all()
     for expense in expenses:
         items.append(
             {
@@ -138,14 +151,16 @@ def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # D1 fix: no created_by scoping — every other endpoint (loan list, /v2,
+    # analytics) shows all data, so the two dashboards disagreed per-user.
     active_loans = (
         db.query(Loan)
-        .filter(Loan.is_deleted == False, Loan.status == "active", Loan.created_by == current_user.id)
-        .options(joinedload(Loan.payments))
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(selectinload(Loan.payments), selectinload(Loan.capitalization_events))
         .all()
     )
-    active_properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled", PropertyDeal.created_by == current_user.id).count()
-    active_partnerships = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.status == "active", Partnership.created_by == current_user.id).all()
+    active_properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled").count()
+    active_partnerships = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.status == "active").all()
 
     total_lent_out = Decimal("0")
     total_borrowed = Decimal("0")
@@ -159,7 +174,8 @@ def get_dashboard_summary(
     for loan in active_loans:
         try:
             principal = _decimal(loan.principal_amount)
-            outstanding = calculate_outstanding(loan.id, date.today(), db)
+            # N+1 fix: relationships are pre-loaded — no per-loan queries
+            outstanding = calculate_outstanding_from_loan(loan, date.today())
             total_due = _decimal(outstanding["total_outstanding"])
             interest_due = _decimal(outstanding["interest_outstanding"])
             expected_this_month += _loan_monthly_expected(loan)
@@ -168,8 +184,8 @@ def get_dashboard_summary(
                 total_lent_out += principal
                 total_outstanding_receivable += total_due
                 total_overdue += interest_due
-                # Sum historical payments
-                for p in loan.payments:
+                # Sum historical payments (exclude voided)
+                for p in _live_payments(loan):
                     total_interest_earned += _decimal(p.allocated_to_current_interest) + _decimal(p.allocated_to_overdue_interest)
                     total_principal_recovered += _decimal(p.allocated_to_principal)
             else:
@@ -182,7 +198,7 @@ def get_dashboard_summary(
     total_partnership_received = sum(_decimal(item.total_received) for item in active_partnerships)
 
     # Beesi (chit fund) summary
-    active_beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active", Beesi.created_by == current_user.id).all()
+    active_beesis = db.query(Beesi).filter(Beesi.is_deleted == False, Beesi.status == "active").all()
     beesi_total_invested = Decimal("0")
     for b in active_beesis:
         beesi_total_invested += sum(_decimal(i.actual_paid) for i in b.installments)
@@ -214,14 +230,18 @@ def get_dashboard_alerts(
     alerts = {"overdue": [], "collateral": [], "capitalization": []}
     active_loans = (
         db.query(Loan)
-        .filter(Loan.is_deleted == False, Loan.status == "active", Loan.created_by == current_user.id)
-        .options(joinedload(Loan.collaterals))
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(
+            joinedload(Loan.collaterals),
+            selectinload(Loan.payments),
+            selectinload(Loan.capitalization_events),
+        )
         .all()
     )
 
     for loan in active_loans:
         try:
-            outstanding = calculate_outstanding(loan.id, date.today(), db)
+            outstanding = calculate_outstanding_from_loan(loan, date.today())
             interest_due = _decimal(outstanding["interest_outstanding"])
             total_outstanding = _decimal(outstanding["total_outstanding"])
 
@@ -294,7 +314,7 @@ def get_dashboard_cashflow(
             func.sum(LoanPayment.amount_paid).label("total"),
         )
         .join(Loan, Loan.id == LoanPayment.loan_id)
-        .filter(LoanPayment.payment_date >= cutoff_date)
+        .filter(LoanPayment.payment_date >= cutoff_date, LoanPayment.is_voided == False)
         .group_by(func.to_char(LoanPayment.payment_date, "YYYY-MM"), Loan.loan_direction)
         .all()
     ):
@@ -310,7 +330,7 @@ def get_dashboard_cashflow(
             PropertyTransaction.txn_type,
             func.sum(PropertyTransaction.amount).label("total"),
         )
-        .filter(PropertyTransaction.txn_date >= cutoff_date)
+        .filter(PropertyTransaction.txn_date >= cutoff_date, PropertyTransaction.is_voided == False)
         .group_by(func.to_char(PropertyTransaction.txn_date, "YYYY-MM"), PropertyTransaction.txn_type)
         .all()
     ):
@@ -326,7 +346,7 @@ def get_dashboard_cashflow(
             PartnershipTransaction.txn_type,
             func.sum(PartnershipTransaction.amount).label("total"),
         )
-        .filter(PartnershipTransaction.txn_date >= cutoff_date)
+        .filter(PartnershipTransaction.txn_date >= cutoff_date, PartnershipTransaction.is_voided == False)
         .group_by(func.to_char(PartnershipTransaction.txn_date, "YYYY-MM"), PartnershipTransaction.txn_type)
         .all()
     ):
@@ -341,7 +361,7 @@ def get_dashboard_cashflow(
             func.to_char(Expense.expense_date, "YYYY-MM").label("mk"),
             func.sum(Expense.amount).label("total"),
         )
-        .filter(Expense.expense_date >= cutoff_date)
+        .filter(Expense.expense_date >= cutoff_date, Expense.is_deleted == False)
         .group_by(func.to_char(Expense.expense_date, "YYYY-MM"))
         .all()
     ):
@@ -438,6 +458,7 @@ def get_this_month_stats(
     active_loans_given = (
         db.query(Loan)
         .filter(Loan.is_deleted == False, Loan.status == "active", Loan.loan_direction == "given")
+        .options(selectinload(Loan.payments), selectinload(Loan.capitalization_events))
         .all()
     )
 
@@ -454,7 +475,7 @@ def get_this_month_stats(
                 import calendar as _cal
                 _dim = _cal.monthrange(today.year, today.month)[1]
                 interest_expected += _calc_period_interest(_decimal(loan.principal_amount), _decimal(loan.interest_rate), today.replace(day=1), _dim)
-            outstanding = calculate_outstanding(loan.id, today, db)
+            outstanding = calculate_outstanding_from_loan(loan, today)
             overdue_interest += _decimal(outstanding.get("interest_outstanding"))
         except Exception:
             pass
@@ -467,6 +488,7 @@ def get_this_month_stats(
             Loan.loan_direction == "given",
             LoanPayment.payment_date >= month_start,
             LoanPayment.payment_date <= today,
+            LoanPayment.is_voided == False,
         )
         .all()
     )
@@ -510,6 +532,7 @@ def get_payment_behavior(
             Loan.loan_direction == "given",
             Loan.status == "active",
         )
+        .options(selectinload(Loan.payments), joinedload(Loan.contact))
     )
     if contact_id:
         loan_query = loan_query.filter(Loan.contact_id == contact_id)
@@ -542,7 +565,7 @@ def get_payment_behavior(
                     (today.year - start.year) * 12 + (today.month - start.month), 1
                 )
                 total_months += months
-                payments = loan.payments
+                payments = _live_payments(loan)
                 total_payments += len(payments)
                 if payments:
                     lpd = payments[-1].payment_date
@@ -659,7 +682,7 @@ def get_dashboard_v2(
             out_amount = _decimal(outstanding_cache[loan.id]["total_outstanding"])
         total_outstanding_receivable += out_amount
 
-        payments = loan.payments or []
+        payments = _live_payments(loan)
         if loan.loan_type == "emi":
             emi_amt = _decimal(loan.emi_amount or 0)
             tenure = int(loan.tenure_months or 0)
@@ -732,7 +755,7 @@ def get_dashboard_v2(
             out_amount = _decimal(outstanding_cache[loan.id]["total_outstanding"])
         total_outstanding_payable += out_amount
 
-        taken_payments = loan.payments or []
+        taken_payments = _live_payments(loan)
         if loan.loan_type == "emi":
             emi_amt = _decimal(loan.emi_amount or 0)
             tenure = int(loan.tenure_months or 0)
@@ -796,12 +819,14 @@ def get_dashboard_v2(
     # ── EXPENSES ─────────────────────────────────────────────────────────
     this_month_expenses = (
         db.query(Expense)
-        .filter(Expense.expense_date >= month_start, Expense.expense_date <= today)
+        .filter(Expense.expense_date >= month_start, Expense.expense_date <= today,
+                Expense.is_deleted == False)
         .all()
     )
     last_month_expenses = (
         db.query(Expense)
-        .filter(Expense.expense_date >= last_month_start, Expense.expense_date <= last_month_end)
+        .filter(Expense.expense_date >= last_month_start, Expense.expense_date <= last_month_end,
+                Expense.is_deleted == False)
         .all()
     )
     this_m_total = sum(_decimal(e.amount) for e in this_month_expenses)
@@ -859,7 +884,8 @@ def get_dashboard_v2(
             PartnershipTransaction.received_by_member_id,
             func.coalesce(func.sum(PartnershipTransaction.amount), 0)
         ).filter(
-            PartnershipTransaction.received_by_member_id.in_(_self_member_ids)
+            PartnershipTransaction.received_by_member_id.in_(_self_member_ids),
+            PartnershipTransaction.is_voided == False,
         ).group_by(PartnershipTransaction.received_by_member_id).all()
         for mid, total in _recv_rows:
             _received_by_member[mid] = _decimal(total)
@@ -874,13 +900,17 @@ def get_dashboard_v2(
         ).filter(
             PropertyTransaction.property_deal_id.in_(_non_linked_prop_ids),
             PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+            PropertyTransaction.is_voided == False,
         ).group_by(PropertyTransaction.property_deal_id).all()
         for pid, total in _outflow_rows:
             _prop_outflow_by_id[pid] = _decimal(total)
 
-    # Property invested
+    # Property invested — settled deals excluded: their capital came back and
+    # already shows up in cash/obligations, counting the advance again double-counts.
     prop_invested = Decimal("0")
     for p in properties:
+        if p.status == "settled":
+            continue
         if p.id in _linked_prop_ids:
             part = _prop_to_part.get(p.id)
             if part:
@@ -1036,8 +1066,9 @@ def get_dashboard_v2(
         # 4) Interest-only — separate list, sorted by last payment
         if loan.loan_type == "interest_only" and interest_due > 0:
             last_pay = None
-            if loan.payments:
-                last_pay = max(p.payment_date for p in loan.payments)
+            _lp = _live_payments(loan)
+            if _lp:
+                last_pay = max(p.payment_date for p in _lp)
             interest_only_alerts.append({
                 "type": "interest_overdue", "priority": 5, "loan_id": loan.id,
                 "contact_name": cname,
@@ -1106,7 +1137,7 @@ def get_dashboard_v2(
                 end_d = loan.actual_end_date
                 if start_d and (end_d - start_d).days > 60:
                     princ_st = _decimal(loan.principal_amount)
-                    recv_st = sum(_decimal(pp.amount_paid) for pp in loan.payments)
+                    recv_st = sum(_decimal(pp.amount_paid) for pp in _live_payments(loan))
                     profit_st = recv_st - princ_st
                     if profit_st > 0:
                         st_p += profit_st
@@ -1115,13 +1146,15 @@ def get_dashboard_v2(
     tm_payments = (
         db.query(LoanPayment)
         .join(Loan, Loan.id == LoanPayment.loan_id)
-        .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= month_start, LoanPayment.payment_date <= today)
+        .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= month_start,
+                LoanPayment.payment_date <= today, LoanPayment.is_voided == False)
         .all()
     )
     lm_payments = (
         db.query(LoanPayment)
         .join(Loan, Loan.id == LoanPayment.loan_id)
-        .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= last_month_start, LoanPayment.payment_date <= last_month_end)
+        .filter(Loan.loan_direction == "given", LoanPayment.payment_date >= last_month_start,
+                LoanPayment.payment_date <= last_month_end, LoanPayment.is_voided == False)
         .all()
     )
 
@@ -1139,7 +1172,7 @@ def get_dashboard_v2(
     closed_principal = Decimal("0")
     for loan in closed_this_month:
         princ = _decimal(loan.principal_amount)
-        total_recv = sum(_decimal(p.amount_paid) for p in loan.payments)
+        total_recv = sum(_decimal(p.amount_paid) for p in _live_payments(loan))
         closed_principal += princ
         closed_profit += total_recv - princ
     closed_profit_pct = float(closed_profit / closed_principal * 100) if closed_principal > 0 else 0
@@ -1155,7 +1188,7 @@ def get_dashboard_v2(
 
     for pay in (
         db.query(LoanPayment)
-        .filter(LoanPayment.payment_date >= cashflow_start)
+        .filter(LoanPayment.payment_date >= cashflow_start, LoanPayment.is_voided == False)
         .all()
     ):
         direction = _loan_direction.get(pay.loan_id)
@@ -1169,7 +1202,7 @@ def get_dashboard_v2(
 
     for txn in (
         db.query(PropertyTransaction)
-        .filter(PropertyTransaction.txn_date >= cashflow_start)
+        .filter(PropertyTransaction.txn_date >= cashflow_start, PropertyTransaction.is_voided == False)
         .all()
     ):
         key = _month_key(txn.txn_date)
@@ -1181,9 +1214,12 @@ def get_dashboard_v2(
 
     for txn in (
         db.query(PartnershipTransaction)
-        .filter(PartnershipTransaction.txn_date >= cashflow_start)
+        .filter(PartnershipTransaction.txn_date >= cashflow_start, PartnershipTransaction.is_voided == False)
         .all()
     ):
+        # buyer money forwarded straight to the seller never touched our cash
+        if getattr(txn, "paid_to_seller", False):
+            continue
         key = _month_key(txn.txn_date)
         amt = _decimal(txn.amount)
         if txn.txn_type in INFLOW_PARTNERSHIP_TXN_TYPES:
@@ -1193,7 +1229,7 @@ def get_dashboard_v2(
 
     for exp in (
         db.query(Expense)
-        .filter(Expense.expense_date >= cashflow_start)
+        .filter(Expense.expense_date >= cashflow_start, Expense.is_deleted == False)
         .all()
     ):
         outflow_map[_month_key(exp.expense_date)] += _decimal(exp.amount)

@@ -165,57 +165,17 @@ def calculate_outstanding_from_loan(loan: "Loan", as_of_date: date) -> Dict[str,
 
 
 def get_emi_schedule_preloaded(loan: "Loan") -> List[Dict[str, Any]]:
-    """Like get_emi_schedule_with_payments but uses pre-loaded loan.payments — no DB calls."""
-    schedule = generate_emi_schedule(loan)
-    if not schedule:
-        return []
-    today = date.today()
-    emi_amount = Decimal(str(loan.emi_amount))
+    """Like get_emi_schedule_with_payments but uses pre-loaded loan.payments — no DB calls.
+
+    Delegates to the same core as get_emi_schedule_with_payments so the two can
+    never drift (penalty handling, overdue-day rule, paid-late penalties).
+    """
     # C-FIN-1 / H-DI-9: exclude voided payments from all financial calculations
     payments = sorted(
         [p for p in loan.payments if not getattr(p, 'is_voided', False)],
         key=lambda p: p.payment_date,
     )
-    total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
-    result = []
-    credit_balance = total_paid
-    for entry in schedule:
-        due_date = entry["due_date"]
-        is_future = due_date > today
-        if credit_balance >= emi_amount:
-            # C-FIN-2: fix always-"paid" ternary — future EMIs with credit should be "future"
-            status = "paid" if not is_future else "future"
-            paid_amount = emi_amount
-            outstanding = Decimal("0")
-            credit_balance -= emi_amount
-        elif credit_balance > 0:
-            status = "partial"
-            paid_amount = credit_balance
-            outstanding = emi_amount - credit_balance
-            credit_balance = Decimal("0")
-        else:
-            status = "future" if is_future else "unpaid"
-            paid_amount = Decimal("0")
-            outstanding = emi_amount
-        penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
-        days_overdue = 0
-        penalty_accrued = 0.0
-        if status in ("unpaid", "partial") and due_date < today and penalty_per_day > 0:
-            days_overdue = (today - due_date).days
-            penalty_accrued = float((penalty_per_day * days_overdue).quantize(Decimal("0.01")))
-
-        result.append({
-            "emi_number": entry["emi_number"],
-            "due_date": due_date,
-            "due_amount": float(emi_amount),
-            "paid_amount": float(paid_amount),
-            "outstanding": float(outstanding),
-            "status": status,
-            "is_current_month": (due_date.year == today.year and due_date.month == today.month),
-            "days_overdue": days_overdue,
-            "penalty_accrued": penalty_accrued,
-        })
-    return result
+    return _emi_schedule_core(loan, payments)
 
 
 def calculate_outstanding(loan_id: int, as_of_date: date, db: Session) -> Dict[str, Decimal]:
@@ -257,17 +217,30 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
     # Start with original principal
     principal_outstanding = Decimal(str(loan.principal_amount))
 
-    last_cap_date = loan.disbursed_date
+    # Manual cap events only apply when auto-capitalization is OFF (the auto
+    # path recomputes its own compounding and ignores DB events).
+    auto_cap = loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0
+    last_cap_date = None
     current_rate = Decimal(str(loan.interest_rate or 0))
 
-    for event in cap_events:
-        principal_outstanding = Decimal(str(event.new_principal))
-        last_cap_date = event.event_date
-        if event.interest_rate_after:
-            current_rate = Decimal(str(event.interest_rate_after))
+    if not auto_cap:
+        for event in cap_events:
+            principal_outstanding = Decimal(str(event.new_principal))
+            last_cap_date = event.event_date
+            if event.interest_rate_after:
+                current_rate = Decimal(str(event.interest_rate_after))
 
-    # Subtract all principal payments
-    for payment in payments:
+    # A cap event snapshots principal_before NET of earlier principal payments,
+    # and consumes interest paid up to its date. Everything before the last
+    # event is therefore already baked into new_principal — only payments made
+    # AFTER the event may be applied again.
+    if last_cap_date is not None:
+        effective_payments = [p for p in payments if p.payment_date > last_cap_date]
+    else:
+        effective_payments = list(payments)
+
+    # Subtract principal payments not already reflected in a cap event
+    for payment in effective_payments:
         principal_outstanding -= Decimal(str(payment.allocated_to_principal))
 
     # Calculate interest
@@ -283,7 +256,12 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
         principal = Decimal(str(loan.principal_amount))
         total_repayment = (emi_amount * tenure).quantize(Decimal("0.01"))
         total_interest = max(total_repayment - principal, Decimal("0"))
-        total_paid = sum(Decimal(str(p.amount_paid)) for p in payments)
+        # Penalty is a separate charge — it must not count toward EMI coverage
+        # (same rule as get_emi_schedule_with_payments).
+        total_paid = sum(
+            max(Decimal(str(p.amount_paid)) - Decimal(str(p.penalty_paid or 0)), Decimal("0"))
+            for p in payments
+        )
         # H-FIN-17: do NOT silently cap total_paid at total_repayment.
         # If payments exceed the scheduled repayment amount the loan is
         # over-paid; honour the actual figures so outstanding shows ≤ 0.
@@ -309,8 +287,8 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
 
     # Compute interest using the same period-based monthly formula as the schedule.
     # For auto-cap loans: start calc_principal from original principal (ignore old DB cap events).
-    # For non-auto-cap loans: apply DB cap events as starting point.
-    if loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0:
+    # For non-auto-cap loans: the last cap event's new_principal is the accrual base.
+    if auto_cap:
         calc_principal = Decimal(str(loan.principal_amount))
     else:
         calc_principal = Decimal(str(loan.principal_amount))
@@ -331,6 +309,10 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
     else:
         interest_start_calc = loan.interest_start_date or loan.disbursed_date
         calc_rate = current_rate
+        # Interest up to the last manual cap event is already inside
+        # new_principal — resume accrual the day after the event.
+        if last_cap_date is not None:
+            interest_start_calc = max(interest_start_calc, last_cap_date + timedelta(days=1))
 
     if as_of_date < interest_start_calc:
         principal_outstanding = max(principal_outstanding, Decimal("0"))
@@ -352,14 +334,14 @@ def _compute_outstanding(loan, as_of_date: date, cap_events, payments) -> Dict[s
 
     interest_paid_total = sum(
         Decimal(str(p.allocated_to_current_interest)) + Decimal(str(p.allocated_to_overdue_interest))
-        for p in payments
+        for p in effective_payments
     )
     interest_paid_remaining = interest_paid_total
 
     # Track principal repayments for all non-EMI loans so accrual basis is reduced.
     principal_repayment_events = sorted(
         [(p.payment_date, Decimal(str(p.allocated_to_principal)))
-         for p in payments if Decimal(str(p.allocated_to_principal or 0)) > 0],
+         for p in effective_payments if Decimal(str(p.allocated_to_principal or 0)) > 0],
         key=lambda x: x[0],
     )
     pr_idx = 0
@@ -596,6 +578,18 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
     - UNPAID/PARTIAL: penalty = max(0, (today - due_date).days - 1) × penalty_per_day
       (yesterday is the last accrual day; today is excluded since they can still pay today)
     """
+    # Get all non-voided payments ordered by date asc
+    # H-DI-9 / C-FIN-1: exclude voided payments from all financial calculations
+    payments = db.query(LoanPayment).filter(
+        LoanPayment.loan_id == loan.id,
+        LoanPayment.is_voided == False,
+    ).order_by(LoanPayment.payment_date.asc()).all()
+
+    return _emi_schedule_core(loan, payments)
+
+
+def _emi_schedule_core(loan: Loan, payments: List["LoanPayment"]) -> List[Dict[str, Any]]:
+    """Shared EMI-schedule engine used by both the DB and preloaded variants."""
     schedule = generate_emi_schedule(loan)
     if not schedule:
         return []
@@ -603,13 +597,6 @@ def get_emi_schedule_with_payments(loan: Loan, db: Session) -> List[Dict[str, An
     today = date.today()
     emi_amount = Decimal(str(loan.emi_amount))
     penalty_per_day = Decimal(str(getattr(loan, "penalty_per_day", None) or 0))
-
-    # Get all non-voided payments ordered by date asc
-    # H-DI-9 / C-FIN-1: exclude voided payments from all financial calculations
-    payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan.id,
-        LoanPayment.is_voided == False,
-    ).order_by(LoanPayment.payment_date.asc()).all()
 
     # Build cumulative payment timeline to find per-EMI effective coverage dates.
     # IMPORTANT: penalty_paid is a separate charge — it must NOT count toward EMI coverage.
@@ -805,10 +792,11 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
 
             days = (p_end - p_start).days
             is_current = days < full_days
+            st_banking = getattr(loan, 'interest_calc_method', 'commercial') == 'banking_365'
             if is_current:
-                monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days)
+                monthly_interest = _calc_period_interest(principal, rate, p_start, days, full_days, banking=st_banking)
             else:
-                monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days)
+                monthly_interest = _calc_period_interest(principal, rate, p_start, full_days, full_days, banking=st_banking)
 
             if interest_paid_remaining >= monthly_interest:
                 paid = monthly_interest
@@ -852,8 +840,10 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     cap_enabled = loan.capitalization_enabled and (loan.capitalization_after_months or 0) > 0
     cap_every = loan.capitalization_after_months or 0
 
+    # H-DI-9 / C-FIN-1: exclude voided payments from all financial calculations
     payments = db.query(LoanPayment).filter(
-        LoanPayment.loan_id == loan.id
+        LoanPayment.loan_id == loan.id,
+        LoanPayment.is_voided == False,
     ).order_by(LoanPayment.payment_date.asc()).all()
     total_interest_paid = sum(
         Decimal(str(p.allocated_to_current_interest or 0)) +
@@ -865,6 +855,31 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     entries = []
     month_count = 0
     unpaid_interest_carried = Decimal("0")
+
+    # Manual capitalization events (only meaningful when auto-cap is OFF):
+    # at the first period after each event, rebase principal/rate and mark
+    # the previous row as capitalized — mirrors _compute_outstanding.
+    manual_events = []
+    if not cap_enabled:
+        manual_events = sorted(
+            [e for e in (loan.capitalization_events or []) if e.event_date <= today],
+            key=lambda e: e.event_date,
+        )
+    me_idx = 0
+
+    def _apply_manual_events(p_start: date):
+        nonlocal me_idx, principal, rate, unpaid_interest_carried
+        while me_idx < len(manual_events) and manual_events[me_idx].event_date < p_start:
+            ev = manual_events[me_idx]
+            if entries:
+                entries[-1]["capitalized"] = True
+                entries[-1]["capitalized_amount"] = float(ev.outstanding_interest_before or 0)
+                entries[-1]["new_principal_after"] = float(ev.new_principal or 0)
+            principal = Decimal(str(ev.new_principal))
+            if ev.interest_rate_after:
+                rate = Decimal(str(ev.interest_rate_after))
+            unpaid_interest_carried = Decimal("0")
+            me_idx += 1
 
     # Track principal reductions so interest accrues on reduced balance
     principal_repayment_events = sorted(
@@ -878,6 +893,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         # ── Banking mode: calendar-month aligned periods ──
         raw_periods = _build_banking_periods(interest_start, today)
         for p_start, p_end_excl_actual, full_days, pay_due in raw_periods:
+            _apply_manual_events(p_start)
             while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
                 principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
                 pr_idx += 1
@@ -945,6 +961,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         # ── Commercial mode: disbursement-date-anchored monthly periods ──
         raw_periods = _build_monthly_periods(interest_start, today)
         for p_start, p_end_excl_actual, full_days in raw_periods:
+            _apply_manual_events(p_start)
             while pr_idx < len(principal_repayment_events) and principal_repayment_events[pr_idx][0] <= p_start:
                 principal = max(principal - principal_repayment_events[pr_idx][1], Decimal("0"))
                 pr_idx += 1

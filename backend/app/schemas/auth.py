@@ -31,7 +31,12 @@ class UserOut(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    # FIX (refresh-token leak): the refresh token is delivered ONLY through the
+    # httpOnly, SameSite=Strict cookie set by the backend — it is never echoed
+    # in the response body where JS/extensions/logs/proxies could capture it.
+    # Kept Optional for backward compatibility with the response schema; it is
+    # always None on /login now.
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
 
 

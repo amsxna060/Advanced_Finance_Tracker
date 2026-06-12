@@ -18,7 +18,10 @@ from app.schemas.auth import UserCreate, UserLogin, UserOut, TokenResponse, Refr
 from app.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# L-SEC-7 (FIX): use bcrypt rounds=13 to match the seed-admin context in main.py
+# so user-created accounts get the same brute-force resistance. Existing 12-round
+# hashes still verify — the cost factor is embedded in each stored hash.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=13)
 limiter = Limiter(key_func=get_remote_address)
 
 
@@ -71,10 +74,12 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
         path="/api/auth",
     )
 
+    # FIX (refresh-token leak): do NOT return the refresh token in the body.
+    # It is already set as an httpOnly SameSite=Strict cookie above; the SPA
+    # reads it only via that cookie. Returning it here would expose it to JS.
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
     }
 
 

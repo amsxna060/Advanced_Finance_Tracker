@@ -19,10 +19,7 @@ from app.schemas.property_deal import (
     PropertyDealCreate,
     PropertyDealOut,
     PropertyDealUpdate,
-    PropertyTransactionCreate,
-    PropertyTransactionUpdate,
     PropertyTransactionOut,
-    PropertySettleRequest,
     SitePlotCreate,
     SitePlotOut,
     PlotBuyerCreate,
@@ -153,6 +150,21 @@ def _calculate_property_summary(
         )
         # paid_to_seller txns increase both inflow AND outflow (pass-through); add to outflow so net is correct
         net_profit = total_inflow - total_outflow - paid_to_seller_sum
+
+        # PR3: two explicit profit views.
+        # realized = cash so far; projected = full committed buyer/seller values.
+        committed_seller = (
+            _decimal(property_deal.total_seller_value)
+            if property_deal.total_seller_value and _decimal(property_deal.total_seller_value) > 0
+            else seller_total
+        )
+        committed_buyer = (
+            _decimal(property_deal.total_buyer_value)
+            if property_deal.total_buyer_value and _decimal(property_deal.total_buyer_value) > 0
+            else buyer_inflow
+        )
+        realized_pnl = net_profit
+        projected_pnl = committed_buyer - committed_seller - broker_commission - expense_total
     else:
         total_inflow = Decimal("0")
         total_outflow = Decimal("0")
@@ -166,12 +178,16 @@ def _calculate_property_summary(
         gross_profit = _decimal(property_deal.total_buyer_value) - _decimal(property_deal.total_seller_value) \
             if property_deal.total_buyer_value and property_deal.total_seller_value else Decimal("0")
         net_profit = total_inflow - total_outflow
+        realized_pnl = net_profit
+        projected_pnl = gross_profit if gross_profit != Decimal("0") else net_profit
 
     return {
         "total_inflow": total_inflow,
         "total_outflow": total_outflow,
         "gross_profit": gross_profit,
-        "net_profit": net_profit,
+        "net_profit": net_profit,  # back-compat alias for realized_pnl
+        "realized_pnl": realized_pnl,
+        "projected_pnl": projected_pnl,
         "linked_partnerships": len(linked_partnerships),
         "partnership_titles": [partnership.title for partnership in linked_partnerships],
     }
@@ -233,8 +249,19 @@ def portfolio_stats(
                 SUM(pt.amount) FILTER (
                     WHERE pt.txn_type IN ('expense', 'other_expense', 'kharcha')
                     AND   pt.member_id = pm.id
+                    AND   COALESCE(pt.is_voided, FALSE) = FALSE
+                    AND   COALESCE(pt.from_partnership_pot, FALSE) = FALSE
                 ), 0
-            ) AS personal_expenses
+            ) AS personal_expenses,
+            COALESCE(
+                SUM(pt.amount) FILTER (
+                    WHERE COALESCE(pt.is_voided, FALSE) = FALSE
+                    AND (
+                        pt.txn_type IN ('advance_to_seller', 'advance_given', 'remaining_to_seller')
+                        OR COALESCE(pt.paid_to_seller, FALSE) = TRUE
+                    )
+                ), 0
+            ) AS seller_paid_total
         FROM property_deals pd
         LEFT JOIN partnerships p
             ON  p.linked_property_deal_id = pd.id
@@ -263,7 +290,14 @@ def portfolio_stats(
         adv_contributed = Decimal(str(row.advance_contributed or 0))
         expenses        = Decimal(str(row.personal_expenses or 0))
         total_seller    = Decimal(str(row.total_seller_value or 0))
-        remaining       = max(Decimal("0"), total_seller - Decimal(str(row.advance_paid or 0)))
+        # Liability = what's still unpaid to the seller. Count ALL seller-side
+        # payments (advance + remaining + buyer-direct), not just advance_paid —
+        # otherwise a fully paid seller still shows as a liability.
+        seller_paid     = max(
+            Decimal(str(row.seller_paid_total or 0)),
+            Decimal(str(row.advance_paid or 0)),
+        )
+        remaining       = max(Decimal("0"), total_seller - seller_paid)
 
         if row.status in _ACTIVE_STATUSES:
             active_count += 1
@@ -404,24 +438,30 @@ def get_property(
                 })
 
     # Build displayable transaction list: prefer partnership txns, fallback to legacy
+    # N+1 fix: one members query + one contacts query for ALL partnerships/txns
+    # (was a members query per partnership and a Contact query per txn side).
     display_transactions = []
     if all_partnership_txns:
-        for lp in linked_partnerships:
-            lp_members = db.query(PartnershipMember).filter(
-                PartnershipMember.partnership_id == lp.id,
+        _all_members = db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id.in_([lp.id for lp in linked_partnerships] or [0]),
+        ).all()
+        _members_by_partnership = {}
+        for m in _all_members:
+            _members_by_partnership.setdefault(m.partnership_id, {})[m.id] = m
+        _contact_name_map = {
+            c.id: c for c in db.query(Contact).filter(
+                Contact.id.in_({m.contact_id for m in _all_members if m.contact_id} or {0})
             ).all()
-            member_map = {m.id: m for m in lp_members}
+        }
+        for lp in linked_partnerships:
+            member_map = _members_by_partnership.get(lp.id, {})
             for txn in all_partnership_txns:
                 if txn.partnership_id != lp.id:
                     continue
                 payer = member_map.get(txn.member_id) if txn.member_id else None
                 receiver = member_map.get(txn.received_by_member_id) if txn.received_by_member_id else None
-                payer_contact = None
-                if payer and payer.contact_id:
-                    payer_contact = db.query(Contact).filter(Contact.id == payer.contact_id).first()
-                receiver_contact = None
-                if receiver and receiver.contact_id:
-                    receiver_contact = db.query(Contact).filter(Contact.id == receiver.contact_id).first()
+                payer_contact = _contact_name_map.get(payer.contact_id) if (payer and payer.contact_id) else None
+                receiver_contact = _contact_name_map.get(receiver.contact_id) if (receiver and receiver.contact_id) else None
                 display_transactions.append({
                     "id": txn.id,
                     "source": "partnership",
@@ -524,140 +564,10 @@ def delete_property(
     return {"message": "Property deal deleted successfully"}
 
 
-@router.post("/{property_id}/transactions", response_model=PropertyTransactionOut, deprecated=True)
-def create_property_transaction(
-    property_id: int,
-    transaction_data: PropertyTransactionCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    _get_property_or_404(property_id, db)
-    transaction = PropertyTransaction(
-        property_deal_id=property_id,
-        created_by=current_user.id,
-        **transaction_data.model_dump(),
-    )
-    db.add(transaction)
-    db.flush()
-
-    # Auto-ledger
-    if transaction.account_id:
-        is_inflow = transaction.txn_type in INFLOW_TXN_TYPES
-        auto_ledger(
-            db=db,
-            account_id=transaction.account_id,
-            txn_type="credit" if is_inflow else "debit",
-            amount=_decimal(transaction.amount),
-            txn_date=transaction.txn_date,
-            linked_type="property",
-            linked_id=property_id,
-            description=f"Property: {transaction.txn_type} — {transaction.description or ''}".strip(),
-            payment_mode=transaction.payment_mode,
-            created_by=current_user.id,
-        )
-
-    # Auto-sync advance_paid from all advance_to_seller transactions
-    if transaction.txn_type == "advance_to_seller":
-        deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
-        total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
-            PropertyTransaction.property_deal_id == property_id,
-            PropertyTransaction.txn_type == "advance_to_seller",
-        ).scalar()
-        deal.advance_paid = total_advance
-        if not deal.advance_date:
-            deal.advance_date = transaction.txn_date
-        # Update status to advance_given if still negotiating
-        if deal.status == "negotiating" and _decimal(total_advance) > 0:
-            deal.status = "advance_given"
-        # For site type, sync my_investment to total advance
-        if (deal.property_type or "").lower() == "site":
-            deal.my_investment = total_advance
-
-    # Auto-sync PlotBuyer advance/total when received_from_buyer with plot_buyer_id
-    if transaction.txn_type == "received_from_buyer" and transaction.plot_buyer_id:
-        _resync_plot_buyer(property_id, transaction.plot_buyer_id, db)
-
-    db.commit()
-    db.refresh(transaction)
-    return transaction
-
-
-@router.put("/{property_id}/transactions/{txn_id}", response_model=PropertyTransactionOut, deprecated=True)
-def update_property_transaction(
-    property_id: int,
-    txn_id: int,
-    update_data: PropertyTransactionUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """Update a property transaction and re-sync its linked ledger entry."""
-    _get_property_or_404(property_id, db)
-    txn = db.query(PropertyTransaction).filter(
-        PropertyTransaction.id == txn_id,
-        PropertyTransaction.property_deal_id == property_id,
-    ).first()
-    if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-
-    # Capture old values before mutation
-    old_account_id = txn.account_id
-    old_amount = _decimal(txn.amount)
-    old_txn_date = txn.txn_date
-    old_txn_type = txn.txn_type
-
-    # Apply updates
-    for field, value in update_data.model_dump(exclude_unset=True).items():
-        setattr(txn, field, value)
-
-    # Re-sync ledger: delete old entry, create new one
-    is_inflow = old_txn_type in INFLOW_TXN_TYPES
-    if old_account_id:
-        old_entries = db.query(AccountTransaction).filter(
-            AccountTransaction.linked_type == "property",
-            AccountTransaction.linked_id == property_id,
-            AccountTransaction.txn_type == ("credit" if is_inflow else "debit"),
-            AccountTransaction.amount == old_amount,
-            AccountTransaction.txn_date == old_txn_date,
-        ).all()
-        for e in old_entries:
-            db.delete(e)
-
-    if txn.account_id:
-        auto_ledger(
-            db=db,
-            account_id=txn.account_id,
-            txn_type="credit" if is_inflow else "debit",
-            amount=_decimal(txn.amount),
-            txn_date=txn.txn_date,
-            linked_type="property",
-            linked_id=property_id,
-            description=f"Property: {txn.txn_type} — {txn.description or ''}".strip(),
-            payment_mode=txn.payment_mode,
-            created_by=current_user.id,
-        )
-
-    # Re-sync advance_paid + my_investment + status if it's an advance
-    db.flush()  # ensure setattr changes are visible to subsequent queries
-    if txn.txn_type == "advance_to_seller":
-        deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
-        total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
-            PropertyTransaction.property_deal_id == property_id,
-            PropertyTransaction.txn_type == "advance_to_seller",
-        ).scalar()
-        deal.advance_paid = total_advance
-        if deal.status == "negotiating" and _decimal(total_advance) > 0:
-            deal.status = "advance_given"
-        if (deal.property_type or "").lower() == "site":
-            deal.my_investment = total_advance
-
-    # Re-sync PlotBuyer totals if received_from_buyer with plot_buyer_id
-    if txn.txn_type == "received_from_buyer" and txn.plot_buyer_id:
-        _resync_plot_buyer(property_id, txn.plot_buyer_id, db)
-
-    db.commit()
-    db.refresh(txn)
-    return txn
-
+# NOTE: the deprecated property-transaction write endpoints and the
+# deprecated /settle endpoint were removed (2026-06-12). All property
+# money flows are managed through the linked partnership; the read-only
+# GET /transactions endpoint below is kept for legacy data display.
 
 @router.get("/{property_id}/transactions", response_model=List[PropertyTransactionOut])
 def get_property_transactions(
@@ -670,63 +580,6 @@ def get_property_transactions(
         PropertyTransaction.property_deal_id == property_id,
         PropertyTransaction.is_voided == False,
     ).order_by(PropertyTransaction.txn_date.desc(), PropertyTransaction.id.desc()).all()
-
-
-@router.delete("/{property_id}/transactions/{txn_id}", deprecated=True)
-def delete_property_transaction(
-    property_id: int,
-    txn_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """Delete a property transaction and its linked ledger entry."""
-    _get_property_or_404(property_id, db)
-    txn = db.query(PropertyTransaction).filter(
-        PropertyTransaction.id == txn_id,
-        PropertyTransaction.property_deal_id == property_id,
-        PropertyTransaction.is_voided == False,
-    ).first()
-    if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found or already voided")
-
-    txn_type = txn.txn_type
-    plot_buyer_id = txn.plot_buyer_id
-
-    # Void linked ledger entry (keeps it in reconciliation as voided)
-    if txn.account_id:
-        is_inflow = txn.txn_type in INFLOW_TXN_TYPES
-        matching = db.query(AccountTransaction).filter(
-            AccountTransaction.linked_type == "property",
-            AccountTransaction.linked_id == property_id,
-            AccountTransaction.txn_type == ("credit" if is_inflow else "debit"),
-            AccountTransaction.amount == txn.amount,
-            AccountTransaction.txn_date == txn.txn_date,
-            AccountTransaction.is_voided == False,
-        ).all()
-        for m in matching:
-            m.is_voided = True
-
-    txn.is_voided = True
-    db.flush()
-
-    # Re-sync advance_paid (exclude voided)
-    if txn_type == "advance_to_seller":
-        deal = db.query(PropertyDeal).filter(PropertyDeal.id == property_id).first()
-        total_advance = db.query(func.coalesce(func.sum(PropertyTransaction.amount), 0)).filter(
-            PropertyTransaction.property_deal_id == property_id,
-            PropertyTransaction.txn_type == "advance_to_seller",
-            PropertyTransaction.is_voided == False,
-        ).scalar()
-        deal.advance_paid = total_advance
-        if (deal.property_type or "").lower() == "site":
-            deal.my_investment = total_advance
-
-    # Re-sync PlotBuyer totals
-    if txn_type == "received_from_buyer" and plot_buyer_id:
-        _resync_plot_buyer(property_id, plot_buyer_id, db)
-
-    db.commit()
-    return {"message": "Transaction voided"}
 
 
 @router.get("/{property_id}/profit-summary", response_model=dict)
@@ -763,242 +616,6 @@ def get_property_profit_summary(
     return {
         **summary,
         "per_partner_share": per_partner_share,
-    }
-
-
-@router.post("/{deal_id}/settle", response_model=dict, deprecated=True)
-def settle_property_deal(
-    deal_id: int,
-    settle_data: PropertySettleRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """
-    Settle a property deal. Handles two deal sub-types differently:
-
-    PLOT (middleman): buyer_rate_per_sqft, registry_date, other_expenses
-      - gross_profit = buyer_rate * area - total_seller_value
-      - net_profit = gross_profit - broker_commission - other_expenses
-      - Each partner gets: advance_returned + (net_profit * share%)
-
-    SITE: total_profit_received, site_deal_end_date
-      - my_profit = total_profit_received * (my_share_percentage / 100)
-      - ROI per annum computed from deal start/end dates
-    """
-    property_deal = _get_property_or_404(deal_id, db)
-
-    if property_deal.status == "settled":
-        raise HTTPException(status_code=400, detail="This property deal is already settled")
-
-    property_type = (property_deal.property_type or "").lower()
-
-    # ── SITE settlement ────────────────────────────────────────────────────────
-    if property_type == "site":
-        total_profit_received = _decimal(
-            settle_data.total_profit_received or property_deal.total_profit_received
-        )
-        my_share_pct = _decimal(property_deal.my_share_percentage)
-        my_investment = _decimal(property_deal.my_investment)
-
-        my_profit = total_profit_received * (my_share_pct / Decimal("100")) if my_share_pct else Decimal("0")
-        total_returned = my_investment + my_profit
-
-        # Duration and ROI
-        start_date = property_deal.site_deal_start_date
-        end_date = settle_data.site_deal_end_date or property_deal.site_deal_end_date
-        duration_days = None
-        duration_months = None
-        roi_per_annum = None
-        if start_date and end_date:
-            duration_days = (end_date - start_date).days
-            duration_months = round(duration_days / _AVG_DAYS_PER_MONTH, 1)
-            if my_investment > 0 and duration_days > 0:
-                roi_per_annum = float(
-                    (my_profit / my_investment) / Decimal(str(duration_days / 365)) * Decimal("100")
-                )
-
-        # Persist
-        property_deal.status = "settled"
-        property_deal.total_profit_received = total_profit_received
-        if settle_data.site_deal_end_date:
-            property_deal.site_deal_end_date = settle_data.site_deal_end_date
-
-        db.commit()
-        db.refresh(property_deal)
-
-        return {
-            "deal": PropertyDealOut.model_validate(property_deal),
-            "settlement_summary": {
-                "deal_type": "site",
-                "my_investment": float(my_investment),
-                "total_profit_received": float(total_profit_received),
-                "my_share_percentage": float(my_share_pct),
-                "my_profit": float(my_profit),
-                "total_returned_to_me": float(total_returned),
-                "roi_per_annum_percent": roi_per_annum,
-                "duration_months": duration_months,
-            },
-        }
-
-    # ── PLOT / default settlement ───────────────────────────────────────────────
-    # Determine total_buyer_value
-    if settle_data.buyer_rate_per_sqft is not None and property_deal.total_area_sqft:
-        total_buyer_value = (
-            _decimal(settle_data.buyer_rate_per_sqft) * _decimal(property_deal.total_area_sqft)
-        )
-    else:
-        total_buyer_value = (
-            _decimal(settle_data.total_buyer_value) or _decimal(property_deal.total_buyer_value)
-        )
-
-    total_seller_value = (
-        _decimal(settle_data.total_seller_value) or _decimal(property_deal.total_seller_value)
-    )
-    broker_commission = (
-        settle_data.broker_commission
-        if settle_data.broker_commission is not None
-        else _decimal(property_deal.broker_commission)
-    )
-    # Gather all other_expense transactions (property-level + partnership-level)
-    # and attribute each to the paying member
-    prop_expense_txns = db.query(PropertyTransaction).filter(
-        PropertyTransaction.property_deal_id == deal_id,
-        PropertyTransaction.txn_type == "other_expense",
-    ).all()
-
-    # For property-level expenses, payer is always treated as self (no member_id on property txns)
-    # For partnership-level expenses, payer is whoever has member_id on the txn
-    linked_partnerships_for_settle = db.query(Partnership).filter(
-        Partnership.linked_property_deal_id == deal_id,
-        Partnership.is_deleted == False,
-    ).all()
-
-    # Build member_id -> total_expense_paid mapping from partnership transactions
-    # member_id=None means Self (property-level expense with no member)
-    member_expense_map: dict = {}  # {member_id_or_None: Decimal}
-
-    # Property-level other_expenses → attributed to self (None key)
-    prop_exp_total = sum((_decimal(t.amount) for t in prop_expense_txns), Decimal("0"))
-    member_expense_map[None] = member_expense_map.get(None, Decimal("0")) + prop_exp_total
-
-    for lp in linked_partnerships_for_settle:
-        lp_exp_txns = db.query(PartnershipTransaction).filter(
-            PartnershipTransaction.partnership_id == lp.id,
-            PartnershipTransaction.txn_type == "other_expense",
-        ).all()
-        for t in lp_exp_txns:
-            key = t.member_id  # member_id on partnership transaction
-            member_expense_map[key] = member_expense_map.get(key, Decimal("0")) + _decimal(t.amount)
-
-    total_other_expenses = sum(member_expense_map.values(), Decimal("0"))
-    # If form explicitly provides a value use it (legacy / manual override), else use tracked total
-    other_expenses = _decimal(settle_data.other_expenses) if _decimal(settle_data.other_expenses) > 0 else total_other_expenses
-
-    gross_profit = total_buyer_value - total_seller_value
-    total_expenses = broker_commission + other_expenses
-    net_profit = gross_profit - total_expenses
-
-    total_advance_pool = Decimal("0")
-    partner_settlements = []
-
-    if linked_partnerships_for_settle:
-        for partnership in linked_partnerships_for_settle:
-            members = db.query(PartnershipMember).filter(
-                PartnershipMember.partnership_id == partnership.id,
-            ).all()
-
-            # H-PERF-3: batch-load contacts for all members to avoid N+1
-            contact_ids = [m.contact_id for m in members if m.contact_id]
-            contact_map_settle = {}
-            if contact_ids:
-                contacts_for_members = db.query(Contact).filter(Contact.id.in_(contact_ids)).all()
-                contact_map_settle = {c.id: c for c in contacts_for_members}
-
-            # Build id -> member map for this partnership
-            pm_map = {m.id: m for m in members}
-
-            for member in members:
-                share_pct = _decimal(member.share_percentage)
-                advance = _decimal(member.advance_contributed)
-                total_advance_pool += advance
-                profit_share = net_profit * (share_pct / Decimal("100"))
-
-                # Other expenses paid by this member:
-                # Check partnership transaction member_id == member.id
-                # Also include property-level expenses if member is self (None key)
-                other_exp_returned = member_expense_map.get(member.id, Decimal("0"))
-                if member.is_self:
-                    other_exp_returned += member_expense_map.get(None, Decimal("0"))
-
-                total_to_receive = advance + other_exp_returned + profit_share
-                member.total_received = total_to_receive
-
-                contact = contact_map_settle.get(member.contact_id) if member.contact_id else None
-
-                partner_settlements.append({
-                    "member_id": member.id,
-                    "contact_name": "Self" if member.is_self else (contact.name if contact else "Unknown"),
-                    "is_self": member.is_self,
-                    "share_percentage": float(share_pct),
-                    "advance_contributed": float(advance),
-                    "advance_returned": float(advance),
-                    "other_expense_returned": float(other_exp_returned),
-                    "profit_share": float(profit_share),
-                    "total_to_receive": float(total_to_receive),
-                })
-
-            partnership.status = "settled"
-            registry_date = settle_data.registry_date or settle_data.actual_registry_date
-            if registry_date:
-                partnership.actual_end_date = registry_date
-    else:
-        # No partnership — 100% to self, self gets back all other_expenses
-        partner_settlements.append({
-            "member_id": None,
-            "contact_name": "Self",
-            "is_self": True,
-            "share_percentage": 100.0,
-            "advance_contributed": 0.0,
-            "advance_returned": 0.0,
-            "other_expense_returned": float(other_expenses),
-            "profit_share": float(net_profit),
-            "total_to_receive": float(net_profit + other_expenses),
-        })
-
-    # Persist deal fields
-    property_deal.status = "settled"
-    property_deal.gross_profit = gross_profit
-    property_deal.net_profit = net_profit
-    property_deal.broker_commission = broker_commission
-    property_deal.other_expenses = other_expenses
-    property_deal.total_buyer_value = total_buyer_value
-    if settle_data.total_seller_value is not None:
-        property_deal.total_seller_value = total_seller_value
-    if settle_data.buyer_rate_per_sqft is not None:
-        property_deal.buyer_rate_per_sqft = settle_data.buyer_rate_per_sqft
-    registry_date = settle_data.registry_date or settle_data.actual_registry_date
-    if registry_date:
-        property_deal.actual_registry_date = registry_date
-
-    db.commit()
-    db.refresh(property_deal)
-
-    return {
-        "deal": PropertyDealOut.model_validate(property_deal),
-        "settlement_summary": {
-            "deal_type": "plot",
-            "total_buyer_value": float(total_buyer_value),
-            "total_seller_value": float(total_seller_value),
-            "advance_paid": float(_decimal(property_deal.advance_paid)),
-            "seller_remaining": float(total_seller_value - _decimal(property_deal.advance_paid)),
-            "broker_name": property_deal.broker_name,
-            "broker_commission": float(broker_commission),
-            "other_expenses": float(other_expenses),
-            "gross_profit": float(gross_profit),
-            "net_profit": float(net_profit),
-            "total_advance_pool": float(total_advance_pool),
-            "partner_settlements": partner_settlements,
-        },
     }
 
 
@@ -1051,10 +668,13 @@ def update_site_plot(
     if not plot:
         raise HTTPException(status_code=404, detail="Plot not found")
     data = plot_data.model_dump(exclude_unset=True)
-    if data.get("calculated_price") is None and data.get("area_sqft") and data.get("sold_price_per_sqft"):
-        data["calculated_price"] = Decimal(str(data["area_sqft"])) * Decimal(str(data["sold_price_per_sqft"]))
     for field, value in data.items():
         setattr(plot, field, value)
+    # Recalculate from the MERGED values so editing only area (or only rate)
+    # doesn't leave calculated_price stale.
+    if "calculated_price" not in data and ("area_sqft" in data or "sold_price_per_sqft" in data):
+        if plot.area_sqft and plot.sold_price_per_sqft:
+            plot.calculated_price = Decimal(str(plot.area_sqft)) * Decimal(str(plot.sold_price_per_sqft))
     db.commit()
     db.refresh(plot)
     return plot
@@ -1128,10 +748,13 @@ def update_plot_buyer(
     if not buyer:
         raise HTTPException(status_code=404, detail="Buyer not found")
     data = buyer_data.model_dump(exclude_unset=True)
-    if data.get("total_value") is None and data.get("area_sqft") and data.get("rate_per_sqft"):
-        data["total_value"] = Decimal(str(data["area_sqft"])) * Decimal(str(data["rate_per_sqft"]))
     for field, value in data.items():
         setattr(buyer, field, value)
+    # Recalculate from the MERGED values so editing only area (or only rate)
+    # doesn't leave total_value stale.
+    if "total_value" not in data and ("area_sqft" in data or "rate_per_sqft" in data):
+        if buyer.area_sqft and buyer.rate_per_sqft:
+            buyer.total_value = Decimal(str(buyer.area_sqft)) * Decimal(str(buyer.rate_per_sqft))
     db.commit()
     db.refresh(buyer)
     return buyer

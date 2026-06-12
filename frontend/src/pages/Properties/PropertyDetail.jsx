@@ -443,10 +443,16 @@ export default function PropertyDetail() {
             accent={myRemainingCommitment > 0 ? "amber" : "emerald"}
           />
           <HeroStat
-            label={isSettled ? "Net Profit" : "Projected Profit"}
-            value={formatCurrency(data?.summary?.net_profit || 0)}
-            sub={myShare > 0 && data?.summary?.net_profit > 0 ? `My share: ${formatCurrency(parseFloat(data.summary.net_profit) * myShare / 100)}` : undefined}
-            accent={parseFloat(data?.summary?.net_profit || 0) > 0 ? "emerald" : "rose"}
+            label={isSettled ? "Net Profit (realized)" : "Projected Profit"}
+            value={formatCurrency(
+              isSettled
+                ? (data?.summary?.realized_pnl ?? data?.summary?.net_profit ?? 0)
+                : (data?.summary?.projected_pnl ?? data?.summary?.net_profit ?? 0)
+            )}
+            sub={isSettled
+              ? undefined
+              : `Realized so far: ${formatCurrency(data?.summary?.realized_pnl ?? data?.summary?.net_profit ?? 0)}`}
+            accent={parseFloat((isSettled ? data?.summary?.realized_pnl : data?.summary?.projected_pnl) ?? data?.summary?.net_profit ?? 0) > 0 ? "emerald" : "rose"}
           />
         </div>
       </PageHero>

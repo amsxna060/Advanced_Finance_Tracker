@@ -102,13 +102,20 @@ export default function AccountDetail() {
     return matchSearch && matchType;
   });
 
-  // Build running balance (transactions are desc so we need to compute from cumulative)
+  // Build running balance (transactions are desc so we need to compute from cumulative).
+  // Credit cards use inverted semantics (running = outstanding owed: debit
+  // increases it, credit/payment reduces it) so rows reconcile with the header.
+  const isCreditCard = account.account_type === "credit_card";
   let runningBal = Number(account.opening_balance || 0);
   const txnsAsc = [...txns].reverse(); // ascending for running balance
   const balanceMap = {};
   txnsAsc.forEach((t) => {
-    if (t.txn_type === "credit") runningBal += Number(t.amount);
-    else runningBal -= Number(t.amount);
+    const amt = Number(t.amount);
+    if (isCreditCard) {
+      runningBal += t.txn_type === "debit" ? amt : -amt;
+    } else {
+      runningBal += t.txn_type === "credit" ? amt : -amt;
+    }
     balanceMap[t.id] = runningBal;
   });
 

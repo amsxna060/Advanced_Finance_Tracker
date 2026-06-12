@@ -24,7 +24,7 @@ from app.schemas.obligation import (
     SettlementOut,
 )
 from app.schemas.loan import ContactBrief
-from app.services.auto_ledger import auto_ledger, reverse_all_ledger
+from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_ledger_by_source
 from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/obligations", tags=["obligations"])
@@ -91,12 +91,16 @@ def create_obligation(
             account_id=data.account_id,
             txn_type=txn_type,
             amount=_D(data.amount),
-            txn_date=data.due_date or date_today.today(),
+            # The money moved NOW (at creation) — due_date is when it comes back.
+            # Dating the entry at a future due_date misplaced it in dated reports.
+            txn_date=date_today.today(),
             linked_type="obligation",
             linked_id=ob.id,
             description=f"Obligation created: {data.reason or ''}".strip(),
             contact_id=data.contact_id,
             created_by=current_user.id,
+            source_type="obligation_create",
+            source_id=ob.id,
         )
 
     db.commit()
@@ -250,6 +254,7 @@ def settle_obligation(
         **data.model_dump(),
     )
     db.add(settlement)
+    db.flush()  # settlement.id needed for the ledger source link
 
     # Update amount_settled and status
     ob.amount_settled = _D(ob.amount_settled) + _D(data.amount)
@@ -275,6 +280,8 @@ def settle_obligation(
             payment_mode=data.payment_mode,
             contact_id=ob.contact_id,
             created_by=current_user.id,
+            source_type="obligation_settlement",
+            source_id=settlement.id,
         )
 
     db.commit()
@@ -304,8 +311,9 @@ def delete_settlement(
     if not settlement:
         raise HTTPException(status_code=404, detail="Settlement not found")
 
-    # Reverse linked ledger entry
-    if settlement.account_id:
+    # Reverse linked ledger entry (exact source link; legacy rows fall back
+    # to the heuristic — void the first live match only, keep audit trail)
+    if settlement.account_id and reverse_ledger_by_source(db, "obligation_settlement", settlement.id) == 0:
         txn_type = "credit" if ob.obligation_type == "receivable" else "debit"
         matching = db.query(AccountTransaction).filter(
             AccountTransaction.linked_type == "obligation",
@@ -313,9 +321,10 @@ def delete_settlement(
             AccountTransaction.txn_type == txn_type,
             AccountTransaction.amount == settlement.amount,
             AccountTransaction.txn_date == settlement.settlement_date,
-        ).all()
-        for m in matching:
-            db.delete(m)
+            AccountTransaction.is_voided == False,
+        ).order_by(AccountTransaction.id.desc()).first()
+        if matching:
+            matching.is_voided = True
 
     # Reverse amount_settled and recalculate status
     ob.amount_settled = max(_D(ob.amount_settled) - _D(settlement.amount), Decimal("0"))

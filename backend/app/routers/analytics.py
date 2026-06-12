@@ -13,7 +13,7 @@ from sqlalchemy import func as sa_func, extract, case, literal
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin, require_write_access
 from app.models.cash_account import CashAccount, AccountTransaction
 from app.models.loan import Loan, LoanPayment
 from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot, PlotBuyer
@@ -46,34 +46,38 @@ def analytics_overview(
     today = date.today()
 
     # ── LOANS ────────────────────────────────────────────────────────────────
-    active_loans = db.query(Loan).filter(Loan.is_deleted == False, Loan.status == "active").all()
+    # N+1 fix: eager-load payments + cap events once and compute outstanding
+    # in-process (was 3 SQL queries per loan, run twice per loan).
+    active_loans = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(selectinload(Loan.payments), selectinload(Loan.capitalization_events))
+        .all()
+    )
     loans_given = [l for l in active_loans if l.loan_direction == "given"]
     loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
 
     total_given_principal = sum(_D(l.principal_amount) for l in loans_given)
     total_taken_principal = sum(_D(l.principal_amount) for l in loans_taken)
 
-    # Outstanding on loans given (money owed TO us)
-    total_given_outstanding = Decimal("0")
-    total_given_interest = Decimal("0")
-    for l in loans_given:
+    _outstanding_by_loan = {}
+    for l in active_loans:
         try:
-            out = calculate_outstanding(l.id, today, db)
-            total_given_outstanding += _D(out.get("total_outstanding", 0))
-            total_given_interest += _D(out.get("interest_outstanding", 0))
+            _outstanding_by_loan[l.id] = calculate_outstanding_from_loan(l, today)
         except Exception:
-            total_given_outstanding += _D(l.principal_amount)
+            _outstanding_by_loan[l.id] = {
+                "total_outstanding": _D(l.principal_amount),
+                "interest_outstanding": Decimal("0"),
+            }
 
-    # Outstanding on loans taken (money WE owe)
-    total_taken_outstanding = Decimal("0")
-    total_taken_interest = Decimal("0")
-    for l in loans_taken:
-        try:
-            out = calculate_outstanding(l.id, today, db)
-            total_taken_outstanding += _D(out.get("total_outstanding", 0))
-            total_taken_interest += _D(out.get("interest_outstanding", 0))
-        except Exception:
-            total_taken_outstanding += _D(l.principal_amount)
+    total_given_outstanding = sum(
+        _D(_outstanding_by_loan[l.id].get("total_outstanding", 0)) for l in loans_given)
+    total_given_interest = sum(
+        _D(_outstanding_by_loan[l.id].get("interest_outstanding", 0)) for l in loans_given)
+    total_taken_outstanding = sum(
+        _D(_outstanding_by_loan[l.id].get("total_outstanding", 0)) for l in loans_taken)
+    total_taken_interest = sum(
+        _D(_outstanding_by_loan[l.id].get("interest_outstanding", 0)) for l in loans_taken)
 
     # ── PARTNERSHIPS (load first — needed by property section) ──────────
     partnerships = db.query(Partnership).filter(Partnership.is_deleted == False).all()
@@ -90,42 +94,44 @@ def analytics_overview(
         if p.linked_property_deal_id and p.status != "cancelled"
     }
 
+    # N+1 fix: one grouped query for all properties' personal outflows, and one
+    # IN query for all self-members (was 1–2 queries per property/partnership).
+    _prop_outflow_sums = {
+        pid: _D(total) for pid, total in
+        db.query(
+            PropertyTransaction.property_deal_id,
+            sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0),
+        ).filter(
+            PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+            PropertyTransaction.is_voided == False,
+        ).group_by(PropertyTransaction.property_deal_id).all()
+    }
+    _self_member_by_partnership = {
+        sm.partnership_id: sm
+        for sm in db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id.in_([p.id for p in partnerships] or [0]),
+            PartnershipMember.is_self == True,
+        ).all()
+    }
+
     # Plot Advances (My Share): standalone → sum of personal outflow txns, partnership → self contribution
     total_property_advance = Decimal("0")
     for prop in properties:
-        if prop.status == "cancelled" or prop.property_type == "site":
+        if prop.status in ("cancelled", "settled") or prop.property_type == "site":
             continue
         if prop.id in linked_property_ids:
             part = _prop_to_partnership.get(prop.id)
-            if part:
-                sm = db.query(PartnershipMember).filter(
-                    PartnershipMember.partnership_id == part.id,
-                    PartnershipMember.is_self == True,
-                ).first()
-                if sm:
-                    total_property_advance += _D(sm.advance_contributed)
+            sm = _self_member_by_partnership.get(part.id) if part else None
+            if sm:
+                total_property_advance += _D(sm.advance_contributed)
         else:
-            total_property_advance += _D(
-                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
-                .filter(
-                    PropertyTransaction.property_deal_id == prop.id,
-                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
-                )
-                .scalar()
-            )
+            total_property_advance += _prop_outflow_sums.get(prop.id, Decimal("0"))
 
     # Site Investments: sum of personal outflow transactions (never denormalized my_investment field)
     total_property_investment = Decimal("0")
     for prop in properties:
-        if prop.property_type == "site" and prop.status != "cancelled":
-            total_property_investment += _D(
-                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
-                .filter(
-                    PropertyTransaction.property_deal_id == prop.id,
-                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
-                )
-                .scalar()
-            )
+        if prop.property_type == "site" and prop.status not in ("cancelled", "settled"):
+            total_property_investment += _prop_outflow_sums.get(prop.id, Decimal("0"))
 
     # Partnership invested — only non-property partnerships (pure business partnerships)
     total_partnership_invested = Decimal("0")
@@ -133,15 +139,24 @@ def analytics_overview(
     # Net asset/liability split: invested > received → asset, received > invested → self-payable
     _part_net_asset = Decimal("0")
     _part_self_payable = Decimal("0")
+    _self_ids = [sm.id for sm in _self_member_by_partnership.values()]
+    _received_by_member_id = {
+        mid: _D(total) for mid, total in
+        db.query(
+            PartnershipTransaction.received_by_member_id,
+            sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0),
+        ).filter(
+            PartnershipTransaction.received_by_member_id.in_(_self_ids or [0]),
+            PartnershipTransaction.is_voided == False,
+        ).group_by(PartnershipTransaction.received_by_member_id).all()
+    } if _self_ids else {}
+
     for p in partnerships:
         if p.status == "cancelled":
             continue
         if p.linked_property_deal_id:
             continue  # property-linked → already counted in plot advances
-        self_member = db.query(PartnershipMember).filter(
-            PartnershipMember.partnership_id == p.id,
-            PartnershipMember.is_self == True,
-        ).first()
+        self_member = _self_member_by_partnership.get(p.id)
         if not self_member:
             continue  # no personal contribution record — skip to avoid using deal-level totals
         invested = _D(self_member.advance_contributed)
@@ -149,14 +164,7 @@ def analytics_overview(
         if p.status == "settled":
             received = _D(self_member.total_received)
         else:
-            received = _D(
-                db.query(sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0))
-                .filter(
-                    PartnershipTransaction.partnership_id == p.id,
-                    PartnershipTransaction.received_by_member_id == self_member.id,
-                )
-                .scalar()
-            )
+            received = _received_by_member_id.get(self_member.id, Decimal("0"))
         total_partnership_invested += invested
         total_partnership_received += received
         net = invested - received
@@ -181,9 +189,16 @@ def analytics_overview(
     beesis = db.query(Beesi).filter(Beesi.is_deleted == False).all()
     total_beesi_invested = Decimal("0")
     total_beesi_withdrawn = Decimal("0")
+    beesi_net_asset = Decimal("0")
     for b in beesis:
-        total_beesi_invested += sum(_D(i.actual_paid) for i in b.installments)
-        total_beesi_withdrawn += sum(_D(w.net_received) for w in b.withdrawals)
+        b_inv = sum(_D(i.actual_paid) for i in b.installments)
+        b_wd = sum(_D(w.net_received) for w in b.withdrawals)
+        total_beesi_invested += b_inv
+        total_beesi_withdrawn += b_wd
+        # Asset value of an in-flight beesi = what we've paid in and not yet
+        # taken back. Once the pot is withdrawn the cash sits in accounts —
+        # adding withdrawals on top double-counted them.
+        beesi_net_asset += max(b_inv - b_wd, Decimal("0"))
     beesi_pnl = total_beesi_withdrawn - total_beesi_invested
 
     # ── ACCOUNTS ─────────────────────────────────────────────────────────
@@ -195,10 +210,12 @@ def analytics_overview(
         credits = db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
             AccountTransaction.account_id == acct.id,
             AccountTransaction.txn_type == "credit",
+            AccountTransaction.is_voided == False,
         ).scalar()
         debits = db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
             AccountTransaction.account_id == acct.id,
             AccountTransaction.txn_type == "debit",
+            AccountTransaction.is_voided == False,
         ).scalar()
         balance = opening + _D(credits) - _D(debits)
         total_cash += balance
@@ -211,21 +228,23 @@ def analytics_overview(
 
     # ── EXPENSES ──────────────────────────────────────────────────────────
     total_expenses = _D(
-        db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0)).scalar()
+        db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0))
+        .filter(Expense.is_deleted == False).scalar()
     )
     month_start = today.replace(day=1)
     expenses_this_month = _D(
         db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0)).filter(
             Expense.expense_date >= month_start,
+            Expense.is_deleted == False,
         ).scalar()
     )
 
     # ── MONTHLY CASH FLOW (last 12 months) ──────────────────────────────
+    from dateutil.relativedelta import relativedelta as _rd_ov
     monthly_cashflow = []
     for i in range(11, -1, -1):
-        # Calculate month start/end
-        dt = today.replace(day=1) - timedelta(days=i * 28)  # rough
-        m_start = dt.replace(day=1)
+        # exact month stepping (28-day stepping drifted and could duplicate months)
+        m_start = today.replace(day=1) - _rd_ov(months=i)
         if m_start.month == 12:
             m_end = m_start.replace(year=m_start.year + 1, month=1, day=1) - timedelta(days=1)
         else:
@@ -236,6 +255,7 @@ def analytics_overview(
                 AccountTransaction.txn_type == "credit",
                 AccountTransaction.txn_date >= m_start,
                 AccountTransaction.txn_date <= m_end,
+                AccountTransaction.is_voided == False,
             ).scalar()
         )
         outflow = _D(
@@ -243,6 +263,7 @@ def analytics_overview(
                 AccountTransaction.txn_type == "debit",
                 AccountTransaction.txn_date >= m_start,
                 AccountTransaction.txn_date <= m_end,
+                AccountTransaction.is_voided == False,
             ).scalar()
         )
         monthly_cashflow.append({
@@ -254,23 +275,20 @@ def analytics_overview(
         })
 
     # ── TOP CONTACTS BY OUTSTANDING ──────────────────────────────────────
+    # N+1 fix: reuse per-loan outstanding computed above + one IN query for names
     top_contacts = []
     contact_outstandings = {}
     for l in loans_given:
-        if l.status != "active":
-            continue
-        try:
-            out = calculate_outstanding(l.id, today, db)
-            amt = _D(out.get("total_outstanding", 0))
-        except Exception:
-            amt = _D(l.principal_amount)
+        amt = _D(_outstanding_by_loan.get(l.id, {}).get("total_outstanding", 0))
         cid = l.contact_id
         contact_outstandings[cid] = contact_outstandings.get(cid, Decimal("0")) + amt
 
-    for cid, amt in sorted(contact_outstandings.items(), key=lambda x: x[1], reverse=True)[:10]:
-        c = db.query(Contact).filter(Contact.id == cid).first()
-        if c:
-            top_contacts.append({"id": c.id, "name": c.name, "outstanding": float(amt)})
+    _top = sorted(contact_outstandings.items(), key=lambda x: x[1], reverse=True)[:10]
+    _names = {c.id: c.name for c in db.query(Contact).filter(
+        Contact.id.in_([cid for cid, _ in _top] or [0])).all()}
+    for cid, amt in _top:
+        if cid in _names:
+            top_contacts.append({"id": cid, "name": _names[cid], "outstanding": float(amt)})
 
     # ── NET WORTH ────────────────────────────────────────────────────────
     # Unencumbered assets (standalone owned assets not linked to any deal)
@@ -285,11 +303,11 @@ def analytics_overview(
     # Note: collateral is NOT included — it belongs to borrowers, not us.
     total_investments = (
         total_given_outstanding + total_property_advance + total_property_investment
-        + _part_net_asset + total_beesi_invested
+        + _part_net_asset + beesi_net_asset
     )
     # Liabilities: loans payable + partner liabilities + self over-withdrawal from partnership pots
     total_liabilities = total_taken_outstanding + partner_liabilities + _part_self_payable
-    net_worth = total_cash + total_investments - total_liabilities - total_beesi_invested + total_beesi_withdrawn + _total_unencumbered
+    net_worth = total_cash + total_investments - total_liabilities + _total_unencumbered
 
     return {
         "as_of_date": today.isoformat(),
@@ -341,7 +359,7 @@ def analytics_overview(
 @router.post("/backfill")
 def backfill_past_data(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     One-time backfill: create a "Cash in Hand" account if needed,
@@ -447,7 +465,7 @@ def relink_to_cash_home(
     target_account_id: int = 1,
     target_balance: float = 440000,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     One-time migration: move all backfilled account_transactions and source
@@ -546,10 +564,12 @@ def analytics_assets(
         credits = _D(db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
             AccountTransaction.account_id == acct.id,
             AccountTransaction.txn_type == "credit",
+            AccountTransaction.is_voided == False,
         ).scalar())
         debits = _D(db.query(sa_func.coalesce(sa_func.sum(AccountTransaction.amount), 0)).filter(
             AccountTransaction.account_id == acct.id,
             AccountTransaction.txn_type == "debit",
+            AccountTransaction.is_voided == False,
         ).scalar())
         balance = opening + credits - debits
         total_cash += balance
@@ -561,30 +581,40 @@ def analytics_assets(
         })
 
     # ── LOANS GIVEN (money owed TO me) ─────────────────────────────────────
-    active_loans = db.query(Loan).filter(Loan.is_deleted == False, Loan.status == "active").all()
+    # N+1 fix: eager-load relationships, batch contact names, compute
+    # outstanding in-process (was Contact + 3 outstanding queries per loan).
+    active_loans = (
+        db.query(Loan)
+        .filter(Loan.is_deleted == False, Loan.status == "active")
+        .options(selectinload(Loan.payments), selectinload(Loan.capitalization_events))
+        .all()
+    )
     loans_given = [l for l in active_loans if l.loan_direction == "given"]
     loans_taken = [l for l in active_loans if l.loan_direction == "taken"]
+    _loan_contact_names = {c.id: c.name for c in db.query(Contact).filter(
+        Contact.id.in_({l.contact_id for l in active_loans if l.contact_id} or {0})).all()}
+
+    def _assets_outstanding(l):
+        try:
+            out = calculate_outstanding_from_loan(l, today)
+            return (_D(out.get("principal_outstanding", 0)),
+                    _D(out.get("interest_outstanding", 0)),
+                    _D(out.get("total_outstanding", 0)))
+        except Exception:
+            p = _D(l.principal_amount)
+            return (p, Decimal("0"), p)
 
     given_items = []
     total_given = Decimal("0")
     total_given_principal = Decimal("0")
     total_given_interest = Decimal("0")
     for l in loans_given:
-        contact = db.query(Contact).filter(Contact.id == l.contact_id).first()
-        try:
-            out = calculate_outstanding(l.id, today, db)
-            p_out = _D(out.get("principal_outstanding", 0))
-            i_out = _D(out.get("interest_outstanding", 0))
-            t_out = _D(out.get("total_outstanding", 0))
-        except Exception:
-            p_out = _D(l.principal_amount)
-            i_out = Decimal("0")
-            t_out = p_out
+        p_out, i_out, t_out = _assets_outstanding(l)
         total_given += t_out
         total_given_principal += p_out
         total_given_interest += i_out
         given_items.append({
-            "id": l.id, "contact": contact.name if contact else "Unknown",
+            "id": l.id, "contact": _loan_contact_names.get(l.contact_id, "Unknown"),
             "contact_id": l.contact_id,
             "loan_type": l.loan_type, "rate": float(_D(l.interest_rate)),
             "principal_outstanding": float(p_out),
@@ -602,21 +632,12 @@ def analytics_assets(
     total_taken_principal = Decimal("0")
     total_taken_interest = Decimal("0")
     for l in loans_taken:
-        contact = db.query(Contact).filter(Contact.id == l.contact_id).first()
-        try:
-            out = calculate_outstanding(l.id, today, db)
-            p_out = _D(out.get("principal_outstanding", 0))
-            i_out = _D(out.get("interest_outstanding", 0))
-            t_out = _D(out.get("total_outstanding", 0))
-        except Exception:
-            p_out = _D(l.principal_amount)
-            i_out = Decimal("0")
-            t_out = p_out
+        p_out, i_out, t_out = _assets_outstanding(l)
         total_taken += t_out
         total_taken_principal += p_out
         total_taken_interest += i_out
         taken_items.append({
-            "id": l.id, "contact": contact.name if contact else "Unknown",
+            "id": l.id, "contact": _loan_contact_names.get(l.contact_id, "Unknown"),
             "contact_id": l.contact_id,
             "loan_type": l.loan_type, "rate": float(_D(l.interest_rate)),
             "principal_outstanding": float(p_out),
@@ -645,6 +666,47 @@ def analytics_assets(
     self_payable_items = []
     total_self_payable = Decimal("0")
 
+    # N+1 fix: one IN query for all self-members and one grouped query for all
+    # amounts received by them (was 2–3 queries per property/partnership).
+    _assets_self_members = {
+        sm.partnership_id: sm
+        for sm in db.query(PartnershipMember).filter(
+            PartnershipMember.partnership_id.in_([p.id for p in partnerships] or [0]),
+            PartnershipMember.is_self == True,
+        ).all()
+    }
+    _assets_self_ids = [sm.id for sm in _assets_self_members.values()]
+    _assets_recv_part = {
+        mid: _D(total) for mid, total in
+        db.query(
+            PartnershipTransaction.received_by_member_id,
+            sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0),
+        ).filter(
+            PartnershipTransaction.received_by_member_id.in_(_assets_self_ids or [0]),
+            PartnershipTransaction.is_voided == False,
+        ).group_by(PartnershipTransaction.received_by_member_id).all()
+    } if _assets_self_ids else {}
+    _assets_recv_prop = {
+        mid: _D(total) for mid, total in
+        db.query(
+            PropertyTransaction.received_by_member_id,
+            sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0),
+        ).filter(
+            PropertyTransaction.received_by_member_id.in_(_assets_self_ids or [0]),
+            PropertyTransaction.is_voided == False,
+        ).group_by(PropertyTransaction.received_by_member_id).all()
+    } if _assets_self_ids else {}
+    _assets_prop_outflows = {
+        pid: _D(total) for pid, total in
+        db.query(
+            PropertyTransaction.property_deal_id,
+            sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0),
+        ).filter(
+            PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
+            PropertyTransaction.is_voided == False,
+        ).group_by(PropertyTransaction.property_deal_id).all()
+    }
+
     property_items = []
     total_property = Decimal("0")
     for prop in properties:
@@ -660,28 +722,12 @@ def analytics_assets(
             part = _prop_to_partnership.get(prop.id)
             if part:
                 total_deal_value = _D(part.total_deal_value or part.our_investment or 0)
-                sm = db.query(PartnershipMember).filter(
-                    PartnershipMember.partnership_id == part.id,
-                    PartnershipMember.is_self == True,
-                ).first()
+                sm = _assets_self_members.get(part.id)
                 if sm:
                     my_invested = _D(sm.advance_contributed)
                     # Sum all cash I physically took from this deal/pot
-                    my_withdrawn = _D(
-                        db.query(sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0))
-                        .filter(
-                            PartnershipTransaction.partnership_id == part.id,
-                            PartnershipTransaction.received_by_member_id == sm.id,
-                        )
-                        .scalar()
-                    ) + _D(
-                        db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
-                        .filter(
-                            PropertyTransaction.property_deal_id == prop.id,
-                            PropertyTransaction.received_by_member_id == sm.id,
-                        )
-                        .scalar()
-                    )
+                    my_withdrawn = (_assets_recv_part.get(sm.id, Decimal("0"))
+                                    + _assets_recv_prop.get(sm.id, Decimal("0")))
                     net = my_invested - my_withdrawn
                     if net < Decimal("0"):
                         # Over-withdrawal: I took more from the pot than I put in → liability
@@ -695,28 +741,14 @@ def analytics_assets(
                     current_value = max(net, Decimal("0"))
         elif prop.property_type == "site":
             # Standalone site: personal outflow transactions are the investment
-            my_invested = _D(
-                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
-                .filter(
-                    PropertyTransaction.property_deal_id == prop.id,
-                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
-                )
-                .scalar()
-            )
+            my_invested = _assets_prop_outflows.get(prop.id, Decimal("0"))
             current_value = my_invested
             if prop.status == "settled" and prop.net_profit:
                 pct = _D(prop.my_share_percentage or 100)
                 current_value += _D(prop.net_profit) * pct / Decimal("100")
         else:
             # Standalone non-site: use personal outflow transactions
-            my_invested = _D(
-                db.query(sa_func.coalesce(sa_func.sum(PropertyTransaction.amount), 0))
-                .filter(
-                    PropertyTransaction.property_deal_id == prop.id,
-                    PropertyTransaction.txn_type.in_(_PERSONAL_OUTFLOW_TXNS),
-                )
-                .scalar()
-            )
+            my_invested = _assets_prop_outflows.get(prop.id, Decimal("0"))
             current_value = my_invested
 
         # Always include the property row so the UI shows it even at ₹0 investment
@@ -739,10 +771,7 @@ def analytics_assets(
     for p in partnerships:
         if p.status == "cancelled" or p.linked_property_deal_id:
             continue
-        self_member = db.query(PartnershipMember).filter(
-            PartnershipMember.partnership_id == p.id,
-            PartnershipMember.is_self == True,
-        ).first()
+        self_member = _assets_self_members.get(p.id)
         if not self_member:
             continue  # no personal contribution record — skip to avoid polluting totals
         invested = _D(self_member.advance_contributed)
@@ -750,14 +779,7 @@ def analytics_assets(
         if p.status == "settled":
             received = _D(self_member.total_received)
         else:
-            received = _D(
-                db.query(sa_func.coalesce(sa_func.sum(PartnershipTransaction.amount), 0))
-                .filter(
-                    PartnershipTransaction.partnership_id == p.id,
-                    PartnershipTransaction.received_by_member_id == self_member.id,
-                )
-                .scalar()
-            )
+            received = _assets_recv_part.get(self_member.id, Decimal("0"))
         net_value = invested - received
 
         if net_value > 0:
@@ -1022,6 +1044,8 @@ def analytics_forecast(
     _loan_last_payment = {}
     for loan in loans_given:
         for p in (loan.payments or []):
+            if getattr(p, "is_voided", False):
+                continue
             pd_date = p.payment_date
             if pd_date:
                 existing = _loan_last_payment.get(loan.id)
@@ -1058,7 +1082,7 @@ def analytics_forecast(
         paid = sum(
             _D(p.allocated_to_principal)
             for p in (loan.payments or [])
-            if p.allocated_to_principal
+            if p.allocated_to_principal and not getattr(p, "is_voided", False)
         )
         return max(principal - paid, Decimal("0"))
 
@@ -1801,6 +1825,7 @@ def analytics_money_flow(
         .join(CashAccount, CashAccount.id == AccountTransaction.account_id)
         .filter(
             CashAccount.is_deleted == False,
+            AccountTransaction.is_voided == False,
             AccountTransaction.txn_date >= start,
             AccountTransaction.txn_date <= end,
         )
@@ -1865,6 +1890,7 @@ def analytics_money_flow(
     expenses = (
         db.query(Expense)
         .filter(
+            Expense.is_deleted == False,
             Expense.expense_date >= start,
             Expense.expense_date <= end,
         )
@@ -1951,7 +1977,8 @@ def ai_expense_analysis(
 
     expenses = (
         db.query(Expense)
-        .filter(Expense.expense_date >= from_dt, Expense.expense_date <= to_dt)
+        .filter(Expense.expense_date >= from_dt, Expense.expense_date <= to_dt,
+                Expense.is_deleted == False)
         .order_by(Expense.expense_date.asc())
         .all()
     )
@@ -2378,7 +2405,10 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
 
     txns = (
         db.query(PropertyTransaction)
-        .filter(PropertyTransaction.property_deal_id == deal.id)
+        .filter(
+            PropertyTransaction.property_deal_id == deal.id,
+            PropertyTransaction.is_voided == False,
+        )
         .all()
     )
     has_property_buyer_txns = False
@@ -2405,7 +2435,8 @@ def _compute_property_buckets(deal: PropertyDeal, db: Session) -> dict:
     p_buyer_received = 0.0
     for lp in linked_partnerships_for_buckets:
         for t in db.query(PartnershipTransaction).filter(
-            PartnershipTransaction.partnership_id == lp.id
+            PartnershipTransaction.partnership_id == lp.id,
+            PartnershipTransaction.is_voided == False,
         ).all():
             amt = float(_D(t.amount))
             ty = t.txn_type or ""
@@ -2526,7 +2557,10 @@ def _compute_partnership_member_breakdown(
     )
     p_txns = (
         db.query(PartnershipTransaction)
-        .filter(PartnershipTransaction.partnership_id == p.id)
+        .filter(
+            PartnershipTransaction.partnership_id == p.id,
+            PartnershipTransaction.is_voided == False,
+        )
         .all()
     )
 
@@ -2539,6 +2573,7 @@ def _compute_partnership_member_breakdown(
             .filter(
                 PropertyTransaction.property_deal_id == p.linked_property_deal_id,
                 PropertyTransaction.received_by_member_id.in_(member_ids),
+                PropertyTransaction.is_voided == False,
             )
             .all()
         )
@@ -2579,7 +2614,11 @@ def _compute_partnership_member_breakdown(
                 # the same capital that's already captured in advance_contributed; counting them
                 # here causes the "Net Outflow doubling" bug.
                 elif ty in ("buyer_advance", "buyer_payment", "buyer_payment_received"):
-                    collected_from_buyers += amt
+                    # only when no explicit receiver — otherwise the receiver
+                    # branch below counts it (counting both double-counted
+                    # txns where payer == receiver == this member)
+                    if not t.received_by_member_id:
+                        collected_from_buyers += amt
                 elif ty == "partner_transfer":
                     transferred_out += amt
 
@@ -2606,6 +2645,7 @@ def _compute_partnership_member_breakdown(
                 .filter(
                     Expense.linked_type == "property",
                     Expense.linked_id == p.linked_property_deal_id,
+                    Expense.is_deleted == False,
                 )
                 .scalar()
             )
@@ -2677,6 +2717,7 @@ def _txns_for_buyer(deal_id: int, plot_buyer_id: Optional[int], site_plot_id: Op
             .filter(
                 PropertyTransaction.property_deal_id == deal_id,
                 PropertyTransaction.plot_buyer_id == plot_buyer_id,
+                PropertyTransaction.is_voided == False,
             )
             .all()
         ):
@@ -2690,7 +2731,10 @@ def _txns_for_buyer(deal_id: int, plot_buyer_id: Optional[int], site_plot_id: Op
             })
         for t in (
             db.query(PartnershipTransaction)
-            .filter(PartnershipTransaction.plot_buyer_id == plot_buyer_id)
+            .filter(
+                PartnershipTransaction.plot_buyer_id == plot_buyer_id,
+                PartnershipTransaction.is_voided == False,
+            )
             .all()
         ):
             rows.append({
@@ -2705,7 +2749,10 @@ def _txns_for_buyer(deal_id: int, plot_buyer_id: Optional[int], site_plot_id: Op
     if site_plot_id:
         for t in (
             db.query(PartnershipTransaction)
-            .filter(PartnershipTransaction.site_plot_id == site_plot_id)
+            .filter(
+                PartnershipTransaction.site_plot_id == site_plot_id,
+                PartnershipTransaction.is_voided == False,
+            )
             .all()
         ):
             rows.append({
@@ -2737,6 +2784,7 @@ def _events_for_member(member_id: int, partnership_id: int, deal_id: Optional[in
     p_txns = (
         db.query(PartnershipTransaction)
         .filter(PartnershipTransaction.partnership_id == partnership_id)
+        .filter(PartnershipTransaction.is_voided == False)
         .filter(
             (PartnershipTransaction.member_id == member_id)
             | (PartnershipTransaction.received_by_member_id == member_id)
@@ -2814,7 +2862,10 @@ def _events_for_member(member_id: int, partnership_id: int, deal_id: Optional[in
 
 def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, member_map: dict, source_label: str = "") -> List[dict]:
     rows = []
-    for t in db.query(PropertyTransaction).filter(PropertyTransaction.property_deal_id == deal_id).all():
+    for t in db.query(PropertyTransaction).filter(
+        PropertyTransaction.property_deal_id == deal_id,
+        PropertyTransaction.is_voided == False,
+    ).all():
         rows.append({
             "date": t.txn_date.isoformat() if t.txn_date else None,
             "type": t.txn_type,
@@ -2830,7 +2881,10 @@ def _build_timeline_for_property(deal_id: int, db: Session, contact_map: dict, m
 
 def _build_timeline_for_partnership(p_id: int, db: Session, member_map: dict, source_label: str = "") -> List[dict]:
     rows = []
-    for t in db.query(PartnershipTransaction).filter(PartnershipTransaction.partnership_id == p_id).all():
+    for t in db.query(PartnershipTransaction).filter(
+        PartnershipTransaction.partnership_id == p_id,
+        PartnershipTransaction.is_voided == False,
+    ).all():
         rows.append({
             "date": t.txn_date.isoformat() if t.txn_date else None,
             "type": t.txn_type,
@@ -2980,6 +3034,7 @@ def property_analytics(
                 .filter(
                     PartnershipTransaction.partnership_id == lp.id,
                     PartnershipTransaction.txn_type.in_(_seller_txn_types),
+                    PartnershipTransaction.is_voided == False,
                 )
                 .all()
             ):
@@ -2996,6 +3051,7 @@ def property_analytics(
             .filter(
                 PropertyTransaction.property_deal_id == deal.id,
                 PropertyTransaction.txn_type.in_(_seller_txn_types),
+                PropertyTransaction.is_voided == False,
             )
             .all()
         ):
@@ -3433,11 +3489,14 @@ def _run_anomaly_scan(db: Session) -> int:
 @router.post("/anomalies/scan")
 def trigger_anomaly_scan(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write_access),
 ):
     """
     Trigger a full anomaly scan across all active property deals.
     Idempotent: safe to call on every dashboard load.
+    Uses require_write_access (not require_admin) because the dashboard calls
+    this on load for any non-readonly user; readonly users are already blocked
+    by the global middleware.
     """
     active_count = _run_anomaly_scan(db)
     return {"status": "ok", "active_anomalies": active_count}
@@ -3534,6 +3593,10 @@ def analytics_loans_given(
         try:
             principal = _D(loan.principal_amount)
             rate = _D(loan.interest_rate or 0)
+            # Short-term loans store their rate in post_due_interest_rate
+            # (interest_rate is typically NULL for them).
+            if loan.loan_type == "short_term":
+                rate = _D(loan.post_due_interest_rate or 0) or rate
             if principal <= 0 or rate <= 0:
                 return Decimal("0")
             monthly_rate = rate / Decimal("100") / Decimal("12")
@@ -3667,8 +3730,8 @@ def analytics_loans_given(
             or f"Loan #{loan.id}"
         )
 
-        # Payment aggregates
-        payments = loan.payments or []
+        # Payment aggregates (exclude voided)
+        payments = [p for p in (loan.payments or []) if not getattr(p, "is_voided", False)]
         penalty_earned = sum(_D(p.penalty_paid) for p in payments)
 
         # EMI: payment_allocation stores all cash in allocated_to_overdue_interest
@@ -3927,6 +3990,8 @@ def analytics_loans_given(
         month_principal = Decimal("0")
         for loan in loans:
             for p in (loan.payments or []):
+                if getattr(p, "is_voided", False):
+                    continue
                 if p.payment_date and m_start <= p.payment_date <= m_end:
                     month_interest += (_D(p.allocated_to_current_interest)
                                        + _D(p.allocated_to_overdue_interest))
