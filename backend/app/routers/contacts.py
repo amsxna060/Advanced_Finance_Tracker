@@ -85,14 +85,18 @@ def _build_interest_segments(loan, as_of_date: date) -> Optional[list]:
         calc_principal = Decimal(str(loan.principal_amount))
         calc_rate = Decimal(str(loan.interest_rate or 0))
 
-        # Total interest already paid (across all non-voided payments on this loan)
-        interest_paid_total = sum(
-            Decimal(str(p.allocated_to_current_interest or 0)) +
-            Decimal(str(p.allocated_to_overdue_interest or 0))
-            for p in loan.payments
-            if not getattr(p, "is_voided", False)
+        # L8 fix: release interest payments chronologically — a payment can only
+        # offset interest accrued by its date, and capitalizations that happened
+        # before it stay untouched (matches _compute_outstanding).
+        _ip_events = sorted(
+            [(p.payment_date,
+              Decimal(str(p.allocated_to_current_interest or 0)) +
+              Decimal(str(p.allocated_to_overdue_interest or 0)))
+             for p in loan.payments if not getattr(p, "is_voided", False)],
+            key=lambda x: x[0],
         )
-        interest_paid_remaining = interest_paid_total
+        _ip_idx = 0
+        _available = Decimal("0")
 
         segments = []
         seg_no = 1
@@ -107,14 +111,14 @@ def _build_interest_segments(loan, as_of_date: date) -> Optional[list]:
             month_count += 1
             seg_months.append((p_start, p_end_excl, mi))
 
-            if interest_paid_remaining >= mi:
-                interest_paid_remaining -= mi
-                unpaid_carried = Decimal("0")
-            elif interest_paid_remaining > 0:
-                unpaid_carried += (mi - interest_paid_remaining)
-                interest_paid_remaining = Decimal("0")
-            else:
-                unpaid_carried += mi
+            while _ip_idx < len(_ip_events) and _ip_events[_ip_idx][0] < p_end_excl:
+                _available += _ip_events[_ip_idx][1]
+                _ip_idx += 1
+
+            unpaid_carried += mi
+            _take = min(_available, unpaid_carried)
+            unpaid_carried -= _take
+            _available -= _take
 
             is_cap_month = (month_count % cap_every == 0)
             is_past = (p_end_excl - timedelta(days=1)) < as_of_date

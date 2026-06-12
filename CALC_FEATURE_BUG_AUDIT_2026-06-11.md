@@ -97,6 +97,29 @@
 >
 > Suite after round 3: **backend 173 passed + 1 xfail · frontend 58 passed · build clean**.
 
+> ## ✅ Round 4 — L8 fixed (2026-06-12, production bug report: loan #41)
+>
+> Production loan #41 proved L8 ("payments applied oldest-first regardless of
+> date") is not acceptable: a ₹2,90,000 payment on 9 Jun 2026 retroactively
+> shrank the 14 Mar 2026 capitalization from ₹43,200 to ₹31,141.16, principal
+> "fell" below the payment's principal allocation, and the loan wrongly
+> auto-closed — forgiving ₹5,258.84.
+>
+> **Fix:** interest payments are now released chronologically in all three
+> engines (`_compute_outstanding`, `generate_monthly_interest_schedule`,
+> contact-statement segments): a payment offsets only interest accrued by its
+> payment date and can never rewrite an earlier capitalization. Verified
+> against loan #41's exact numbers — after the payment the engine reports
+> ₹5,258.84 principal remaining and the loan stays ACTIVE.
+>
+> **Production remediation for loan #41 (after deploy, 2 clicks, no DB surgery):**
+> void the ₹2,90,000 payment on the loan page, then re-record it identically
+> (₹2,90,000, 09 Jun 2026, Cash). The loan reopens showing ₹5,258.84 + accrued
+> interest since 9 Jun.
+>
+> Suite after round 4: **backend 176 passed + 1 xfail** (3 new regression tests
+> in `tests/scenarios/test_autocap_payment_timing.py`).
+
 ---
 
 ## Severity legend
