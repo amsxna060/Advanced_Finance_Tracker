@@ -120,6 +120,38 @@
 > Suite after round 4: **backend 176 passed + 1 xfail** (3 new regression tests
 > in `tests/scenarios/test_autocap_payment_timing.py`).
 
+> ## ✅ Round 5 — schedule display + record_payment guards (2026-06-12)
+>
+> 1. **"Capitalized" schedule status.** Months whose unpaid interest rolled into
+>    principal no longer show a red "Unpaid ₹3,600 outstanding" — they show a
+>    violet "→ Principal" badge with zero interest outstanding (the amount is
+>    carried in `capitalized_into_principal`). The red badge wrongly implied
+>    ₹43,200 interest was still due on loan #41.
+> 2. **record_payment guards:** payments on CLOSED loans are rejected with 400
+>    (allocation against zero outstanding silently produced an all-zero split —
+>    the money vanished from interest stats); future-dated payments rejected;
+>    BACKDATED payments now re-allocate later payments' splits (shared
+>    `reallocate_payments_from` in `loan_void.py`, same engine as voiding).
+>
+> Suite after round 5: **backend 179 passed + 1 xfail · frontend 58 passed · build clean**.
+
+> ## ✅ Round 6 — future-interest buffer for interest-only payments (2026-06-13)
+>
+> Per user requirement: a borrower paying next month's interest in advance must
+> NOT shrink the principal; only a clearly-larger payment reduces principal, and
+> future interest then accrues on the lower balance.
+>
+> **New allocation (threshold model)** for interest-only loans, replacing the old
+> 2x rule: clear accrued interest → if the leftover is ≤ a future-interest buffer
+> (`LOAN_INTEREST_PREPAY_MONTHS`, default 2 months of interest on the current
+> principal) it is held as PREPAID interest credit and principal is untouched;
+> if the leftover exceeds the buffer it is a deliberate principal paydown and the
+> WHOLE leftover reduces principal (no carve-out — so a near-full payoff like
+> loan #41 still leaves exactly ₹5,258.84, not buffer+5,258). An explicit
+> `principal_repayment` bypasses the buffer. New env var `LOAN_INTEREST_PREPAY_MONTHS`.
+>
+> Suite after round 6: **backend 185 passed + 1 xfail · frontend 58 passed · build clean**.
+
 ---
 
 ## Severity legend

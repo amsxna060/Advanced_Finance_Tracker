@@ -21,7 +21,7 @@ from app.services.interest import (
 )
 from app.services.payment_allocation import allocate_payment
 from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_ledger_by_source
-from app.services.loan_void import void_loan_payment
+from app.services.loan_void import void_loan_payment, reallocate_payments_from
 from app.models.cash_account import AccountTransaction
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -357,10 +357,26 @@ def record_payment(
         Loan.id == loan_id,
         Loan.is_deleted == False
     ).with_for_update().first()
-    
+
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
-    
+
+    # A closed loan reports zero outstanding, so allocation would silently
+    # produce an all-zero split — the money would vanish from interest stats
+    # and the schedule would never show it as paid. Refuse instead.
+    if loan.status == "closed":
+        raise HTTPException(
+            status_code=400,
+            detail="This loan is closed — a payment cannot be allocated against zero "
+                   "outstanding. Void the closing payment (which reopens the loan) or "
+                   "set the loan back to active first.",
+        )
+
+    # Interest math accrues day-by-day; a future-dated payment would be
+    # allocated against interest that hasn't accrued yet.
+    if payment_data.payment_date > date.today():
+        raise HTTPException(status_code=400, detail="payment_date cannot be in the future")
+
     # Allocate payment — for EMI loans, penalty is tracked separately, not run through allocation
     penalty_paid = Decimal(str(payment_data.penalty_paid or 0))
     allocation_amount = Decimal(str(payment_data.amount_paid)) - penalty_paid
@@ -411,6 +427,11 @@ def record_payment(
             source_type="loan_payment",
             source_id=new_payment.id,
         )
+
+    # Backdated payment: payments recorded earlier but DATED later were
+    # allocated without knowing about this one — recompute their splits.
+    if payment_data.payment_date < date.today():
+        reallocate_payments_from(db, loan, payment_data.payment_date, inclusive=False)
 
     db.commit()
     db.refresh(new_payment)

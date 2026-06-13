@@ -838,6 +838,13 @@ function LoanDetail() {
                                   <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-xs font-medium">
                                     Future
                                   </span>
+                                ) : entry.status === "capitalized" ? (
+                                  <span
+                                    className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium"
+                                    title="Unpaid interest for this month was added to the principal — it is no longer due as interest"
+                                  >
+                                    → Principal
+                                  </span>
                                 ) : (
                                   <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded-full text-xs font-medium">
                                     Unpaid

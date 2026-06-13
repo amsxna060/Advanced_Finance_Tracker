@@ -23,10 +23,14 @@ def allocate_payment(
       allocated_to_principal = payment - allocated_to_current_interest
       EMI schedule tracking uses amount_paid/penalty_paid directly — not these fields.
 
-    For interest_only loans (simplified 2x rule):
-      monthly_estimate = principal_outstanding * annual_rate / 1200
-      if payment < 2 * monthly_estimate  → entire payment = interest only (no principal)
-      if payment >= 2 * monthly_estimate  → clear all accrued interest, remainder → principal
+    For interest_only loans (interest-first with a future-interest buffer):
+      1. clear accrued (overdue + current) interest as of the payment date
+      2. hold up to LOAN_INTEREST_PREPAY_MONTHS future months of interest as a
+         PREPAID credit (offsets next month's interest; never touches principal)
+      3. only the excess beyond that buffer reduces principal — and the engine
+         then accrues future interest on the reduced balance from that period
+      4. surplus beyond full principal payoff → unallocated
+      An explicit `principal_repayment` is honoured exactly (deliberate paydown).
       Auto-close triggered in the router when principal reaches 0.
 
     For short_term loans:
@@ -88,48 +92,79 @@ def allocate_payment(
         }
 
     elif loan.loan_type == "interest_only":
-        # Simplified 2x-rule for interest-only loans.
-        # principal_repayment and auto_split are ignored here.
+        # Interest-first with a FUTURE-INTEREST BUFFER, then principal.
+        #
+        # Order of allocation:
+        #   1. Clear all accrued (overdue + current) interest as of the payment date.
+        #   2. Hold up to N future months of interest as PREPAID interest — a credit
+        #      that offsets next month(s)' interest. This never touches principal,
+        #      so a borrower simply paying next month's interest in advance does
+        #      not shrink the principal.
+        #   3. Only the excess BEYOND that buffer reduces principal. Once principal
+        #      drops, the engine accrues future interest on the reduced balance from
+        #      that period onward (principal_repayment_events).
+        #   4. Anything beyond full principal payoff is surplus (unallocated).
+        #
+        # An explicit `principal_repayment` (e.g. a deliberate principal paydown)
+        # is honoured exactly — the buffer logic is only the automatic default.
         outstanding = calculate_outstanding(loan_id, payment_date, db)
         interest_outstanding = outstanding["interest_outstanding"]
         principal_outstanding = outstanding["principal_outstanding"]
         annual_rate = Decimal(str(loan.interest_rate or 0))
 
-        # Monthly interest estimate (for the 2x threshold check)
-        # H-FIN-23: use the original principal_amount (not live outstanding) to make
-        # the threshold deterministic — concurrent calls can observe different
-        # outstanding values if payments are in flight simultaneously.
-        base_principal = Decimal(str(loan.principal_amount or principal_outstanding))
-        monthly_estimate = (base_principal * annual_rate / Decimal("1200")).quantize(Decimal("0.01"))
-        threshold = monthly_estimate * Decimal("2")
-
         allocated_overdue = Decimal("0")
         allocated_current = Decimal("0")
         allocated_principal = Decimal("0")
         unallocated = Decimal("0")
+        remaining = payment_amount
 
-        if payment_amount < threshold:
-            # Small payment: if there's outstanding interest, allocate to interest.
-            # H-FIN-22: if interest_outstanding is 0, route to principal instead of
-            # artificially inflating interest — loan should reduce.
-            if interest_outstanding > Decimal("0"):
-                allocated_current = min(payment_amount, interest_outstanding)
-                remainder = payment_amount - allocated_current
-                if remainder > 0 and principal_outstanding > 0:
-                    allocated_principal = min(remainder, principal_outstanding)
+        # ── Explicit principal paydown override (deliberate principal payment) ──
+        if principal_repayment is not None and principal_repayment > Decimal("0"):
+            allocated_principal = min(principal_repayment, principal_outstanding, remaining)
+            remaining -= allocated_principal
+            # The rest clears interest (accrued first, then prepaid), surplus over.
+            allocated_current = remaining
+            return {
+                "allocated_to_overdue_interest": allocated_overdue,
+                "allocated_to_current_interest": allocated_current,
+                "allocated_to_principal": allocated_principal,
+                "unallocated": Decimal("0"),
+            }
+
+        # 1) Clear accrued interest.
+        if remaining > 0 and interest_outstanding > 0:
+            pay_interest = min(remaining, interest_outstanding)
+            allocated_current = pay_interest
+            remaining -= pay_interest
+
+        # 2) Classify the leftover by SIZE against a future-interest buffer:
+        #    - leftover ≤ buffer (a month or two of interest) → treat the WHOLE
+        #      leftover as prepaid future interest; principal is untouched.
+        #    - leftover  > buffer → it's a deliberate principal paydown, so the
+        #      WHOLE leftover reduces principal (no buffer carve-out — otherwise
+        #      a near-full payoff would wrongly leave the buffer sitting on the
+        #      loan).
+        #    The monthly figure is on the CURRENT outstanding principal, so it
+        #    reflects what next month's interest will actually be.
+        try:
+            from app.config import settings
+            prepay_months = max(int(settings.LOAN_INTEREST_PREPAY_MONTHS), 0)
+        except Exception:
+            prepay_months = 2
+        monthly_interest = (principal_outstanding * annual_rate / Decimal("1200")).quantize(Decimal("0.01"))
+        future_interest_buffer = monthly_interest * Decimal(str(prepay_months))
+
+        if remaining > 0:
+            if principal_outstanding > 0 and remaining <= future_interest_buffer:
+                # Small excess → prepaid future interest (offsets next month(s)).
+                allocated_current += remaining
+                remaining = Decimal("0")
             else:
-                # No interest due — route entire small payment to principal
-                allocated_principal = min(payment_amount, principal_outstanding)
-        else:
-            # Large payment → clear all accrued interest first, remainder to principal
-            interest_cleared = min(payment_amount, interest_outstanding)
-            allocated_current = interest_cleared
-            remaining = payment_amount - interest_cleared
-            if remaining > 0 and principal_outstanding > 0:
-                principal_payment = min(remaining, principal_outstanding)
-                allocated_principal = principal_payment
-                remaining -= principal_payment
-            unallocated = remaining  # over-payment beyond full principal
+                # Clear principal paydown (or no principal left to protect).
+                pay_principal = min(remaining, principal_outstanding)
+                allocated_principal = pay_principal
+                remaining -= pay_principal
+                unallocated = remaining  # surplus beyond full principal payoff
 
         return {
             "allocated_to_overdue_interest": allocated_overdue,

@@ -63,9 +63,12 @@ class TestAutoCapPaymentTiming:
         assert caps[0]["capitalized_amount"] == pytest.approx(43200, abs=1), (
             "schedule shows a shrunken capitalization — today's payment must not "
             "rewrite last year's capitalization")
-        # Pre-cap months were NOT paid at the time → they must not show 'paid'
+        # Pre-cap months were NOT paid at the time → their interest rolled into
+        # principal, so they show 'capitalized' (not a misleading red 'Unpaid',
+        # and not a false 'paid') with zero interest outstanding.
         pre_cap_rows = sched[:12]
-        assert all(r["status"] == "unpaid" for r in pre_cap_rows)
+        assert all(r["status"] == "capitalized" for r in pre_cap_rows)
+        assert all(r["interest_outstanding"] == 0 for r in pre_cap_rows)
         # The June-style lump payment covers the post-cap months instead
         post_cap_rows = [r for r in sched[12:] if not r["is_current_month"]]
         assert post_cap_rows and all(r["status"] == "paid" for r in post_cap_rows)

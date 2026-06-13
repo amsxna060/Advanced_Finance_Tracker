@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     GOLD_API_URL: str = "https://goldpricez.com/api/rates/currency/inr/measure/gram"
     GOLD_CACHE_TTL_SECONDS: int = 3600
+    # Interest-only loans: how many future months of interest a borrower may
+    # prepay before any excess is treated as a principal reduction. Protects
+    # principal from being touched when a borrower simply pays next month's
+    # interest in advance. Set to 0 to disable the buffer (excess → principal).
+    LOAN_INTEREST_PREPAY_MONTHS: int = 2
     SEED_ADMIN_USERNAME: str = "admin"
     SEED_ADMIN_EMAIL: str = "admin@finance.local"
     APP_ENV: str = "development"

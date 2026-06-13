@@ -884,9 +884,14 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
     seg_start_idx = 0  # first entries[] index of the open segment
     _mi_by_idx: dict = {}  # row index → Decimal interest due (avoid float drift)
 
-    def _allocate_segment(end_idx: int) -> Decimal:
+    def _allocate_segment(end_idx: int, close_capitalized: bool = False) -> Decimal:
         """Distribute `available` oldest-first across entries[seg_start_idx:end_idx].
-        Returns unpaid total of the segment (the amount a cap would roll up)."""
+        Returns unpaid total of the segment (the amount a cap would roll up).
+
+        close_capitalized=True → the segment ends in a capitalization: whatever
+        is unpaid here was rolled into principal, so rows show status
+        "capitalized" with zero interest outstanding (it is no longer due AS
+        interest — the red "Unpaid" badge was misleading users)."""
         nonlocal available
         unpaid_total = Decimal("0")
         for i in range(seg_start_idx, end_idx):
@@ -896,13 +901,19 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
             out_i = mi_i - pay_i
             unpaid_total += out_i
             entries[i]["interest_paid"] = float(pay_i)
-            entries[i]["interest_outstanding"] = float(out_i)
             if out_i <= Decimal("0.005"):
                 entries[i]["status"] = "paid"
+                entries[i]["interest_outstanding"] = float(out_i)
+            elif close_capitalized:
+                entries[i]["status"] = "capitalized"
+                entries[i]["interest_outstanding"] = 0.0
+                entries[i]["capitalized_into_principal"] = float(out_i)
             elif pay_i > Decimal("0"):
                 entries[i]["status"] = "partial"
+                entries[i]["interest_outstanding"] = float(out_i)
             else:
                 entries[i]["status"] = "unpaid"
+                entries[i]["interest_outstanding"] = float(out_i)
         return unpaid_total
 
     # Manual capitalization events (only meaningful when auto-cap is OFF):
@@ -920,7 +931,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
         nonlocal me_idx, principal, rate, seg_start_idx
         while me_idx < len(manual_events) and manual_events[me_idx].event_date < p_start:
             ev = manual_events[me_idx]
-            _allocate_segment(len(entries))
+            _allocate_segment(len(entries), close_capitalized=True)
             if entries:
                 entries[-1]["capitalized"] = True
                 entries[-1]["capitalized_amount"] = float(ev.outstanding_interest_before or 0)
@@ -997,7 +1008,7 @@ def generate_monthly_interest_schedule(loan: Loan, db: Session) -> List[Dict[str
 
         is_cap_month = cap_enabled and (month_count % cap_every == 0)
         if is_cap_month and not is_current:
-            unpaid_seg = _allocate_segment(len(entries))
+            unpaid_seg = _allocate_segment(len(entries), close_capitalized=True)
             if unpaid_seg > Decimal("0"):
                 entries[-1]["capitalized"] = True
                 entries[-1]["capitalized_amount"] = float(unpaid_seg)

@@ -132,7 +132,8 @@ class TestEmiAllocation:
 
 
 # ---------------------------------------------------------------------------
-# interest_only loan allocation (2x rule)
+# interest_only loan allocation
+# (interest-first → future-interest buffer → principal; LOAN_INTEREST_PREPAY_MONTHS=2)
 # ---------------------------------------------------------------------------
 
 class TestInterestOnlyAllocation:
@@ -142,12 +143,8 @@ class TestInterestOnlyAllocation:
         return db, outstanding
 
     def test_small_payment_all_to_interest(self):
-        """
-        principal=100000, rate=12%pa.
-        monthly_estimate = 100000 * 12/1200 = 1000.
-        threshold (2x) = 2000.
-        Payment = 1500 < 2000 → all current_interest, zero principal.
-        """
+        """principal=100000 @12%pa → monthly=1000, prepay buffer (2 mo)=2000.
+        Payment 1500 < accrued 3000 → all interest, no principal."""
         loan = _make_loan(10, "interest_only",
                           principal_amount=Decimal("100000"),
                           interest_rate=Decimal("12"))
@@ -162,11 +159,10 @@ class TestInterestOnlyAllocation:
         assert result["allocated_to_current_interest"] == Decimal("1500")
         assert result["unallocated"] == Decimal("0")
 
-    def test_large_payment_clears_interest_then_principal(self):
-        """
-        monthly_estimate = 1000, threshold = 2000.
-        Payment = 5000 >= 2000 → clears interest_outstanding=3000, rest to principal.
-        """
+    def test_overpayment_within_buffer_stays_interest(self):
+        """monthly=1000, buffer=2000. interest_outstanding=3000.
+        Payment 5000 = 3000 accrued + 2000 prepaid future interest → principal UNTOUCHED.
+        (This is the borrower paying next month's interest in advance.)"""
         loan = _make_loan(11, "interest_only",
                           principal_amount=Decimal("100000"),
                           interest_rate=Decimal("12"))
@@ -177,14 +173,48 @@ class TestInterestOnlyAllocation:
                    return_value=outstanding):
             result = allocate_payment(11, Decimal("5000"), date(2024, 2, 1), db)
 
-        assert result["allocated_to_current_interest"] == Decimal("3000")
-        assert result["allocated_to_principal"] == Decimal("2000")
+        assert result["allocated_to_current_interest"] == Decimal("5000")
+        assert result["allocated_to_principal"] == Decimal("0")
         assert result["unallocated"] == Decimal("0")
 
+    def test_excess_beyond_buffer_reduces_principal(self):
+        """monthly=1000, buffer=2000. interest_outstanding=3000.
+        Payment 8000: clear 3000 accrued; leftover 5000 > 2000 buffer → it's a
+        principal paydown, so the WHOLE 5000 reduces principal."""
+        loan = _make_loan(11, "interest_only",
+                          principal_amount=Decimal("100000"),
+                          interest_rate=Decimal("12"))
+        db = _make_db(loan)
+        outstanding = _make_outstanding("100000", "3000")
+
+        with patch("app.services.payment_allocation.calculate_outstanding",
+                   return_value=outstanding):
+            result = allocate_payment(11, Decimal("8000"), date(2024, 2, 1), db)
+
+        assert result["allocated_to_current_interest"] == Decimal("3000")
+        assert result["allocated_to_principal"] == Decimal("5000")
+        assert result["unallocated"] == Decimal("0")
+
+    def test_explicit_principal_repayment_is_honoured(self):
+        """A deliberate principal paydown bypasses the buffer entirely."""
+        loan = _make_loan(11, "interest_only",
+                          principal_amount=Decimal("100000"),
+                          interest_rate=Decimal("12"))
+        db = _make_db(loan)
+        outstanding = _make_outstanding("100000", "3000")
+
+        with patch("app.services.payment_allocation.calculate_outstanding",
+                   return_value=outstanding):
+            result = allocate_payment(11, Decimal("8000"), date(2024, 2, 1), db,
+                                      principal_repayment=Decimal("5000"))
+
+        assert result["allocated_to_principal"] == Decimal("5000")
+        assert result["allocated_to_current_interest"] == Decimal("3000")
+
     def test_massive_payment_beyond_principal_has_unallocated(self):
-        """
-        Payment way more than principal+interest → unallocated = surplus.
-        """
+        """principal=10000 @12%pa → monthly=100, buffer=200. interest=500.
+        Payment 20000: clear 500; leftover 19500 ≫ buffer → full payoff,
+        principal 10000, surplus 9500."""
         loan = _make_loan(12, "interest_only",
                           principal_amount=Decimal("10000"),
                           interest_rate=Decimal("12"))
@@ -195,15 +225,13 @@ class TestInterestOnlyAllocation:
                    return_value=outstanding):
             result = allocate_payment(12, Decimal("20000"), date(2024, 2, 1), db)
 
-        # interest = 500, principal = 10000; unallocated = 20000 - 500 - 10000 = 9500
         assert result["allocated_to_current_interest"] == Decimal("500")
         assert result["allocated_to_principal"] == Decimal("10000")
         assert result["unallocated"] == Decimal("9500")
 
-    def test_payment_exactly_at_threshold(self):
-        """
-        monthly_estimate=1000, threshold=2000. Payment exactly 2000 → large payment path.
-        """
+    def test_payment_within_buffer_no_principal(self):
+        """monthly=1000, buffer=2000. interest=1000.
+        Payment 2000 = 1000 accrued + 1000 prepaid → no principal touched."""
         loan = _make_loan(13, "interest_only",
                           principal_amount=Decimal("100000"),
                           interest_rate=Decimal("12"))
@@ -214,9 +242,8 @@ class TestInterestOnlyAllocation:
                    return_value=outstanding):
             result = allocate_payment(13, Decimal("2000"), date(2024, 2, 1), db)
 
-        # Payment >= threshold → large path: clear interest first
-        assert result["allocated_to_current_interest"] == Decimal("1000")
-        assert result["allocated_to_principal"] == Decimal("1000")
+        assert result["allocated_to_current_interest"] == Decimal("2000")
+        assert result["allocated_to_principal"] == Decimal("0")
 
 
 # ---------------------------------------------------------------------------
