@@ -805,7 +805,7 @@ def analytics_assets(
     receivables = db.query(MoneyObligation).filter(
         MoneyObligation.is_deleted == False,
         MoneyObligation.obligation_type == "receivable",
-        MoneyObligation.status != "settled",
+        MoneyObligation.status.notin_(["settled", "closed"]),
     ).all()
     receivable_items = []
     total_receivable = Decimal("0")
@@ -826,7 +826,7 @@ def analytics_assets(
     payables = db.query(MoneyObligation).filter(
         MoneyObligation.is_deleted == False,
         MoneyObligation.obligation_type == "payable",
-        MoneyObligation.status != "settled",
+        MoneyObligation.status.notin_(["settled", "closed"]),
     ).all()
     payable_items = []
     total_payable = Decimal("0")

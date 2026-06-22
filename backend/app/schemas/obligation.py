@@ -31,6 +31,9 @@ class ObligationOut(BaseModel):
     contact_id: Optional[int] = None
     amount: Decimal
     amount_settled: Decimal
+    loss_amount: Decimal = Decimal("0")
+    interest_amount: Decimal = Decimal("0")
+    closed_date: Optional[date] = None
     reason: Optional[str]
     linked_type: Optional[str]
     linked_id: Optional[int]
@@ -45,17 +48,26 @@ class ObligationOut(BaseModel):
 
 
 class SettlementCreate(BaseModel):
-    amount: Decimal
+    # amount = principal portion (reduces remaining). Can be 0 for an
+    # interest-only payment as long as interest_amount > 0.
+    amount: Decimal = Field(default=Decimal("0"), ge=0)
+    interest_amount: Decimal = Field(default=Decimal("0"), ge=0)
     settlement_date: date
     payment_mode: Optional[str] = None
     account_id: Optional[int] = None
     notes: Optional[str] = None
 
 
+class CloseWithLossCreate(BaseModel):
+    closed_date: date
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
 class SettlementOut(BaseModel):
     id: int
     obligation_id: int
     amount: Decimal
+    interest_amount: Decimal = Decimal("0")
     settlement_date: date
     payment_mode: Optional[str]
     account_id: Optional[int]

@@ -30,7 +30,17 @@ class MoneyObligation(Base):
     linked_id = Column(Integer)
 
     due_date = Column(Date)
-    status = Column(String(20), default="pending")  # pending | partial | settled
+    status = Column(String(20), default="pending")  # pending | partial | settled | closed
+
+    # Closed-with-loss: remaining unrecovered/unpaid amount written off when the
+    # obligation is force-closed (status="closed"). Recorded for reporting only;
+    # no cash moves.
+    loss_amount = Column(Numeric(15, 2), default=0)
+    closed_date = Column(Date)  # when it was closed with loss
+
+    # Extra interest / profit collected on top of the principal across settlements
+    # (e.g. a borrower repays principal plus interest). Denormalised running total.
+    interest_amount = Column(Numeric(15, 2), default=0)
 
     notes = Column(Text)
     is_deleted = Column(Boolean, default=False)
@@ -49,7 +59,8 @@ class ObligationSettlement(Base):
     id = Column(Integer, primary_key=True, index=True)
     obligation_id = Column(Integer, ForeignKey("money_obligations.id"), nullable=False)
 
-    amount = Column(Numeric(15, 2), nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False)  # principal portion (reduces remaining)
+    interest_amount = Column(Numeric(15, 2), default=0)  # extra interest / profit on this payment
     settlement_date = Column(Date, nullable=False)
     payment_mode = Column(String(30))
     account_id = Column(Integer, ForeignKey("cash_accounts.id"))

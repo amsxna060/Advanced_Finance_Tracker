@@ -20,9 +20,15 @@ const defaultForm = {
 
 const defaultSettleForm = {
   amount: "",
+  interest_amount: "",
   settlement_date: new Date().toISOString().split("T")[0],
   payment_mode: "cash",
   account_id: "",
+  notes: "",
+};
+
+const defaultCloseForm = {
+  closed_date: new Date().toISOString().split("T")[0],
   notes: "",
 };
 
@@ -38,8 +44,11 @@ function ObligationList() {
   const [showModal, setShowModal] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
   const [settleTarget, setSettleTarget] = useState(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [closeTarget, setCloseTarget] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [settleForm, setSettleForm] = useState(defaultSettleForm);
+  const [closeForm, setCloseForm] = useState(defaultCloseForm);
   const [errorMessage, setErrorMessage] = useState("");
   const [expandedId, setExpandedId] = useState(null);
   const [contactSearch, setContactSearch] = useState("");
@@ -147,6 +156,33 @@ function ObligationList() {
       setErrorMessage(e.response?.data?.detail || "Settlement failed"),
   });
 
+  const closeLossMutation = useMutation({
+    mutationFn: async ({ id, payload }) =>
+      (await api.post(`/api/obligations/${id}/close-loss`, payload)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["obligations"] });
+      queryClient.invalidateQueries({ queryKey: ["obligations-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["obligation-detail", closeTarget] });
+      setShowCloseModal(false);
+      setCloseTarget(null);
+      setCloseForm(defaultCloseForm);
+      setErrorMessage("");
+    },
+    onError: (e) =>
+      setErrorMessage(e.response?.data?.detail || "Failed to close obligation"),
+  });
+
+  const reopenMutation = useMutation({
+    mutationFn: async (id) =>
+      (await api.post(`/api/obligations/${id}/reopen`)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["obligations"] });
+      queryClient.invalidateQueries({ queryKey: ["obligations-summary"] });
+    },
+    onError: (e) =>
+      window.alert(e.response?.data?.detail || "Failed to reopen obligation"),
+  });
+
   const totals = useMemo(() => {
     let receivable = 0,
       payable = 0;
@@ -222,7 +258,8 @@ function ObligationList() {
     settleMutation.mutate({
       id: settleTarget,
       payload: {
-        amount: parseFloat(settleForm.amount),
+        amount: parseFloat(settleForm.amount) || 0,
+        interest_amount: parseFloat(settleForm.interest_amount) || 0,
         settlement_date: settleForm.settlement_date,
         payment_mode: settleForm.payment_mode || null,
         account_id: settleForm.account_id
@@ -241,9 +278,38 @@ function ObligationList() {
     setErrorMessage("");
   };
 
+  const handleClose = (e) => {
+    e.preventDefault();
+    closeLossMutation.mutate({
+      id: closeTarget,
+      payload: {
+        closed_date: closeForm.closed_date,
+        notes: closeForm.notes || null,
+      },
+    });
+  };
+
+  const openClose = (ob) => {
+    setCloseTarget(ob.id);
+    setCloseForm(defaultCloseForm);
+    setShowCloseModal(true);
+    setErrorMessage("");
+  };
+
+  const closeRemaining = useMemo(() => {
+    if (!closeTarget) return 0;
+    const item = obligations.find((o) => o.obligation?.id === closeTarget);
+    if (!item) return 0;
+    return (
+      parseFloat(item.obligation.amount) -
+      parseFloat(item.obligation.amount_settled)
+    );
+  }, [closeTarget, obligations]);
+
   const statusColor = (s) => {
     if (s === "settled") return "bg-emerald-100 text-emerald-700";
     if (s === "partial") return "bg-amber-100 text-amber-700";
+    if (s === "closed") return "bg-slate-200 text-slate-600";
     return "bg-rose-100 text-rose-700";
   };
 
@@ -304,7 +370,8 @@ function ObligationList() {
             Active
             {(() => {
               const cnt = obligations.filter(
-                ({ obligation: ob }) => ob.status !== "settled",
+                ({ obligation: ob }) =>
+                  ob.status !== "settled" && ob.status !== "closed",
               ).length;
               return cnt > 0 ? (
                 <span className="ml-2 bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">
@@ -320,7 +387,8 @@ function ObligationList() {
             Settled
             {(() => {
               const cnt = obligations.filter(
-                ({ obligation: ob }) => ob.status === "settled",
+                ({ obligation: ob }) =>
+                  ob.status === "settled" || ob.status === "closed",
               ).length;
               return cnt > 0 ? (
                 <span className="ml-2 bg-slate-200 text-slate-600 text-xs px-2 py-0.5 rounded-full">
@@ -395,8 +463,10 @@ function ObligationList() {
         ) : (
           (() => {
             const visible = obligations.filter(({ obligation: ob }) => {
-              if (tab === "active" && ob.status === "settled") return false;
-              if (tab === "archived" && ob.status !== "settled") return false;
+              const isArchived =
+                ob.status === "settled" || ob.status === "closed";
+              if (tab === "active" && isArchived) return false;
+              if (tab === "archived" && !isArchived) return false;
               if (
                 filters.search &&
                 !(ob.reason || "")
@@ -471,8 +541,14 @@ function ObligationList() {
                               {ob.amount_settled > 0 && (
                                 <p className="text-xs text-slate-400">Settled: {formatCurrency(ob.amount_settled)}</p>
                               )}
-                              {remaining > 0 && ob.status !== "settled" && (
+                              {remaining > 0 && ob.status !== "settled" && ob.status !== "closed" && (
                                 <p className="text-xs font-medium text-amber-600">Due: {formatCurrency(remaining)}</p>
+                              )}
+                              {parseFloat(ob.interest_amount || 0) > 0 && (
+                                <p className="text-xs font-medium text-emerald-600">+ {formatCurrency(ob.interest_amount)} interest</p>
+                              )}
+                              {ob.status === "closed" && parseFloat(ob.loss_amount || 0) > 0 && (
+                                <p className="text-xs font-medium text-rose-600">Loss: {formatCurrency(ob.loss_amount)}</p>
                               )}
                             </div>
                           </div>
@@ -505,7 +581,22 @@ function ObligationList() {
                               {ob.notes && (
                                 <div className="col-span-2">
                                   <span className="text-xs font-medium text-slate-400">Notes:</span>{" "}
-                                  <span className="text-slate-700">{ob.notes}</span>
+                                  <span className="text-slate-700 whitespace-pre-line">{ob.notes}</span>
+                                </div>
+                              )}
+                              {ob.status === "closed" && (
+                                <div className="col-span-2">
+                                  <span className="text-xs font-medium text-slate-400">Closed with loss:</span>{" "}
+                                  <span className="font-medium text-rose-600">{formatCurrency(ob.loss_amount)}</span>
+                                  {ob.closed_date && (
+                                    <span className="text-slate-500"> on {formatDate(ob.closed_date)}</span>
+                                  )}
+                                </div>
+                              )}
+                              {parseFloat(ob.interest_amount || 0) > 0 && (
+                                <div>
+                                  <span className="text-xs font-medium text-slate-400">Interest / profit:</span>{" "}
+                                  <span className="font-medium text-emerald-600">{formatCurrency(ob.interest_amount)}</span>
                                 </div>
                               )}
                               <div>
@@ -525,6 +616,9 @@ function ObligationList() {
                                     >
                                       <div>
                                         <span className="font-medium text-slate-900">{formatCurrency(s.amount)}</span>
+                                        {parseFloat(s.interest_amount || 0) > 0 && (
+                                          <span className="text-emerald-600 ml-1.5 text-xs font-medium">+ {formatCurrency(s.interest_amount)} int.</span>
+                                        )}
                                         <span className="text-slate-400 ml-2 text-xs">{formatDate(s.settlement_date)}</span>
                                         {s.payment_mode && <span className="text-xs text-slate-400 ml-2">({s.payment_mode})</span>}
                                       </div>
@@ -535,14 +629,20 @@ function ObligationList() {
                               </div>
                             )}
 
-                            <div className="flex gap-2 pt-1">
-                              {ob.status !== "settled" && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {ob.status !== "settled" && ob.status !== "closed" && (
                                 <>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openSettle(ob); }}
                                     className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-4 py-1.5 rounded-xl text-sm font-medium hover:from-emerald-600 hover:to-emerald-700 shadow-sm shadow-emerald-500/20 transition-all active:scale-[0.98]"
                                   >
-                                    Record Settlement
+                                    Record Payment
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openClose(ob); }}
+                                    className="bg-amber-50 text-amber-700 border border-amber-200/60 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-amber-100 transition-colors"
+                                  >
+                                    Close with Loss
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openEditObligation(ob); }}
@@ -551,6 +651,17 @@ function ObligationList() {
                                     Edit
                                   </button>
                                 </>
+                              )}
+                              {ob.status === "closed" && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm("Reopen this obligation? The written-off loss will be cleared.")) reopenMutation.mutate(ob.id);
+                                  }}
+                                  className="bg-indigo-50 text-indigo-600 border border-indigo-200/60 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-indigo-100 transition-colors"
+                                >
+                                  Reopen
+                                </button>
                               )}
                               <button
                                 onClick={(e) => {
@@ -880,7 +991,7 @@ function ObligationList() {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 max-w-md w-full animate-slideUp">
             <div className="p-6">
               <h2 className="text-lg font-bold text-slate-900 mb-5">
-                Record Settlement
+                Record Payment
               </h2>
               {errorMessage && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 mb-4">
@@ -891,12 +1002,11 @@ function ObligationList() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">
-                      Amount *
+                      Principal Amount
                     </label>
                     <input
                       type="number"
-                      required
-                      min="0.01"
+                      min="0"
                       step="0.01"
                       value={settleForm.amount}
                       onChange={(e) =>
@@ -907,21 +1017,41 @@ function ObligationList() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">
-                      Date *
+                      Interest / Profit
                     </label>
                     <input
-                      type="date"
-                      required
-                      value={settleForm.settlement_date}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={settleForm.interest_amount}
                       onChange={(e) =>
-                        setSettleForm({
-                          ...settleForm,
-                          settlement_date: e.target.value,
-                        })
+                        setSettleForm({ ...settleForm, interest_amount: e.target.value })
                       }
-                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 transition-all"
                     />
                   </div>
+                </div>
+                <p className="text-xs text-slate-400 -mt-1">
+                  Principal reduces what's owed. Anything paid on top goes in
+                  Interest / Profit and is recorded as income.
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={settleForm.settlement_date}
+                    onChange={(e) =>
+                      setSettleForm({
+                        ...settleForm,
+                        settlement_date: e.target.value,
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -997,7 +1127,87 @@ function ObligationList() {
                     disabled={settleMutation.isPending}
                     className="flex-1 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl hover:from-emerald-600 hover:to-emerald-700 text-sm font-medium shadow-sm shadow-emerald-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
                   >
-                    {settleMutation.isPending ? "Saving…" : "Record Settlement"}
+                    {settleMutation.isPending ? "Saving…" : "Record Payment"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close with Loss Modal */}
+      {showCloseModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/60 max-w-md w-full animate-slideUp">
+            <div className="p-6">
+              <h2 className="text-lg font-bold text-slate-900 mb-2">
+                Close with Loss
+              </h2>
+              <p className="text-sm text-slate-500 mb-4">
+                The remaining balance will be written off as a loss. No money is
+                recorded as moving. You can reopen the obligation later if needed.
+              </p>
+              {errorMessage && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 mb-4">
+                  {errorMessage}
+                </div>
+              )}
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4 flex items-center justify-between">
+                <span className="text-sm font-medium text-amber-700">
+                  Amount to write off
+                </span>
+                <span className="text-lg font-bold text-amber-700">
+                  {formatCurrency(closeRemaining)}
+                </span>
+              </div>
+              <form onSubmit={handleClose} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Close Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={closeForm.closed_date}
+                    onChange={(e) =>
+                      setCloseForm({ ...closeForm, closed_date: e.target.value })
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                    Reason / Notes
+                  </label>
+                  <textarea
+                    value={closeForm.notes}
+                    onChange={(e) =>
+                      setCloseForm({ ...closeForm, notes: e.target.value })
+                    }
+                    rows={2}
+                    placeholder="e.g. Borrower defaulted, written off as bad debt"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all resize-none"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCloseModal(false);
+                      setCloseTarget(null);
+                      setErrorMessage("");
+                    }}
+                    className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 text-sm font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={closeLossMutation.isPending}
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl hover:from-amber-600 hover:to-amber-700 text-sm font-medium shadow-sm shadow-amber-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
+                  >
+                    {closeLossMutation.isPending ? "Closing…" : "Close with Loss"}
                   </button>
                 </div>
               </form>

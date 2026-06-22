@@ -659,7 +659,12 @@ def generate_statement(
             .all()
         )
         for obl in obls:
-            remaining = float(Decimal(str(obl.amount)) - Decimal(str(obl.amount_settled or 0)))
+            # A closed-with-loss obligation has been written off — nothing is
+            # still owed, so it contributes zero to the settlement total.
+            remaining = (
+                0.0 if obl.status in ("closed", "settled")
+                else float(Decimal(str(obl.amount)) - Decimal(str(obl.amount_settled or 0)))
+            )
             obligation_items.append({
                 "obligation_id": obl.id,
                 "label": obl.reason or obl.obligation_type.capitalize(),

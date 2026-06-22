@@ -131,3 +131,150 @@ class TestObligationSettle:
         get_resp = client.get(f"/api/obligations/{ob_id}", headers=auth_headers)
         ob_data = get_resp.json()["obligation"]
         assert ob_data["status"] == "partial"
+
+
+class TestObligationSettleWithInterest:
+    def _make(self, client, auth_headers, amount=10000):
+        cid = _create_contact(client, auth_headers, "Interest Contact")
+        resp = client.post(
+            "/api/obligations",
+            json={"obligation_type": "receivable", "contact_id": cid, "amount": amount},
+            headers=auth_headers,
+        )
+        return resp.json()["id"]
+
+    def test_payment_records_extra_interest(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 10000)
+        resp = client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 10000, "interest_amount": 1500, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        assert float(resp.json()["interest_amount"]) == 1500.0
+
+        ob = client.get(f"/api/obligations/{ob_id}", headers=auth_headers).json()["obligation"]
+        assert ob["status"] == "settled"          # principal fully settled
+        assert float(ob["amount_settled"]) == 10000.0
+        assert float(ob["interest_amount"]) == 1500.0
+
+    def test_interest_only_payment_keeps_principal(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 10000)
+        resp = client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 0, "interest_amount": 800, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        ob = client.get(f"/api/obligations/{ob_id}", headers=auth_headers).json()["obligation"]
+        assert ob["status"] == "pending"          # principal untouched
+        assert float(ob["amount_settled"]) == 0.0
+        assert float(ob["interest_amount"]) == 800.0
+
+    def test_principal_above_remaining_rejected(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 10000)
+        resp = client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 12000, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_zero_payment_rejected(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 10000)
+        resp = client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 0, "interest_amount": 0, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+
+class TestObligationCloseWithLoss:
+    def _make(self, client, auth_headers, amount=10000):
+        cid = _create_contact(client, auth_headers, "Loss Contact")
+        resp = client.post(
+            "/api/obligations",
+            json={"obligation_type": "receivable", "contact_id": cid, "amount": amount},
+            headers=auth_headers,
+        )
+        return resp.json()["id"]
+
+    def test_close_with_loss_writes_off_remaining(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 10000)
+        # Settle part of it, then write off the rest.
+        client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 4000, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        resp = client.post(
+            f"/api/obligations/{ob_id}/close-loss",
+            json={"closed_date": "2024-06-01", "notes": "Defaulted"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "closed"
+        assert float(body["loss_amount"]) == 6000.0
+        assert body["closed_date"] == "2024-06-01"
+
+    def test_closed_excluded_from_summary(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 7000)
+        before = client.get("/api/obligations/summary/overview", headers=auth_headers).json()
+        client.post(
+            f"/api/obligations/{ob_id}/close-loss",
+            json={"closed_date": "2024-06-01"},
+            headers=auth_headers,
+        )
+        after = client.get("/api/obligations/summary/overview", headers=auth_headers).json()
+        # Closed obligation no longer counts toward outstanding receivable.
+        assert before["total_receivable"] - after["total_receivable"] == 7000.0
+        assert after["total_loss"] >= 7000.0
+
+    def test_cannot_settle_closed_obligation(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 5000)
+        client.post(
+            f"/api/obligations/{ob_id}/close-loss",
+            json={"closed_date": "2024-06-01"},
+            headers=auth_headers,
+        )
+        resp = client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 1000, "settlement_date": "2024-06-02"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_close_already_settled_rejected(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 5000)
+        client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 5000, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        resp = client.post(
+            f"/api/obligations/{ob_id}/close-loss",
+            json={"closed_date": "2024-06-01"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_reopen_clears_loss(self, client, admin_user, auth_headers):
+        ob_id = self._make(client, auth_headers, 8000)
+        client.post(
+            f"/api/obligations/{ob_id}/settle",
+            json={"amount": 3000, "settlement_date": "2024-05-01"},
+            headers=auth_headers,
+        )
+        client.post(
+            f"/api/obligations/{ob_id}/close-loss",
+            json={"closed_date": "2024-06-01"},
+            headers=auth_headers,
+        )
+        resp = client.post(f"/api/obligations/{ob_id}/reopen", headers=auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "partial"        # 3000 of 8000 was settled
+        assert float(body["loss_amount"]) == 0.0
+        assert body["closed_date"] is None

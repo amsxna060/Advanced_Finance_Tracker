@@ -80,7 +80,7 @@ Advanced_Finance_Tracker/
 | **Partnership** | Joint venture with proportional member shares; tracks investments, returns, broker fees, member payouts. |
 | **Beesi** | Rotating savings pool / chit fund — fixed monthly installment, periodic withdrawal of the pot. |
 | **Cash Account** | Named bank/cash/credit account with auto-posted ledger from loans, beesi, partnerships, obligations. |
-| **Money Obligation** | Receivable or payable that isn't a loan; settled by posting against an account. |
+| **Money Obligation** | Receivable or payable that isn't a loan; settled by posting against an account. Can be force-closed at a loss (writes off remaining → `loss_amount`, status=`closed`) or collect extra interest/profit on a payment (`interest_amount`). |
 | **Expense** | Categorized spending; auto-categorized via Gemini + learning table. |
 | **Category Limit** | Monthly cap per category, with optional rollover of unspent balance. |
 | **Partner Transfer** | Internal-only: tracking transfers between partners (replaced earlier "Profit Received" concept — see commit b927443). |
@@ -123,7 +123,7 @@ Advanced_Finance_Tracker/
 | `partnerships.py` | `/partnerships` | CRUD, `PATCH /{id}/members`, transactions (Partner Transfer replaces Profit Received — commit b927443) |
 | `beesi.py` | `/beesi` | CRUD, `POST /{id}/installments`, `POST /{id}/withdrawals` |
 | `accounts.py` | `/accounts` | CRUD, `GET /{id}/transactions`, `GET /{id}/balance` |
-| `obligations.py` | `/obligations` | CRUD, `POST /{id}/settle` |
+| `obligations.py` | `/obligations` | CRUD, `POST /{id}/settle` (principal + optional `interest_amount` extra profit; interest-only payments allowed), `POST /{id}/close-loss` (write off remaining → status=`closed`, `loss_amount`), `POST /{id}/reopen` |
 | `expenses.py` | `/expenses` | CRUD, `GET /analytics/trends` |
 | `categories.py` | `/categories` | CRUD |
 | `category_limits.py` | `/category-limits` | CRUD |
@@ -187,6 +187,8 @@ Run in order. The latest is `026_recurring_transactions_loan_priority`.
 | 24 | `024_property_anomalies` | Property-anomaly tracker table |
 | 25 | `025_forecast_overrides` | `forecast_overrides` — per-user/item/month toggle + amount + fulfilled status |
 | 26 | `026_recurring_transactions_loan_priority` | `recurring_transactions` table (RecurringType + RecurringFrequency enums); adds `priority` column (loan_priority_enum: high/medium/low) to `loans` table |
+| … | (27–42) | soft-deletes, indexes, penalty/interest fields, simulations, recurring expenses, account-txn source links |
+| 43 | `043_obligation_close_loss` | `money_obligations.loss_amount` / `closed_date` / `interest_amount` + `obligation_settlements.interest_amount` — close-with-loss & extra interest/profit |
 
 ---
 
