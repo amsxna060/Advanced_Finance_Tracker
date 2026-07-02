@@ -630,10 +630,8 @@ def _emi_schedule_core(loan: Loan, payments: List["LoanPayment"]) -> List[Dict[s
                 return pdate
         return None
 
-    # Penalty actually collected per EMI (from penalty_paid on payments)
-    # Attribute via carry-forward in chronological order
-    total_penalty_collected = sum(Decimal(str(p.penalty_paid or 0)) for p in payments)
-    penalty_collected_remaining = total_penalty_collected
+    # Penalty actually collected per EMI comes from penalty_paid on each payment
+    # and is attributed to the slot THAT payment settled (see second pass below).
 
     # credit_balance = only the EMI portions (penalty excluded)
     total_paid = sum(
@@ -694,15 +692,6 @@ def _emi_schedule_core(loan: Loan, payments: List["LoanPayment"]) -> List[Dict[s
                 days_late = max(0, (today - due_date).days - 1)
                 penalty_accrued = float((penalty_per_day * days_late).quantize(Decimal("0.01")))
 
-        # Attribute collected penalty to this EMI (carry-forward, same as EMI amounts)
-        this_penalty_collected = Decimal("0")
-        if penalty_accrued > 0 and penalty_collected_remaining > 0:
-            this_penalty_collected = min(
-                penalty_collected_remaining,
-                Decimal(str(penalty_accrued)),
-            )
-            penalty_collected_remaining -= this_penalty_collected
-
         result.append({
             "emi_number": entry["emi_number"],
             "due_date": due_date,
@@ -713,8 +702,60 @@ def _emi_schedule_core(loan: Loan, payments: List["LoanPayment"]) -> List[Dict[s
             "is_current_month": (due_date.year == today.year and due_date.month == today.month),
             "days_overdue": days_late,
             "penalty_accrued": penalty_accrued,
-            "penalty_collected": float(this_penalty_collected),
+            "penalty_collected": 0.0,
         })
+
+    # ── Second pass: attribute collected penalties to the right months ──
+    # Each payment's penalty_paid belongs to the EMI slot(s) that payment
+    # settled — NOT the earliest slot with pending penalty. (Previously a
+    # global oldest-first carry-forward showed a penalty paid for EMI #5
+    # against EMI #2, so the wrong months looked penalty-settled.)
+    n_slots = len(result)
+    accrued_remaining = [Decimal(str(e["penalty_accrued"])) for e in result]
+    collected = [Decimal("0")] * n_slots
+    leftover = Decimal("0")
+
+    cum = Decimal("0")
+    for p in payments:  # already sorted by payment_date at both call sites
+        emi_portion = max(Decimal(str(p.amount_paid)) - Decimal(str(p.penalty_paid or 0)), Decimal("0"))
+        completed_before = int(cum // emi_amount) if emi_amount > 0 else 0
+        cum += emi_portion
+        completed_after = int(cum // emi_amount) if emi_amount > 0 else 0
+
+        penalty = Decimal(str(p.penalty_paid or 0))
+        if penalty <= 0:
+            continue
+
+        # Target slots: the ones this payment completed; if it completed none
+        # (partial payment), the slot it was paying into.
+        targets = list(range(completed_before + 1, completed_after + 1))
+        if not targets:
+            targets = [completed_after + 1]
+        for slot_n in targets:
+            idx = slot_n - 1
+            if idx < 0 or idx >= n_slots:
+                continue
+            take = min(penalty, accrued_remaining[idx])
+            collected[idx] += take
+            accrued_remaining[idx] -= take
+            penalty -= take
+            if penalty <= 0:
+                break
+        leftover += penalty
+
+    # Any surplus (e.g. penalty recorded against an on-time slot) falls back to
+    # the earliest slots that still have uncovered accrued penalty.
+    if leftover > 0:
+        for idx in range(n_slots):
+            if leftover <= 0:
+                break
+            take = min(leftover, accrued_remaining[idx])
+            collected[idx] += take
+            accrued_remaining[idx] -= take
+            leftover -= take
+
+    for idx, entry in enumerate(result):
+        entry["penalty_collected"] = float(collected[idx])
 
     return result
 

@@ -96,6 +96,10 @@ def process_recurring_transactions():
                     linked_type="recurring",
                     linked_id=item.id,
                     created_by=item.created_by,
+                    # F10: stamp the exact source so reversals can match this
+                    # row precisely instead of falling back to the heuristic
+                    source_type="recurring_transaction",
+                    source_id=item.id,
                 )
                 db.add(txn)
                 posted += 1

@@ -60,7 +60,7 @@ function ObligationList() {
   const { data: obligations = [], isLoading } = useQuery({
     queryKey: ["obligations", filters],
     queryFn: async () => {
-      const params = { limit: 200 };
+      const params = { limit: 500 }; // backend max — see F9 (no pagination UI yet)
       Object.entries(filters).forEach(([k, v]) => {
         if (v) params[k] = v;
       });

@@ -76,15 +76,21 @@ def upsert_category_limit(
     return {"id": cl.id, "category": cl.category, "monthly_limit": Decimal(str(cl.monthly_limit)), "rollover_enabled": cl.rollover_enabled}
 
 
-@router.delete("/{category}")
+@router.delete("/{key}")
 def delete_category_limit(
-    category: str,
+    key: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    cl = db.query(CategoryLimit).filter(CategoryLimit.category == category).first()
+    # F13: prefer the numeric limit id (category names containing '/' can't be
+    # addressed as a path segment); fall back to name for older clients.
+    if key.isdigit():
+        cl = db.query(CategoryLimit).filter(CategoryLimit.id == int(key)).first()
+    else:
+        cl = db.query(CategoryLimit).filter(CategoryLimit.category == key).first()
     if not cl:
         raise HTTPException(status_code=404, detail="Category limit not found")
+    category = cl.category
     db.delete(cl)
     db.commit()
     return {"message": f"Limit for '{category}' deleted"}
@@ -121,7 +127,12 @@ def budget_vs_actual(
 
     expenses = (
         db.query(Expense)
-        .filter(Expense.expense_date >= from_date, Expense.expense_date < to_date)
+        .filter(
+            Expense.expense_date >= from_date,
+            Expense.expense_date < to_date,
+            # F3: deleted expenses must not count toward budget usage
+            Expense.is_deleted == False,
+        )
         .all()
     )
 
@@ -203,7 +214,12 @@ def rollover_preview(
     # Get actual spend per category in previous month
     prev_expenses = (
         db.query(Expense)
-        .filter(Expense.expense_date >= p_from, Expense.expense_date < p_to)
+        .filter(
+            Expense.expense_date >= p_from,
+            Expense.expense_date < p_to,
+            # F3: deleted expenses must not shrink the rollover surplus
+            Expense.is_deleted == False,
+        )
         .all()
     )
     prev_actual: dict[str, Decimal] = {}

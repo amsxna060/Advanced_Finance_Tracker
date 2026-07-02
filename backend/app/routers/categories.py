@@ -55,7 +55,9 @@ def list_categories(
         node = by_id[c.id]
         if c.parent_id and c.parent_id in by_id:
             by_id[c.parent_id]["children"].append(node)
-        elif not c.parent_id:
+        else:
+            # F8: a child whose parent was deactivated is still active and in
+            # use — promote it to a root instead of dropping it from the tree.
             roots.append(node)
 
     return roots

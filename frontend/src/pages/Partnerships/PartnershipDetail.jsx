@@ -458,7 +458,7 @@ export default function PartnershipDetail() {
       // Pre-populate overrides with calculated values so inputs are editable from the start
       const initial = {};
       (res.data.members || []).forEach(m => {
-        initial[m.member_id] = String(m.final_entitlement.toFixed(2));
+        initial[m.member_id] = String((m.final_entitlement ?? 0).toFixed(2));
       });
       setMemberOverrides(initial);
     } catch (err) {

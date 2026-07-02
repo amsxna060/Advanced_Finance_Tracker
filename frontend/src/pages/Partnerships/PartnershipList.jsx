@@ -110,7 +110,7 @@ export default function PartnershipList() {
   const { data: partnerships = [], isLoading } = useQuery({
     queryKey: ["partnerships", { search, status }],
     queryFn: async () => {
-      const params = { limit: 200 };
+      const params = { limit: 500 }; // backend max — see F9 (no pagination UI yet)
       if (search) params.search = search;
       if (status) params.status = status;
       return (await api.get("/api/partnerships", { params })).data;

@@ -20,6 +20,13 @@ from app.models.expense import Expense
 from app.services.interest import calculate_outstanding
 from app.services.pdf_generator import PDFReportGenerator
 from app.services.excel_generator import ExcelReportGenerator
+# F5: share the dashboard's txn-type vocabulary (new + legacy) so reports and
+# dashboard can never disagree on what counts as property/partnership money.
+from app.routers.dashboard import (
+    INFLOW_PROPERTY_TXN_TYPES,
+    OUTFLOW_PROPERTY_TXN_TYPES,
+    INFLOW_PARTNERSHIP_TXN_TYPES,
+)
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -142,7 +149,9 @@ def generate_portfolio_summary(
     current_user: User = Depends(get_current_user),
 ):
     # C-REP-1: exclude soft-deleted loans from portfolio summary
-    active_loans = db.query(Loan).filter(Loan.status == "active", Loan.is_deleted == False, Loan.created_by == current_user.id).all()
+    # F6: no created_by scoping — the rest of the app (dashboard D1 fix, lists,
+    # analytics) shows all data, so a per-creator report contradicted the screens.
+    active_loans = db.query(Loan).filter(Loan.status == "active", Loan.is_deleted == False).all()
 
     total_lent_out = Decimal("0")
     total_outstanding_receivable = Decimal("0")
@@ -180,8 +189,8 @@ def generate_portfolio_summary(
             total_borrowed += principal
             total_outstanding_payable += total_due
 
-    active_property_deals = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.created_by == current_user.id).count() if hasattr(PropertyDeal, 'is_deleted') else db.query(PropertyDeal).filter(PropertyDeal.created_by == current_user.id).count()
-    active_partnerships = db.query(Partnership).filter(Partnership.status == "active", Partnership.created_by == current_user.id).count()
+    active_property_deals = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).count()
+    active_partnerships = db.query(Partnership).filter(Partnership.status == "active", Partnership.is_deleted == False).count()
 
     summary_data = {
         "total_lent_out": float(total_lent_out),
@@ -227,7 +236,9 @@ def generate_portfolio_summary(
                 "purchase_date": p.deal_locked_date,
                 "exit_date": p.actual_registry_date,
             }
-            for p in db.query(PropertyDeal).all()
+            # F7: was unfiltered — mixed deleted properties into the Excel while
+            # every other section of the same report was filtered
+            for p in db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False).all()
         ]
 
         partnerships_list = [
@@ -241,7 +252,7 @@ def generate_portfolio_summary(
                 "status": pr.status,
                 "start_date": pr.start_date,
             }
-            for pr in db.query(Partnership).filter(Partnership.created_by == current_user.id).all()
+            for pr in db.query(Partnership).filter(Partnership.is_deleted == False).all()
         ]
 
         expenses_list = [
@@ -254,7 +265,7 @@ def generate_portfolio_summary(
                 "payment_mode": e.payment_mode or "",
                 "description": e.description or "",
             }
-            for e in db.query(Expense).filter(Expense.created_by == current_user.id).all()
+            for e in db.query(Expense).filter(Expense.is_deleted == False).all()
         ]
 
         buffer = ExcelReportGenerator().generate_comprehensive_report(
@@ -309,11 +320,13 @@ def generate_pnl_report(
     if total_interest_received > 0:
         income_data.append({"category": "Interest Income", "amount": float(total_interest_received)})
 
+    # F5: use the shared (new + legacy) type vocabulary and exclude voided rows
     prop_inflow = sum(
         _d(t.amount)
         for t in db.query(PropertyTransaction).filter(
             PropertyTransaction.txn_date.between(start, end),
-            PropertyTransaction.txn_type.in_(["received_from_buyer", "sale_proceeds", "refund"]),
+            PropertyTransaction.txn_type.in_(INFLOW_PROPERTY_TXN_TYPES),
+            PropertyTransaction.is_voided == False,
         ).all()
     )
     if prop_inflow > 0:
@@ -323,7 +336,8 @@ def generate_pnl_report(
         _d(t.amount)
         for t in db.query(PartnershipTransaction).filter(
             PartnershipTransaction.txn_date.between(start, end),
-            PartnershipTransaction.txn_type.in_(["received", "profit_distributed"]),
+            PartnershipTransaction.txn_type.in_(INFLOW_PARTNERSHIP_TXN_TYPES),
+            PartnershipTransaction.is_voided == False,
         ).all()
     )
     if partnership_income > 0:
@@ -368,7 +382,8 @@ def generate_pnl_report(
         _d(t.amount)
         for t in db.query(PropertyTransaction).filter(
             PropertyTransaction.txn_date.between(start, end),
-            PropertyTransaction.txn_type.in_(["advance_to_seller", "payment_to_seller", "commission_paid"]),
+            PropertyTransaction.txn_type.in_(OUTFLOW_PROPERTY_TXN_TYPES),
+            PropertyTransaction.is_voided == False,
         ).all()
     )
     if prop_outflow > 0:

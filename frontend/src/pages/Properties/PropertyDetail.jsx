@@ -210,7 +210,8 @@ function StatusBadge({ status }) {
 
 /* ─── SITE PLOTS (read-only) ────────────────────────────────────────────────── */
 function SitePlotsSection({ plots }) {
-  const soldCount = plots.filter(p => ["sold","registered","fully_paid"].includes(p.status)).length;
+  // "payment_done" is the legacy label for "fully_paid" (kept for un-migrated rows)
+  const soldCount = plots.filter(p => ["sold","registered","fully_paid","payment_done"].includes(p.status)).length;
   return (
     <Section title="Site Plots" icon="🗺️"
       right={<span className="text-[10px] text-slate-500">{soldCount}/{plots.length} sold</span>}>

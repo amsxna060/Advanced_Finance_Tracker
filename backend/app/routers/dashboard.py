@@ -159,7 +159,12 @@ def get_dashboard_summary(
         .options(selectinload(Loan.payments), selectinload(Loan.capitalization_events))
         .all()
     )
-    active_properties = db.query(PropertyDeal).filter(PropertyDeal.is_deleted == False, PropertyDeal.status != "cancelled").count()
+    # Settled deals are not "active" — analytics already excludes them, and the
+    # two screens showed different counts (live: dashboard 14 vs analytics 12).
+    active_properties = db.query(PropertyDeal).filter(
+        PropertyDeal.is_deleted == False,
+        PropertyDeal.status.notin_(["cancelled", "settled"]),
+    ).count()
     active_partnerships = db.query(Partnership).filter(Partnership.is_deleted == False, Partnership.status == "active").all()
 
     total_lent_out = Decimal("0")

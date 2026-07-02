@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 logger = logging.getLogger(__name__)
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -14,7 +15,7 @@ from app.models.user import User
 from app.schemas.expense import ExpenseCreate, ExpenseOut, ExpenseUpdate
 from app.services.auto_ledger import auto_ledger, reverse_all_ledger
 from app.models.cash_account import AccountTransaction
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 router = APIRouter(prefix="/api/expenses", tags=["expenses"])
 
@@ -65,6 +66,7 @@ def get_expenses(
     linked_type: Optional[str] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
+    search: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
     paginated: bool = Query(False),
@@ -89,6 +91,25 @@ def get_expenses(
         query = query.filter(Expense.expense_date >= from_date)
     if to_date:
         query = query.filter(Expense.expense_date <= to_date)
+    if search and search.strip():
+        # F2: server-side search — the list is paginated, so client-side
+        # filtering only ever saw the current page. Matches text fields;
+        # a numeric term also matches the exact amount.
+        term = search.strip()
+        sf = f"%{term}%"
+        conditions = [
+            Expense.description.ilike(sf),
+            Expense.category.ilike(sf),
+            Expense.sub_category.ilike(sf),
+            Expense.payment_mode.ilike(sf),
+        ]
+        try:
+            amount_val = Decimal(term.replace(",", ""))
+            if amount_val >= 0:
+                conditions.append(Expense.amount == amount_val)
+        except InvalidOperation:
+            pass
+        query = query.filter(or_(*conditions))
 
     ordered = query.order_by(Expense.expense_date.desc(), Expense.id.desc())
 

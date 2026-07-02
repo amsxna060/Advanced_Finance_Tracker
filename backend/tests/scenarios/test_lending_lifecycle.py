@@ -124,6 +124,38 @@ class TestEMIPenalty:
         paid = [e for e in detail["emi_schedule"] if e["status"] == "paid"]
         assert len(paid) == 1
 
+    def test_penalty_attributed_to_month_it_was_paid_for(self, client, db, admin_user, auth_headers):
+        """F1: a penalty paid with EMI #3's payment must show against EMI #3,
+        not backfill EMI #1's still-unpaid penalty (oldest-first bug)."""
+        contact = make_contact(db)
+        loan = make_loan(
+            client, auth_headers, contact.id,
+            loan_type="emi", principal_amount=120000, interest_rate=None,
+            emi_amount=10000, tenure_months=12, emi_day_of_month=5,
+            penalty_per_day=100,
+            disbursed_date=months_ago(4, day=5),
+        )
+        # EMI #1 paid 4 days late, penalty NOT paid (400 accrued, still owed)
+        pay_loan(client, auth_headers, loan["id"], 10000, payment_date=months_ago(3, day=9))
+        # EMI #2 paid 7 days late with 400 penalty (of 700 accrued)
+        pay_loan(client, auth_headers, loan["id"], 10400, penalty_paid=400,
+                 payment_date=months_ago(2, day=12))
+        # EMI #3 paid 3 days late with full 300 penalty
+        pay_loan(client, auth_headers, loan["id"], 10300, penalty_paid=300,
+                 payment_date=months_ago(1, day=8))
+
+        detail = loan_detail(client, auth_headers, loan["id"])
+        sched = {e["emi_number"]: e for e in detail["emi_schedule"]}
+
+        assert sched[1]["penalty_accrued"] == pytest.approx(400)
+        assert sched[1]["penalty_collected"] == pytest.approx(0), (
+            "EMI #1's penalty was never paid — it must not absorb later payments' penalties"
+        )
+        assert sched[2]["penalty_accrued"] == pytest.approx(700)
+        assert sched[2]["penalty_collected"] == pytest.approx(400)
+        assert sched[3]["penalty_accrued"] == pytest.approx(300)
+        assert sched[3]["penalty_collected"] == pytest.approx(300)
+
     def test_schedule_engines_agree(self, client, db, admin_user, auth_headers):
         """L3: the preloaded engine (dashboard/forecast) must match the DB engine (loan page)."""
         from app.models.loan import Loan

@@ -353,7 +353,7 @@ export default function Dashboard() {
                   />
                 </svg>
                 <span className="text-emerald-600 text-xs font-bold">
-                  {lending.avg_lending_rate_pa.toFixed(2)}% p.a.
+                  {(lending.avg_lending_rate_pa ?? 0).toFixed(2)}% p.a.
                 </span>
                 <span className="text-slate-400 text-[10px] ml-0.5">
                   avg rate

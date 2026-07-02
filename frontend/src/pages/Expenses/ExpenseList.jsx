@@ -204,9 +204,16 @@ function ExpenseList() {
   const [geminiSuggest, setGeminiSuggest] = useState(null); // {category, sub_category} when Gemini suggests a new category
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // F2: the list is server-paginated, so searching must happen on the server
+  // (client filtering only ever saw the current page). Debounce keystrokes.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   const { data: expenseData, isLoading } = useQuery({
-    queryKey: ["expenses", filters, page],
+    queryKey: ["expenses", filters, page, debouncedSearch],
     queryFn: async () => {
       const params = {
         paginated: true,
@@ -216,6 +223,7 @@ function ExpenseList() {
       Object.entries(filters).forEach(([key, value]) => {
         if (value) params[key] = value;
       });
+      if (debouncedSearch) params.search = debouncedSearch;
       const response = await api.get("/api/expenses", { params });
       return response.data;
     },
@@ -532,23 +540,9 @@ function ExpenseList() {
     }
   }, [form.account_id, accountsList]);
 
-  // Client-side search filtering
-  const filteredExpenses = useMemo(() => {
-    if (!searchQuery.trim()) return expenses;
-    const q = searchQuery.trim().toLowerCase().replace(/,/g, "");
-    const qNum = parseFloat(q);
-    return expenses.filter(e => {
-      // H-FE-3: use >= 0 so zero-amount expenses are found by numeric search
-      // L-FE-11: use parseFloat on the string directly to avoid Number() precision loss
-      if (!isNaN(qNum) && qNum >= 0) {
-        const diff = Math.abs(parseFloat(e.amount) - qNum);
-        if (diff < 0.01) return true;
-      }
-      if ((e.description || "").toLowerCase().includes(q)) return true;
-      if ((e.payment_mode || "").toLowerCase().includes(q)) return true;
-      return false;
-    });
-  }, [expenses, searchQuery]);
+  // F2: search is applied server-side (across ALL pages); the returned page
+  // is already filtered, so no client-side re-filtering.
+  const filteredExpenses = expenses;
 
   const searchTotal = useMemo(
     // L-FE-11: parseFloat on the Decimal string preserves more precision than Number()
@@ -691,7 +685,10 @@ function ExpenseList() {
           {/* Search result summary */}
           {searchQuery.trim() && (
             <p className="text-xs text-slate-500 pl-1">
-              <span className="font-semibold text-slate-700">{filteredExpenses.length}</span> result{filteredExpenses.length !== 1 ? "s" : ""} &middot; total <span className="font-bold text-indigo-600">{formatCurrency(searchTotal)}</span>
+              <span className="font-semibold text-slate-700">{totalCount}</span> result{totalCount !== 1 ? "s" : ""}
+              {totalPages > 1
+                ? <> &middot; this page <span className="font-bold text-indigo-600">{formatCurrency(searchTotal)}</span></>
+                : <> &middot; total <span className="font-bold text-indigo-600">{formatCurrency(searchTotal)}</span></>}
             </p>
           )}
           {/* Date + Category filters */}
