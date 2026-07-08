@@ -27,6 +27,11 @@ from app.routers import auth, contacts, loans, collateral, property_deals, partn
 from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot, forecast
 from app.routers import recurring_transactions as recurring_router
 from app.routers import unencumbered_assets as unencumbered_router
+from app.routers import activity_logs as activity_logs_router
+
+# Registers the SQLAlchemy flush listeners that write the activity/audit log
+# for every ORM create/update/delete (see services/activity_logger.py).
+import app.services.activity_logger  # noqa: F401
 
 # Scheduler
 from app.services.scheduler import start_scheduler, stop_scheduler
@@ -167,6 +172,7 @@ app.include_router(chatbot.router)
 app.include_router(forecast.router)
 app.include_router(recurring_router.router)
 app.include_router(unencumbered_router.router)
+app.include_router(activity_logs_router.router)
 
 # L-SEC-7: increase bcrypt rounds from default (12) to 13 for better brute-force resistance
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=13)

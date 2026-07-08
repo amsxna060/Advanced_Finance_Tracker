@@ -16,6 +16,7 @@ from app.models.forecast_override import ForecastOverride
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.refresh_token import RefreshTokenBlacklist
+from app.models.activity_log import ActivityLog
 
 __all__ = [
     "User",
@@ -45,4 +46,5 @@ __all__ = [
     "ForecastOverride",
     "RecurringTransaction",
     "UnencumberedAsset",
+    "ActivityLog",
 ]

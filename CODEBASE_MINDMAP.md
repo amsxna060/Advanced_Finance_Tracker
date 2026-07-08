@@ -2,7 +2,7 @@
 
 > Living index of the entire codebase. Update this file whenever you add, move, rename, or delete anything significant. Treat it as the first thing to read in a new session.
 >
-> **Last updated:** 2026-06-12 r3 (perf/async pass: N+1 fixes in analytics overview/assets + dashboard, collateral async-DB offload, deploy/financerbuddy-backend.service. r2: Ledger source-link redesign: migration 042 adds account_transactions.source_type/source_id; two-way void from Accounts page; projected vs realized P&L fields; deprecated property txn/settle endpoints deleted; scripts/recon_report.py read-only prod scanner. Earlier same day: calculation-bug remediation pass — see `CALC_FEATURE_BUG_AUDIT_2026-06-11.md`: voided/deleted-record filters across dashboard/analytics/forecast, opening-balance fix, manual-capitalization rebasing, EMI penalty handling, partnership settlement parity + partner_transfer support, beesi sequential months, recurring forecast expansion. New scenario test suite at `backend/tests/scenarios/` — run with `backend/.venv/bin/python -m pytest tests/ -q`.)
+> **Last updated:** 2026-07-08 (Activity Logs feature: `activity_logs` table (migration 045) auto-populated by SQLAlchemy flush listeners in `services/activity_logger.py` — every ORM create/update/delete anywhere in the app is logged with field-level before→after diffs, attributed via `session.info` stamped in `get_current_user`; login/logout logged explicitly. Read API `/api/activity-logs` (search/filter/sort/pagination) + `/logs` frontend page under new "System" sidebar section. Prior: 2026-06-12 r3 (perf/async pass: N+1 fixes in analytics overview/assets + dashboard, collateral async-DB offload, deploy/financerbuddy-backend.service. r2: Ledger source-link redesign: migration 042 adds account_transactions.source_type/source_id; two-way void from Accounts page; projected vs realized P&L fields; deprecated property txn/settle endpoints deleted; scripts/recon_report.py read-only prod scanner. Earlier same day: calculation-bug remediation pass — see `CALC_FEATURE_BUG_AUDIT_2026-06-11.md`: voided/deleted-record filters across dashboard/analytics/forecast, opening-balance fix, manual-capitalization rebasing, EMI penalty handling, partnership settlement parity + partner_transfer support, beesi sequential months, recurring forecast expansion. New scenario test suite at `backend/tests/scenarios/` — run with `backend/.venv/bin/python -m pytest tests/ -q`.)
 
 ---
 
@@ -108,6 +108,7 @@ Advanced_Finance_Tracker/
 | `property_anomaly.py` | `PropertyAnomaly` |
 | `forecast_override.py` | `ForecastOverride` (per-user, per-item, per-month forecast adjustments) |
 | `recurring_transaction.py` | `RecurringTransaction` — user-defined recurring cash flows (title, type inflow/outflow, amount, frequency monthly/weekly/yearly, next_due_date, account_id FK, is_active) |
+| `activity_log.py` | `ActivityLog` — append-only audit trail: action/module/entity_type/entity_id, JSON `changes` diff, denormalized amount/account_id/contact_id/loan_id, username, request line |
 
 ---
 
@@ -134,6 +135,7 @@ Advanced_Finance_Tracker/
 | `reports.py` | `/reports` | `GET /{module}/export` (CSV/Excel) |
 | `admin.py` | `/admin` | `POST /mark-legacy`, migration helpers |
 | `chatbot.py` | `/chatbot` | `POST /query` (Gemini-backed) |
+| `activity_logs.py` | `/api/activity-logs` | `GET` list (search, module/action/entity_type/account/contact/user filters, date range, newest/oldest sort, pagination; contact/account names resolved via outer joins), `GET /filters` (distinct dropdown values) |
 
 ---
 
@@ -151,6 +153,7 @@ Advanced_Finance_Tracker/
 | `pdf_generator.py` | PDF statements (loan, property, partnership) via `reportlab`. |
 | `chatbot_tools.py` | Gemini tool-use definitions for financial queries. |
 | `forecast_engine.py` | Forecast & Liquidity engine — generates cash-flow items (loans / obligations / beesi / recurring_transactions; property excluded by design). Applies per-user `ForecastOverride` rows scoped to current calendar month, groups by entity, computes totals + daily timeline + liquidity. `account_ids` param filters Starting Balance + loan items. `RecurringTransaction` items injected with `is_recurring=True`. Loan items carry `principal_amount`, `remaining_principal`, `loan_priority`. True liquidity formula: `Starting Balance + Projected Inflows − Required Outflows`. |
+| `activity_logger.py` | Automatic audit logging. Global `Session` flush listeners (`before_flush`/`after_flush`) turn every ORM create/update/delete into an `activity_logs` row **in the same transaction**, with field-level old→new diffs (fetches committed row when attrs were expired post-commit). Soft-deletes (`is_deleted`→True) reclassified as `delete`, voids as `void`. User + request attribution via `session.info` stamped in `get_current_user`; unstamped sessions (scheduler) log as "system". Skips ActivityLog/RefreshTokenBlacklist/CategoryLearning; excludes `password_hash`. `log_auth_event()` for login/logout. Bulk `Query.update()/delete()` not captured (ORM-only). |
 | `scheduler.py` | APScheduler `BackgroundScheduler` — daily 00:05 UTC job `process_recurring_transactions`: settles due `RecurringTransaction` rows into `AccountTransaction`, advances `next_due_date` by frequency. Started on FastAPI startup, stopped on shutdown. |
 
 ---
@@ -190,6 +193,7 @@ Run in order. The latest is `026_recurring_transactions_loan_priority`.
 | … | (27–42) | soft-deletes, indexes, penalty/interest fields, simulations, recurring expenses, account-txn source links |
 | 43 | `043_obligation_close_loss` | `money_obligations.loss_amount` / `closed_date` / `interest_amount` + `obligation_settlements.interest_amount` — close-with-loss & extra interest/profit |
 | 44 | `044_payment_done_rename` | Data fix: orphaned `payment_done` → `fully_paid` on `plot_buyers` / `site_plots` (F4) |
+| 45 | `045_activity_logs` | `activity_logs` audit-trail table + indexes (created_at DESC, user/action/module/entity/account/contact/loan) |
 
 ---
 
@@ -225,6 +229,7 @@ Run in order. The latest is `026_recurring_transactions_loan_priority`.
 | Obligations | `ObligationList` | `/obligations` |
 | Analytics | `ExpenseAnalytics`, `Forecast` (entity-grouped + persisted overrides), `NetWorth`, `Reconciliation`, `PropertyAnalytics` | `/expense-analytics`, `/forecast`, `/net-worth`, `/reconciliation`, `/analytics/property` |
 | Reports | `Reports` | `/reports` |
+| Logs | `Logs/ActivityLogs.jsx` — full audit trail: debounced global search (names/amounts/diff contents), module/action/account/date-range filters, newest↔oldest toggle, expandable before→after change tables, "Open record" deep links, pagination | `/logs` |
 | Admin | `AdminMigration` | `/admin/migration` |
 
 ---

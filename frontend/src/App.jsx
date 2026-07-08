@@ -42,6 +42,7 @@ const AccountList = lazy(() => import("./pages/Accounts/AccountList"));
 const AccountForm = lazy(() => import("./pages/Accounts/AccountForm"));
 const AccountDetail = lazy(() => import("./pages/Accounts/AccountDetail"));
 const ObligationList = lazy(() => import("./pages/Obligations/ObligationList"));
+const ActivityLogs = lazy(() => import("./pages/Logs/ActivityLogs"));
 const AdminMigration = lazy(() => import("./pages/Admin/AdminMigration"));
 
 
@@ -441,6 +442,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <ObligationList />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logs"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ActivityLogs />
                   </Layout>
                 </ProtectedRoute>
               }

@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.refresh_token import RefreshTokenBlacklist
 from app.schemas.auth import UserCreate, UserLogin, UserOut, TokenResponse, RefreshTokenRequest, TokenRefresh
 from app.dependencies import get_current_user, require_admin
+from app.services.activity_logger import log_auth_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 # L-SEC-7 (FIX): use bcrypt rounds=13 to match the seed-admin context in main.py
@@ -73,6 +74,8 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         path="/api/auth",
     )
+
+    log_auth_event(db, user, "login", request)
 
     # FIX (refresh-token leak): do NOT return the refresh token in the body.
     # It is already set as an httpOnly SameSite=Strict cookie above; the SPA
@@ -261,6 +264,7 @@ def logout(
             pass  # Expired / invalid tokens are already harmless
     # C-AUTH-4: Always clear the httpOnly refresh cookie on logout
     response.delete_cookie(key="refresh_token", path="/api/auth")
+    log_auth_event(db, current_user, "logout", request)
     return {"message": "Logged out successfully"}
 
 
