@@ -5,8 +5,9 @@ and reversing / cleaning up those entries on update or delete.
 from decimal import Decimal
 from datetime import date as date_type
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from app.models.cash_account import AccountTransaction
+from app.models.cash_account import AccountTransaction, CashAccount
 
 
 def auto_ledger(
@@ -29,6 +30,13 @@ def auto_ledger(
     Pass source_type/source_id whenever the entry is created by a specific
     record — reversals then match exactly instead of by (type, amount, date).
     """
+    # Tenancy chokepoint: every module posts ledger rows through here, so this
+    # single lookup blocks any payload referencing another tenant's account.
+    # The query runs under the automatic tenant filter (app/tenancy.py) —
+    # other tenants' accounts are simply invisible and resolve to 404.
+    account = db.query(CashAccount).filter(CashAccount.id == account_id).first()
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account not found")
     txn = AccountTransaction(
         account_id=account_id,
         txn_type=txn_type,

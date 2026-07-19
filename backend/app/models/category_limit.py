@@ -2,9 +2,10 @@ from sqlalchemy import Column, Integer, String, Numeric, DateTime, Boolean, Fore
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class CategoryLimit(Base):
+class CategoryLimit(Base, TenantMixin):
     """Monthly spending target per expense category, with optional rollover."""
     __tablename__ = "category_limits"
 

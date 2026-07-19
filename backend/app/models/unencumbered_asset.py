@@ -7,6 +7,7 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
 UNENCUMBERED_CATEGORIES = (
@@ -20,7 +21,7 @@ UNENCUMBERED_CATEGORIES = (
 )
 
 
-class UnencumberedAsset(Base):
+class UnencumberedAsset(Base, TenantMixin):
     __tablename__ = "unencumbered_assets"
 
     id = Column(Integer, primary_key=True, index=True)

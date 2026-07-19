@@ -75,6 +75,15 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
         path="/api/auth",
     )
 
+    # Re-stamp the session's tenant context to the user who just proved their
+    # identity. The login endpoint has no get_current_user dependency, so a
+    # session reused across users (tests, future pooling) would otherwise
+    # carry a stale tenant — and app/tenancy.py would rightly refuse to write
+    # this user's login log into another tenant.
+    db.info["tenant_id"] = user.tenant_owner_id or user.id
+    db.info["audit_user_id"] = user.id
+    db.info["audit_username"] = user.username
+
     log_auth_event(db, user, "login", request)
 
     # FIX (refresh-token leak): do NOT return the refresh token in the body.

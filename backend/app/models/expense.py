@@ -2,9 +2,10 @@ from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class Expense(Base):
+class Expense(Base, TenantMixin):
     __tablename__ = "expenses"
 
     id = Column(Integer, primary_key=True, index=True)

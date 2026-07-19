@@ -37,6 +37,10 @@ def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: 
     db.info["audit_user_id"] = user.id
     db.info["audit_username"] = user.username
     db.info["audit_request"] = f"{request.method} {request.url.path}"
+    # Tenant context (app/tenancy.py): every ORM query in this request is
+    # scoped to this tenant; every new row is stamped with it. Household
+    # guests (tenant_owner_id set) operate inside their owner's tenant.
+    db.info["tenant_id"] = user.tenant_owner_id or user.id
     return user
 
 

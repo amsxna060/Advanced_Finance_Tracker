@@ -96,6 +96,10 @@ def process_recurring_transactions():
                     linked_type="recurring",
                     linked_id=item.id,
                     created_by=item.created_by,
+                    # Scheduler sessions have no tenant context (app/tenancy.py
+                    # stamps nothing here) — the ledger row must inherit the
+                    # tenant of the recurring item that produced it.
+                    owner_id=item.owner_id,
                     # F10: stamp the exact source so reversals can match this
                     # row precisely instead of falling back to the heuristic
                     source_type="recurring_transaction",

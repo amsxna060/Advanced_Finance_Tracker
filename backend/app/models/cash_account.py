@@ -12,10 +12,11 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
 
-class CashAccount(Base):
+class CashAccount(Base, TenantMixin):
     __tablename__ = "cash_accounts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -37,7 +38,7 @@ class CashAccount(Base):
     transactions = relationship("AccountTransaction", back_populates="account", order_by="AccountTransaction.txn_date.desc()")
 
 
-class AccountTransaction(Base):
+class AccountTransaction(Base, TenantMixin):
     """
     A debit or credit entry against a CashAccount.
     Can optionally be linked to a loan, property deal, partnership, beesi, or expense.

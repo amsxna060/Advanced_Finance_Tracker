@@ -36,6 +36,13 @@ def _safe_table(name: str) -> str:
     return name
 
 
+def _tenant(db: Session, current_user: User) -> int:
+    """Tenant scope for the bulk raw-SQL statements below. Raw SQL bypasses
+    the automatic filter in app/tenancy.py, so these destructive operations
+    must scope themselves explicitly to the caller's own tenant."""
+    return db.info.get("tenant_id") or current_user.id
+
+
 @router.post("/mark-legacy")
 def mark_all_existing_as_legacy(
     db: Session = Depends(get_db),
@@ -56,7 +63,10 @@ def mark_all_existing_as_legacy(
     ]
     counts = {}
     for table in tables:
-        result = db.execute(text(f"UPDATE {_safe_table(table)} SET is_legacy = true WHERE is_legacy = false"))
+        result = db.execute(
+            text(f"UPDATE {_safe_table(table)} SET is_legacy = true WHERE is_legacy = false AND owner_id = :owner"),
+            {"owner": _tenant(db, current_user)},
+        )
         counts[table] = result.rowcount
     db.commit()
     # C-DI-4: write audit log after commit
@@ -88,7 +98,10 @@ def unmark_all_legacy(
     ]
     counts = {}
     for table in tables:
-        result = db.execute(text(f"UPDATE {_safe_table(table)} SET is_legacy = false WHERE is_legacy = true"))
+        result = db.execute(
+            text(f"UPDATE {_safe_table(table)} SET is_legacy = false WHERE is_legacy = true AND owner_id = :owner"),
+            {"owner": _tenant(db, current_user)},
+        )
         counts[table] = result.rowcount
     db.commit()
     # C-DI-4: audit log
@@ -122,21 +135,24 @@ def delete_all_legacy_data(
     ]
     for table in soft_delete_tables:
         result = db.execute(text(
-            f"UPDATE {_safe_table(table)} SET is_deleted = true WHERE is_legacy = true AND is_deleted = false"
-        ))
+            f"UPDATE {_safe_table(table)} SET is_deleted = true WHERE is_legacy = true AND is_deleted = false AND owner_id = :owner"
+        ), {"owner": _tenant(db, current_user)})
         counts[f"{table}_soft_deleted"] = result.rowcount
 
     # Tables without is_deleted: soft-delete via is_legacy flag (leave as-is, just hide)
     # partnership_members and site_plots have no is_deleted column — mark noted in counts
     for table in ("partnership_members", "site_plots"):
-        result = db.execute(text(f"SELECT COUNT(*) FROM {_safe_table(table)} WHERE is_legacy = true"))
+        result = db.execute(
+            text(f"SELECT COUNT(*) FROM {_safe_table(table)} WHERE is_legacy = true AND owner_id = :owner"),
+            {"owner": _tenant(db, current_user)},
+        )
         row = result.fetchone()
         counts[f"{table}_legacy_count"] = row[0] if row else 0
 
     # Contacts: already using soft-delete
     result = db.execute(text(
-        "UPDATE contacts SET is_deleted = true WHERE is_legacy = true AND is_deleted = false"
-    ))
+        "UPDATE contacts SET is_deleted = true WHERE is_legacy = true AND is_deleted = false AND owner_id = :owner"
+    ), {"owner": _tenant(db, current_user)})
     counts["contacts_soft_deleted"] = result.rowcount
 
     db.commit()

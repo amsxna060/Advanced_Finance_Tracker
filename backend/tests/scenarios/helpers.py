@@ -44,8 +44,15 @@ def account_txns(client, headers, account_id, include_voided=False) -> list:
 
 def make_contact(db, name="Scenario Contact", relationship_type="borrower"):
     from app.models.contact import Contact
+    # owner_id: use the session's tenant (stamped by the login in auth_headers);
+    # tests that create contacts before any login fall back to the admin user.
+    owner_id = db.info.get("tenant_id")
+    if owner_id is None:
+        from app.models.user import User
+        owner = db.query(User).filter(User.role == "admin").order_by(User.id).first()
+        owner_id = owner.id if owner else None
     c = Contact(name=name, phone=None, contact_type="individual",
-                relationship_type=relationship_type)
+                relationship_type=relationship_type, owner_id=owner_id)
     db.add(c)
     db.flush()
     return c

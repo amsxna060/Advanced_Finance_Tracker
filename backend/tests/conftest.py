@@ -155,8 +155,8 @@ def admin_user(db):
 
 
 @pytest.fixture(scope="function")
-def viewer_user(db):
-    """Create and return a viewer User within the test transaction."""
+def viewer_user(db, admin_user):
+    """Viewer User — a household guest inside the admin's tenant."""
     user = User(
         username="testviewer",
         email="testviewer@test.local",
@@ -164,6 +164,7 @@ def viewer_user(db):
         full_name="Test Viewer",
         role="viewer",
         is_active=True,
+        tenant_owner_id=admin_user.id,
     )
     db.add(user)
     db.flush()
@@ -171,8 +172,8 @@ def viewer_user(db):
 
 
 @pytest.fixture(scope="function")
-def readonly_user(db):
-    """Create and return a readonly User within the test transaction."""
+def readonly_user(db, admin_user):
+    """Readonly User — a household guest inside the admin's tenant."""
     user = User(
         username="testreadonly",
         email="testreadonly@test.local",
@@ -180,6 +181,7 @@ def readonly_user(db):
         full_name="Test Readonly",
         role="readonly",
         is_active=True,
+        tenant_owner_id=admin_user.id,
     )
     db.add(user)
     db.flush()
@@ -241,6 +243,7 @@ def sample_contact(db, admin_user):
         city="Mumbai",
         contact_type="individual",
         relationship_type="borrower",
+        owner_id=admin_user.id,
     )
     db.add(contact)
     db.flush()

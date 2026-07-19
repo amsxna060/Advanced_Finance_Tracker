@@ -14,12 +14,12 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-1.1 | **Tenant column migration.** Alembic migration adding `owner_id → users.id` (indexed) to all 29 domain tables: nullable → backfill from `created_by` (seed-admin id where absent: `contacts`, `categories`, `collaterals`) → NOT NULL. | Todo | 3-step so it can never fail mid-way on live data. |
-| FB-1.2 | **TenantMixin + automatic query filter.** `TenantMixin` on all domain models; Session-level `with_loader_criteria` filter keyed by `db.info["tenant_id"]`; insert event stamps `owner_id`. New dependency `get_tenant_db` wraps `get_db` + `get_current_user`. | Todo | Reuse the `db.info` channel `services/activity_logger.py` already uses. |
-| FB-1.3 | **Raw/aggregate query audit.** Grep + fix every query that bypasses ORM loader criteria: `routers/dashboard.py`, `routers/analytics.py`, `routers/forecast.py` + `services/forecast_engine.py`, `routers/reports.py` + pdf/excel generators, `services/chatbot_tools.py`, `scripts/recon_report.py`, `services/scheduler.py`. Each gets explicit `owner_id` filtering. | Todo | Checklist in PR description — every file signed off. |
-| FB-1.4 | **Isolation test suite.** New `tests/tenancy/`: fixtures `tenant_a`, `tenant_b` (+ headers); parametrized test hitting every GET list/detail endpoint as B after seeding as A → expect empty/404; write-endpoint test: B cannot update/delete A's records; FK-crossing test: B cannot create a loan against A's contact/account. | Todo | Gate: this suite green = merge allowed. Extend `tests/conftest.py` fixtures. |
-| FB-1.5 | **Fix latent tenancy bug.** `routers/property_deals.py:87` filters `Contact.created_by` which doesn't exist — replace with new `owner_id`. | Todo | Found in audit. |
-| FB-1.6 | 📚 **Tutorial: multi-tenancy patterns.** `learning/01-multi-tenancy.md`: shared-schema vs schema-per-tenant vs DB-per-tenant, why we chose shared+column, how `with_loader_criteria` works, how orgs test isolation. | Todo | |
+| FB-1.1 | **Tenant column migration.** Alembic migration adding `owner_id → users.id` (indexed) to all 29 domain tables: nullable → backfill from `created_by` (seed-admin id where absent: `contacts`, `categories`, `collaterals`) → NOT NULL. | Done | Done — `models/mixins.py` TenantMixin + migration `046_tenant_owner_id.py`; rehearsed on Docker Postgres incl. backfill of NULL created_by, parent-join tables, and downgrade/re-upgrade. |
+| FB-1.2 | **TenantMixin + automatic query filter.** `TenantMixin` on all domain models; Session-level `with_loader_criteria` filter keyed by `db.info["tenant_id"]`; insert event stamps `owner_id`. New dependency `get_tenant_db` wraps `get_db` + `get_current_user`. | Done | Done — `app/tenancy.py`: `do_orm_execute` + `with_loader_criteria` auto-filter, `before_flush` stamping + fail-closed `TenantViolation`; tenant stamped in `get_current_user` AND at login (auth endpoint = tenant switch). `users.tenant_owner_id` keeps viewer/readonly guests in the owner household. |
+| FB-1.3 | **Raw/aggregate query audit.** Grep + fix every query that bypasses ORM loader criteria: `routers/dashboard.py`, `routers/analytics.py`, `routers/forecast.py` + `services/forecast_engine.py`, `routers/reports.py` + pdf/excel generators, `services/chatbot_tools.py`, `scripts/recon_report.py`, `services/scheduler.py`. Each gets explicit `owner_id` filtering. | Done | Done — scoped: forecast upsert, property /stats raw SQL, admin legacy bulk tools, scheduler ledger rows (inherit item.owner_id), activity-log Core insert. Added ownership check in `auto_ledger.py` (chokepoint, caught by FB-1.4). `scripts/recon_report.py` stays a platform script — revisit in E5. |
+| FB-1.4 | **Isolation test suite.** New `tests/tenancy/`: fixtures `tenant_a`, `tenant_b` (+ headers); parametrized test hitting every GET list/detail endpoint as B after seeding as A → expect empty/404; write-endpoint test: B cannot update/delete A's records; FK-crossing test: B cannot create a loan against A's contact/account. | Done | Done — `tests/tenancy/` 24 tests: lists/details/writes/FKs/aggregates + engine-level stamping & spoof guard. Full suite 235 passed. |
+| FB-1.5 | **Fix latent tenancy bug.** `routers/property_deals.py:87` filters `Contact.created_by` which doesn't exist — replace with new `owner_id`. | Done | Done — now filters `Contact.owner_id`; kept as belt-and-suspenders under the auto filter. |
+| FB-1.6 | 📚 **Tutorial: multi-tenancy patterns.** `learning/01-multi-tenancy.md`: shared-schema vs schema-per-tenant vs DB-per-tenant, why we chose shared+column, how `with_loader_criteria` works, how orgs test isolation. | Done | Done — `learning/01-multi-tenancy.md` (incl. the login stale-tenant surprise and identity-map caveat). |
 
 ### E2 — Authorization rework
 
@@ -128,4 +128,10 @@
 
 ## Done log
 
-*(append entries here as stories complete: `2026-07-XX FB-1.1 Done — note`)*
+*(newest last)*
+
+- 2026-07-19 **FB-1.1, FB-1.2, FB-1.5** Done — tenancy column + automatic filtering landed; all 211 pre-existing tests still green with zero router changes (session.info stamping did the work).
+- 2026-07-19 **FB-1.3** Done — raw-SQL audit; real leak found & fixed at the `auto_ledger` chokepoint (expense could reference another tenant's account).
+- 2026-07-19 **FB-1.4** Done — 24-test isolation suite is now the merge gate. Full backend: 235 passed.
+- 2026-07-19 **FB-1.1 verification** — migration 046 rehearsed on throwaway Docker Postgres: 045-era schema from `main` + live-like seed → upgrade → verify owners → downgrade → re-upgrade. All clean.
+- 2026-07-19 **FB-1.6** Done — tutorial written. **Epic E1 complete.**

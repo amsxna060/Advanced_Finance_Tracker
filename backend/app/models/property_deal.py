@@ -2,9 +2,10 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class PropertyDeal(Base):
+class PropertyDeal(Base, TenantMixin):
     __tablename__ = "property_deals"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -92,7 +93,7 @@ class PropertyDeal(Base):
     simulations = relationship("PropertySimulation", back_populates="property_deal", cascade="all, delete-orphan")
 
 
-class PropertyTransaction(Base):
+class PropertyTransaction(Base, TenantMixin):
     __tablename__ = "property_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -119,7 +120,7 @@ class PropertyTransaction(Base):
     plot_buyer = relationship("PlotBuyer", foreign_keys=[plot_buyer_id])
 
 
-class SitePlot(Base):
+class SitePlot(Base, TenantMixin):
     __tablename__ = "site_plots"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -149,7 +150,7 @@ class SitePlot(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class PlotBuyer(Base):
+class PlotBuyer(Base, TenantMixin):
     __tablename__ = "plot_buyers"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -179,7 +180,7 @@ class PlotBuyer(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class PropertySimulation(Base):
+class PropertySimulation(Base, TenantMixin):
     """Sandboxed deal simulation scenario — never mutates live property data."""
     __tablename__ = "property_simulations"
 

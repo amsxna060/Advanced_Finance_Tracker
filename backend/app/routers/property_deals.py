@@ -82,9 +82,12 @@ def _ensure_contact_exists(contact_id: Optional[int], db: Session, field_name: s
         Contact.id == contact_id,
         Contact.is_deleted == False,
     )
-    # H-AUTHZ-4: optionally scope contact lookup to the requesting user
+    # H-AUTHZ-4: optionally scope contact lookup to the requesting user's
+    # tenant. (Redundant with the automatic filter in app/tenancy.py, kept as
+    # an explicit belt-and-suspenders check. Was Contact.created_by — a column
+    # that never existed; fixed as FB-1.5.)
     if user_id is not None:
-        q = q.filter(Contact.created_by == user_id)
+        q = q.filter(Contact.owner_id == user_id)
     contact = q.first()
     if not contact:
         raise HTTPException(status_code=404, detail=f"{field_name} contact not found")
@@ -273,8 +276,9 @@ def portfolio_stats(
             ON  pt.partnership_id = p.id
         WHERE pd.is_deleted = FALSE
           AND pd.is_legacy  = FALSE
+          AND pd.owner_id   = :owner
         GROUP BY pd.id, pm.id
-    """)).fetchall()
+    """), {"owner": db.info.get("tenant_id") or current_user.id}).fetchall()
 
     my_capital = Decimal("0")
     my_liability = Decimal("0")

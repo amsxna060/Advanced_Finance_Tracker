@@ -33,6 +33,10 @@ from app.routers import activity_logs as activity_logs_router
 # for every ORM create/update/delete (see services/activity_logger.py).
 import app.services.activity_logger  # noqa: F401
 
+# Registers the Session listeners that enforce tenant isolation: automatic
+# owner_id filtering on every ORM query + owner stamping on insert.
+import app.tenancy  # noqa: F401
+
 # Scheduler
 from app.services.scheduler import start_scheduler, stop_scheduler
 

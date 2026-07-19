@@ -2,9 +2,10 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class Partnership(Base):
+class Partnership(Base, TenantMixin):
     __tablename__ = "partnerships"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -36,7 +37,7 @@ class Partnership(Base):
     transactions = relationship("PartnershipTransaction", back_populates="partnership")
 
 
-class PartnershipMember(Base):
+class PartnershipMember(Base, TenantMixin):
     __tablename__ = "partnership_members"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -53,7 +54,7 @@ class PartnershipMember(Base):
     contact = relationship("Contact", foreign_keys=[contact_id])
 
 
-class PartnershipTransaction(Base):
+class PartnershipTransaction(Base, TenantMixin):
     __tablename__ = "partnership_transactions"
 
     id = Column(Integer, primary_key=True, index=True)

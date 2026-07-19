@@ -1,9 +1,10 @@
 from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Numeric, ForeignKey
 from sqlalchemy.sql import func
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class PropertyAnomaly(Base):
+class PropertyAnomaly(Base, TenantMixin):
     __tablename__ = "property_anomalies"
 
     id = Column(Integer, primary_key=True, index=True)

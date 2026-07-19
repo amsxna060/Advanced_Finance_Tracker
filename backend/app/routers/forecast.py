@@ -107,13 +107,16 @@ def _get_or_create_override(
 ) -> ForecastOverride:
     # H-CONC-3: Use PostgreSQL INSERT ... ON CONFLICT DO NOTHING to avoid
     # a read-then-write race that can create duplicate rows.
+    # Raw SQL bypasses the automatic tenant stamping (app/tenancy.py), so
+    # owner_id must be set explicitly here.
     db.execute(
         text(
-            "INSERT INTO forecast_overrides (user_id, item_id, period_key, included, status) "
-            "VALUES (:uid, :iid, :pk, true, 'pending') "
+            "INSERT INTO forecast_overrides (user_id, item_id, period_key, included, status, owner_id) "
+            "VALUES (:uid, :iid, :pk, true, 'pending', :owner) "
             "ON CONFLICT (user_id, item_id, period_key) DO NOTHING"
         ),
-        {"uid": user_id, "iid": item_id, "pk": period_key},
+        {"uid": user_id, "iid": item_id, "pk": period_key,
+         "owner": db.info.get("tenant_id") or user_id},
     )
     ov = (
         db.query(ForecastOverride)
