@@ -66,10 +66,10 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-6.1 | **Personal-data migration script.** Create your normal user; script reassigns all `owner_id` from seed-admin to it. Rehearse on a local DB dump; reversible (stores mapping). | Todo | Run in prod only at cut-over. |
-| FB-6.2 | **Landing page + privacy policy.** Public marketing page at `/` for logged-out users (financerbuddy.com), honest privacy policy (ADR-3 wording), Terms; basic SEO (meta tags, sitemap, robots.txt). | Todo | Static page served by nginx or a public SPA route. |
-| FB-6.3 | **Phase-1 deploy & smoke test.** Full regression locally → deploy branch to OCI VM → smoke: signup a test user, run questionnaire, log expense, verify isolation from your account, admin console works. Then merge `saas-migration` → `main`. | Todo | First moment `main` changes. |
-| FB-6.4 | 📚 **Tutorial: zero-downtime-ish releases.** `learning/06-release-engineering.md`: expand-migrate-contract DB changes, phase-gated branches, smoke tests. | Todo | |
+| FB-6.1 | **Personal-data migration script.** Create your normal user; script reassigns all `owner_id` from seed-admin to it. Rehearse on a local DB dump; reversible (stores mapping). | Done | Done — `backend/scripts/migrate_tenant_owner.py`: mapper-registry table inventory (can't forget a table), one transaction, --dry-run, reversible; created_by untouched. Rehearsed on Docker Postgres: dry-run rollback ✓, real move ✓, guest re-point ✓, reversal ✓. |
+| FB-6.2 | **Landing page + privacy policy.** Public marketing page at `/` for logged-out users (financerbuddy.com), honest privacy policy (ADR-3 wording), Terms; basic SEO (meta tags, sitemap, robots.txt). | Done | Done — `pages/Landing.jsx` at / for visitors (HomeGate), honest Privacy + Terms (`pages/Legal.jsx`), SEO meta in index.html, robots.txt + sitemap.xml. |
+| FB-6.3 | **Phase-1 deploy & smoke test.** Full regression locally → deploy branch to OCI VM → smoke: signup a test user, run questionnaire, log expense, verify isolation from your account, admin console works. Then merge `saas-migration` → `main`. | Ready | Runbook written — `docs/saas-migration/DEPLOY_RUNBOOK.md` (backup-first, branch-deploy-before-merge, cut-over, security checklist, then open signup). Local regression green (backend 282, frontend 69). Execution on the OCI VM is user-triggered. |
+| FB-6.4 | 📚 **Tutorial: zero-downtime-ish releases.** `learning/06-release-engineering.md`: expand-migrate-contract DB changes, phase-gated branches, smoke tests. | Done | Done — `learning/06-release-engineering.md`. |
 
 ---
 
@@ -143,3 +143,4 @@
 - 2026-07-19 **FB-3.7** In Progress — checklist authored; deploy-time items execute at E6. **FB-3.8** Done. Epic E3 code-complete (only the E6-gated review remains).
 - 2026-07-19 **FB-4.1..4.5** Done — Assets module as service-ready package; migration 048 rehearsed (downgrade bug caught in rehearsal); dashboard/analytics moved to the assets_summary() interface. Backend 271 passed, frontend 69 passed. **Epic E4 complete.**
 - 2026-07-19 **FB-5.1..5.4** Done — admin console: tenant-context support view (read-only, audited into the target's log, fail-closed header), user management, platform stats. 11 new tests; backend 282 passed. **Epic E5 complete.**
+- 2026-07-19 **FB-6.1, 6.2, 6.4** Done; **FB-6.3** Ready (runbook; deploy is user-triggered). **Phase 1 code-complete** — remaining before public launch: execute DEPLOY_RUNBOOK.md + SECURITY_REVIEW_SIGNUP.md on the VM, then merge to main.

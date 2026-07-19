@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./contexts/AuthContext";
+import { useAuth } from "./hooks/useAuth";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireAdmin from "./components/RequireAdmin";
 import RequireModule from "./components/RequireModule";
@@ -52,6 +53,9 @@ const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AssetList = lazy(() => import("./pages/Assets/AssetList"));
 const AdminConsole = lazy(() => import("./pages/Admin/AdminConsole"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Privacy = lazy(() => import("./pages/Legal").then((m) => ({ default: m.Privacy })));
+const Terms = lazy(() => import("./pages/Legal").then((m) => ({ default: m.Terms })));
 
 
 // Minimal spinner shown while a lazy chunk loads
@@ -61,6 +65,14 @@ function PageLoader() {
       <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent" />
     </div>
   );
+}
+
+// "/" shows the public landing page to visitors and the dashboard to
+// logged-in users (FB-6.2).
+function HomeGate() {
+  const { user, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  return user ? <Navigate to="/dashboard" replace /> : <Landing />;
 }
 
 const queryClient = new QueryClient({
@@ -564,7 +576,9 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<HomeGate />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
           </Routes>
           </Suspense>
         </AuthProvider>
