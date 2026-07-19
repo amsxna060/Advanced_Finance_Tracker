@@ -955,8 +955,12 @@ def get_dashboard_v2(
         beesi_paid += sum(_decimal(i.actual_paid) for i in b.installments)
         beesi_received += sum(_decimal(w.net_received) for w in b.withdrawals)
 
-    # Unencumbered standalone assets
-    _unencumbered_total = _decimal(
+    # Standalone assets — via the assets module's public interface (E4
+    # boundary: no direct table access, so service extraction won't touch
+    # this file). Legacy unencumbered rows are soft-deleted by migration
+    # 048; the legacy sum stays only for pre-migration databases.
+    from app.modules_pkg.assets.service import assets_summary
+    _unencumbered_total = assets_summary(db)["total"] + _decimal(
         db.query(func.coalesce(func.sum(UnencumberedAsset.estimated_value), 0))
         .filter(UnencumberedAsset.is_deleted == False)
         .scalar()

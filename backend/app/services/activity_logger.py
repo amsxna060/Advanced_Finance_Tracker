@@ -60,7 +60,8 @@ _REGISTRY = {
     m.ObligationSettlement: ("obligations", "obligation settlement"),
     m.RecurringTransaction: ("forecast", "recurring transaction"),
     m.ForecastOverride: ("forecast", "forecast override"),
-    m.UnencumberedAsset: ("assets", "asset"),
+    m.UnencumberedAsset: ("assets", "asset (legacy)"),
+    m.Asset: ("assets", "asset"),
     m.User: ("auth", "user"),
 }
 

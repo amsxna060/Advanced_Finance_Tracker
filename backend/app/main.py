@@ -27,6 +27,7 @@ from app.routers import auth, contacts, loans, collateral, property_deals, partn
 from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot, forecast
 from app.routers import recurring_transactions as recurring_router
 from app.routers import unencumbered_assets as unencumbered_router
+from app.modules_pkg.assets.router import router as assets_router
 from app.routers import activity_logs as activity_logs_router
 
 # Registers the SQLAlchemy flush listeners that write the activity/audit log
@@ -175,7 +176,8 @@ app.include_router(admin.router)
 app.include_router(chatbot.router)
 app.include_router(forecast.router)
 app.include_router(recurring_router.router)
-app.include_router(unencumbered_router.router)
+app.include_router(unencumbered_router.router)  # legacy — superseded by /api/assets (E4)
+app.include_router(assets_router)
 app.include_router(activity_logs_router.router)
 
 # L-SEC-7: increase bcrypt rounds from default (12) to 13 for better brute-force resistance

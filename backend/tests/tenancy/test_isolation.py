@@ -26,6 +26,7 @@ LIST_ENDPOINTS = [
     "/api/beesi",
     "/api/recurring-transactions",
     "/api/unencumbered-assets",
+    "/api/assets",
 ]
 
 

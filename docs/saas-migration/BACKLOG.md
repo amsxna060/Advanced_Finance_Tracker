@@ -47,11 +47,11 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-4.1 | **Design + model.** `Asset` model: type (gold/silver/vehicle/real_estate/stock/mutual_fund/FD/RD/other), quantity/units, purchase price+date, current value (manual or auto), notes, optional linked account. Own package `app/modules_pkg/assets/` (models, schemas, router, service) — no imports from other domain modules except via interfaces. | Todo | Absorb/supersede `unencumbered_assets` (keep old data via migration). |
-| FB-4.2 | **CRUD + valuation.** Endpoints under `/api/assets`; gold/silver auto-valuation reuses `services/gold_price.py`; FD/RD maturity computation. | Todo | |
-| FB-4.3 | **Net Worth integration via interface, not join.** `NetWorth` page/dashboard reads assets through a narrow `assets_summary()` service function (future: API call/event). | Todo | This seam is what makes Phase 3 extraction cheap. |
-| FB-4.4 | **Frontend pages.** `pages/Assets/` list/form/detail + module registry entry + nav item. | Todo | |
-| FB-4.5 | 📚 **Tutorial: modular monolith boundaries.** `learning/04-modular-monolith.md`: package-by-feature, interface seams, why no cross-module FKs, how this pre-pays service extraction. | Todo | |
+| FB-4.1 | **Design + model.** `Asset` model: type (gold/silver/vehicle/real_estate/stock/mutual_fund/FD/RD/other), quantity/units, purchase price+date, current value (manual or auto), notes, optional linked account. Own package `app/modules_pkg/assets/` (models, schemas, router, service) — no imports from other domain modules except via interfaces. | Done | Done — `app/modules_pkg/assets/` package (models/schemas/service/router, boundary rules in __init__); migration 048 absorbs unencumbered_assets (copy + soft-delete originals), rehearsed on Docker Postgres incl. a downgrade-fidelity bug found & fixed. |
+| FB-4.2 | **CRUD + valuation.** Endpoints under `/api/assets`; gold/silver auto-valuation reuses `services/gold_price.py`; FD/RD maturity computation. | Done | Done — /api/assets CRUD (11 types), gold refresh-value from live rate (auto_valuation flag, manual edit clears it), FD/RD maturity projections as unit-tested pure functions. |
+| FB-4.3 | **Net Worth integration via interface, not join.** `NetWorth` page/dashboard reads assets through a narrow `assets_summary()` service function (future: API call/event). | Done | Done — dashboard.py + analytics.py (2 sites) now call `assets_summary(db)` (plain-dict interface, tenant via session context); legacy sums kept only for pre-048 DBs. NetWorth frontend uses a 20-line field adapter. |
+| FB-4.4 | **Frontend pages.** `pages/Assets/` list/form/detail + module registry entry + nav item. | Done | Done — `pages/Assets/AssetList.jsx` (grouped by type, gold refresh, projections, modal CRUD), nav item + /assets route behind RequireModule. |
+| FB-4.5 | 📚 **Tutorial: modular monolith boundaries.** `learning/04-modular-monolith.md`: package-by-feature, interface seams, why no cross-module FKs, how this pre-pays service extraction. | Done | Done — `learning/04-modular-monolith.md`. |
 
 ### E5 — Admin console
 
@@ -141,3 +141,4 @@
 - 2026-07-19 **FB-3.1..3.3** Done — registry, router gating, public signup + verification. Backend 258 passed.
 - 2026-07-19 **FB-3.4..3.6** Done — Signup/Onboarding/VerifyEmail/Settings pages, module-aware nav + 24 guarded routes. Frontend 69 passed, build clean.
 - 2026-07-19 **FB-3.7** In Progress — checklist authored; deploy-time items execute at E6. **FB-3.8** Done. Epic E3 code-complete (only the E6-gated review remains).
+- 2026-07-19 **FB-4.1..4.5** Done — Assets module as service-ready package; migration 048 rehearsed (downgrade bug caught in rehearsal); dashboard/analytics moved to the assets_summary() interface. Backend 271 passed, frontend 69 passed. **Epic E4 complete.**

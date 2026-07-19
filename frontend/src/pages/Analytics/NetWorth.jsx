@@ -454,33 +454,48 @@ export default function NetWorth() {
     queryFn: () => api.get("/api/analytics/assets").then((r) => r.data),
   });
 
-  const { data: unencItems = [] } = useQuery({
-    queryKey: ["unencumbered-assets"],
-    queryFn: () => api.get("/api/unencumbered-assets").then((r) => r.data),
+  // E4: standalone assets now live in the assets module (/api/assets).
+  // This section keeps its legacy field names via a thin adapter so the
+  // modal/list markup stays unchanged; the full-featured UI is /assets.
+  const toLegacy = (a) => ({
+    id: a.id,
+    title: a.name,
+    category: a.asset_type,
+    estimated_value: a.current_value,
+    date_acquired: a.purchase_date,
+    notes: a.notes,
+  });
+  const fromLegacy = (p) => ({
+    name: p.title,
+    asset_type: p.category,
+    current_value: p.estimated_value,
+    purchase_date: p.date_acquired || null,
+    notes: p.notes || null,
   });
 
+  const { data: unencItems = [] } = useQuery({
+    queryKey: ["assets"],
+    queryFn: () => api.get("/api/assets").then((r) => r.data.map(toLegacy)),
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["assets"] });
+    qc.invalidateQueries({ queryKey: ["net-worth-assets"] });
+  };
+
   const createMutation = useMutation({
-    mutationFn: (p) => api.post("/api/unencumbered-assets", p),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["unencumbered-assets"] });
-      qc.invalidateQueries({ queryKey: ["net-worth-assets"] });
-    },
+    mutationFn: (p) => api.post("/api/assets", fromLegacy(p)),
+    onSuccess: invalidate,
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...p }) => api.put(`/api/unencumbered-assets/${id}`, p),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["unencumbered-assets"] });
-      qc.invalidateQueries({ queryKey: ["net-worth-assets"] });
-    },
+    mutationFn: ({ id, ...p }) => api.put(`/api/assets/${id}`, fromLegacy(p)),
+    onSuccess: invalidate,
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => api.delete(`/api/unencumbered-assets/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["unencumbered-assets"] });
-      qc.invalidateQueries({ queryKey: ["net-worth-assets"] });
-    },
+    mutationFn: (id) => api.delete(`/api/assets/${id}`),
+    onSuccess: invalidate,
   });
 
   if (isLoading) {

@@ -50,6 +50,7 @@ const Signup = lazy(() => import("./pages/Signup"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
+const AssetList = lazy(() => import("./pages/Assets/AssetList"));
 
 
 // Minimal spinner shown while a lazy chunk loads
@@ -416,7 +417,15 @@ function App() {
             />
             <Route
               path="/assets"
-              element={<Navigate to="/net-worth" replace />}
+              element={
+                <ProtectedRoute>
+                  <RequireModule module="assets">
+                    <Layout>
+                      <AssetList />
+                    </Layout>
+                  </RequireModule>
+                </ProtectedRoute>
+              }
             />
             <Route
               path="/money-flow"

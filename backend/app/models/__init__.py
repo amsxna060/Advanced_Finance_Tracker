@@ -17,6 +17,9 @@ from app.models.recurring_transaction import RecurringTransaction
 from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.refresh_token import RefreshTokenBlacklist
 from app.models.activity_log import ActivityLog
+# Package-by-feature modules (E4+): re-exported here so Base.metadata,
+# the activity logger and create_all see them like any other model.
+from app.modules_pkg.assets.models import Asset
 
 __all__ = [
     "User",
@@ -47,4 +50,5 @@ __all__ = [
     "RecurringTransaction",
     "UnencumberedAsset",
     "ActivityLog",
+    "Asset",
 ]
