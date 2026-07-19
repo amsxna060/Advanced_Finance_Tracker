@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.user import User
 from app.models.loan import Loan, LoanPayment, LoanCapitalizationEvent
 from app.models.contact import Contact
@@ -61,7 +61,7 @@ def get_loans(
 def create_loan(
     loan_data: LoanCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Create a new loan"""
     # Verify contact exists
@@ -184,7 +184,7 @@ def get_loan(
 def reconcile_loan(
     loan_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Admin-only: fix payment allocations and auto-close if principal is fully recovered.
 
@@ -254,7 +254,7 @@ def update_loan(
     loan_id: int,
     loan_data: LoanUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Update a loan"""
     loan = db.query(Loan).filter(
@@ -325,7 +325,7 @@ def update_loan(
 def delete_loan(
     loan_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Soft delete a loan and clean up all linked ledger entries"""
     loan = db.query(Loan).filter(
@@ -348,7 +348,7 @@ def record_payment(
     loan_id: int,
     payment_data: LoanPaymentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Record a payment against a loan with automatic allocation"""
     # C-CONC-1: use SELECT FOR UPDATE to prevent two simultaneous payment
@@ -476,7 +476,7 @@ def record_payment(
 def force_close_loan(
     loan_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """
     Admin: Immediately close a loan. Calculates profit/loss and appends a note.
@@ -575,7 +575,7 @@ def delete_payment(
     loan_id: int,
     payment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Delete a payment record (admin only)"""
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()
@@ -649,7 +649,7 @@ def capitalize_interest(
     loan_id: int,
     request: CapitalizeRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Capitalize outstanding interest into principal (admin only)"""
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.is_deleted == False).first()

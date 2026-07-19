@@ -45,6 +45,13 @@ def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: 
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """PLATFORM admin only (role='admin').
+
+    Since the E2 authorization rework, 'admin' means operator of the
+    platform, not owner-of-the-data: domain CRUD uses require_write_access +
+    tenant scoping instead. Keep this only on platform surfaces: /api/admin/*,
+    user provisioning in auth.py, and legacy one-time migration tools.
+    """
     if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -55,10 +62,13 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 def require_write_access(current_user: User = Depends(get_current_user)) -> User:
     """
-    Dependency for any endpoint that mutates data.
-    Blocks users with role='readonly'.
-    The middleware in main.py already enforces this at the HTTP level;
-    this dependency is a belt-and-suspenders guard at the route level.
+    Dependency for any endpoint that mutates domain data.
+
+    Every user has full write access to their OWN tenant's data (isolation is
+    enforced by app/tenancy.py, not by roles). The only role blocked is
+    'readonly' — household guest credentials. The middleware in main.py
+    already enforces this at the HTTP level; this dependency is a
+    belt-and-suspenders guard at the route level.
     """
     if current_user.role == "readonly":
         raise HTTPException(

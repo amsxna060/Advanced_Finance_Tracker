@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RequireAdmin from "./components/RequireAdmin";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 
@@ -460,9 +461,11 @@ function App() {
               path="/admin/migration"
               element={
                 <ProtectedRoute>
-                  <Layout>
-                    <AdminMigration />
-                  </Layout>
+                  <RequireAdmin>
+                    <Layout>
+                      <AdminMigration />
+                    </Layout>
+                  </RequireAdmin>
                 </ProtectedRoute>
               }
             />

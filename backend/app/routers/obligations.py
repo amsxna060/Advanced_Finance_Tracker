@@ -12,7 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.contact import Contact
 from app.models.obligation import MoneyObligation, ObligationSettlement
 from app.models.user import User
@@ -71,7 +71,7 @@ def list_obligations(
 def create_obligation(
     data: ObligationCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     contact = db.query(Contact).filter(Contact.id == data.contact_id, Contact.is_deleted == False).first()
     if not contact:
@@ -167,7 +167,7 @@ def update_obligation(
     obligation_id: int,
     data: ObligationUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     ob = db.query(MoneyObligation).filter(
         MoneyObligation.id == obligation_id,
@@ -213,7 +213,7 @@ def update_obligation(
 def delete_obligation(
     obligation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     ob = db.query(MoneyObligation).filter(
         MoneyObligation.id == obligation_id,
@@ -237,7 +237,7 @@ def settle_obligation(
     obligation_id: int,
     data: SettlementCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     ob = db.query(MoneyObligation).filter(
         MoneyObligation.id == obligation_id,
@@ -322,7 +322,7 @@ def close_obligation_with_loss(
     obligation_id: int,
     data: CloseWithLossCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Force-close an obligation, writing off the remaining balance as a loss.
 
@@ -361,7 +361,7 @@ def close_obligation_with_loss(
 def reopen_obligation(
     obligation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Reopen a closed-with-loss obligation, clearing the written-off loss."""
     ob = db.query(MoneyObligation).filter(
@@ -393,7 +393,7 @@ def delete_settlement(
     obligation_id: int,
     settlement_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Delete a settlement and reverse its ledger entry."""
     ob = db.query(MoneyObligation).filter(

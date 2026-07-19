@@ -14,14 +14,15 @@ _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def _make_user(db, username):
-    # role="admin" because domain writes currently require it (FB-2.1 will
-    # relax this to ownership); each user is still their own tenant.
+    # role="viewer" — a NORMAL user, not a platform admin. Since FB-2.1,
+    # ownership (tenancy), not role, is what grants full CRUD on your own
+    # data; running the whole isolation suite as plain users proves it.
     user = User(
         username=username,
         email=f"{username}@test.local",
         password_hash=_pwd.hash("tenantpass123"),
         full_name=username,
-        role="admin",
+        role="viewer",
         is_active=True,
     )
     db.add(user)

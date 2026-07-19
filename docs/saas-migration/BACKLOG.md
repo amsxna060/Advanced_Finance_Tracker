@@ -25,10 +25,10 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-2.1 | **Owner-based permissions.** Replace `require_admin` on all domain routers with `require_write_access` (tenancy makes it safe). Keep `require_admin` only for `/api/admin/*` + platform ops. New role meaning: `admin` = platform admin. | Todo | Update role docstrings + `dependencies.py`. |
-| FB-2.2 | **Route-gate `/admin/migration` and admin APIs.** Frontend `AdminMigration.jsx` route and any `/api/admin/*` verified admin-only; add `RequireAdmin` route wrapper in `App.jsx`. | Todo | Currently reachable by any logged-in user. |
-| FB-2.3 | **Admin actions audit-logged.** When admin views/acts in another user's tenant context, `activity_logger` records it (actor = admin, tenant = target). | Todo | Supports the privacy-policy promise. |
-| FB-2.4 | 📚 **Tutorial: AuthZ models.** `learning/02-authorization.md`: RBAC vs ownership vs ABAC, how the role change was executed safely. | Todo | |
+| FB-2.1 | **Owner-based permissions.** Replace `require_admin` on all domain routers with `require_write_access` (tenancy makes it safe). Keep `require_admin` only for `/api/admin/*` + platform ops. New role meaning: `admin` = platform admin. | Done | Done — 69 call sites flipped across 12 routers; `require_admin` kept only on `/api/admin/*`, auth provisioning, and 2 legacy analytics migration endpoints. New semantics proven: tenancy suite now runs as role=viewer users. |
+| FB-2.2 | **Route-gate `/admin/migration` and admin APIs.** Frontend `AdminMigration.jsx` route and any `/api/admin/*` verified admin-only; add `RequireAdmin` route wrapper in `App.jsx`. | Done | Done — `frontend/src/components/RequireAdmin.jsx` wraps `/admin/migration`; 3 vitest cases (admin renders, viewer/readonly bounced to dashboard). |
+| FB-2.3 | **Admin actions audit-logged.** When admin views/acts in another user's tenant context, `activity_logger` records it (actor = admin, tenant = target). | Done | Done — mechanism existed via session.info split (user_id=actor, owner_id=tenant); guest-write attribution test in `tests/tenancy/test_authorization.py`. E5 support-view reuses it unchanged. |
+| FB-2.4 | 📚 **Tutorial: AuthZ models.** `learning/02-authorization.md`: RBAC vs ownership vs ABAC, how the role change was executed safely. | Done | Done — `learning/02-authorization.md`. |
 
 ### E3 — Public signup, questionnaire, module entitlements
 
@@ -135,3 +135,6 @@
 - 2026-07-19 **FB-1.4** Done — 24-test isolation suite is now the merge gate. Full backend: 235 passed.
 - 2026-07-19 **FB-1.1 verification** — migration 046 rehearsed on throwaway Docker Postgres: 045-era schema from `main` + live-like seed → upgrade → verify owners → downgrade → re-upgrade. All clean.
 - 2026-07-19 **FB-1.6** Done — tutorial written. **Epic E1 complete.**
+- 2026-07-19 **FB-2.1, FB-2.3** Done — ownership-based writes; isolation suite re-run as plain users; actor-vs-household attribution tested. Backend 240 passed.
+- 2026-07-19 **FB-2.2** Done — RequireAdmin route guard; frontend 61 tests passed.
+- 2026-07-19 **FB-2.4** Done — tutorial written. **Epic E2 complete.**

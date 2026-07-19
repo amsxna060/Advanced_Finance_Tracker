@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.category_limit import CategoryLimit
 from app.models.expense import Expense
 from app.models.user import User
@@ -45,7 +45,7 @@ def list_category_limits(
 def upsert_category_limit(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     category = (payload.get("category") or "").strip()
     monthly_limit = payload.get("monthly_limit")
@@ -80,7 +80,7 @@ def upsert_category_limit(
 def delete_category_limit(
     key: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     # F13: prefer the numeric limit id (category names containing '/' can't be
     # addressed as a path segment); fall back to name for older clients.

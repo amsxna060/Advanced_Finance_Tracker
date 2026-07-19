@@ -7,7 +7,7 @@ from sqlalchemy import or_, func, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.contact import Contact
 
 # Average number of days in a month (used for duration calculations)
@@ -352,7 +352,7 @@ def get_properties(
 def create_property(
     property_data: PropertyDealCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _ensure_contact_exists(property_data.seller_contact_id, db, "Seller")
     _ensure_contact_exists(property_data.buyer_contact_id, db, "Buyer")
@@ -522,7 +522,7 @@ def update_property(
     property_id: int,
     property_data: PropertyDealUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     property_deal = _get_property_or_404(property_id, db)
     update_data = property_data.model_dump(exclude_unset=True)
@@ -554,7 +554,7 @@ def update_property(
 def delete_property(
     property_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     property_deal = _get_property_or_404(property_id, db)
     # Clean up all linked AccountTransaction entries
@@ -642,7 +642,7 @@ def create_site_plot(
     property_id: int,
     plot_data: SitePlotCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     data = plot_data.model_dump()
@@ -662,7 +662,7 @@ def update_site_plot(
     plot_id: int,
     plot_data: SitePlotCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     plot = db.query(SitePlot).filter(
@@ -689,7 +689,7 @@ def delete_site_plot(
     property_id: int,
     plot_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     plot = db.query(SitePlot).filter(
@@ -722,7 +722,7 @@ def create_plot_buyer(
     property_id: int,
     buyer_data: PlotBuyerCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     data = buyer_data.model_dump()
@@ -742,7 +742,7 @@ def update_plot_buyer(
     buyer_id: int,
     buyer_data: PlotBuyerUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     buyer = db.query(PlotBuyer).filter(
@@ -769,7 +769,7 @@ def delete_plot_buyer(
     property_id: int,
     buyer_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     buyer = db.query(PlotBuyer).filter(
