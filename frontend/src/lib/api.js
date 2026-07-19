@@ -14,6 +14,30 @@ export function getAccessToken() {
   return _accessToken;
 }
 
+// E5 admin support view: when set, every request carries
+// X-Tenant-Context: <userId> and the backend serves that tenant's data
+// read-only. sessionStorage (not localStorage) so the context dies with the
+// tab and never leaks into a normal browsing session.
+const TENANT_CONTEXT_KEY = "admin_tenant_context";
+
+export function setTenantContext(user) {
+  if (user) {
+    sessionStorage.setItem(TENANT_CONTEXT_KEY, JSON.stringify({ id: user.id, username: user.username }));
+  } else {
+    sessionStorage.removeItem(TENANT_CONTEXT_KEY);
+  }
+  window.dispatchEvent(new CustomEvent("tenant-context:changed"));
+}
+
+export function getTenantContext() {
+  try {
+    const raw = sessionStorage.getItem(TENANT_CONTEXT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 // H-SEC-2: Read CSRF token from the csrf_token cookie (set by GET /api/auth/csrf-token).
 // The double-submit cookie pattern: cookie is set by server (same-origin only),
 // client echoes it in X-CSRF-Token header; CSRF attacks can't read cookies cross-origin.
@@ -38,6 +62,11 @@ api.interceptors.request.use(
     const token = _accessToken;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // E5: admin support view — scope every request to the inspected tenant
+    const ctx = getTenantContext();
+    if (ctx?.id) {
+      config.headers["X-Tenant-Context"] = String(ctx.id);
     }
     // H-SEC-2: Include CSRF token header on state-changing requests to /api/admin/*
     const method = (config.method || "").toUpperCase();

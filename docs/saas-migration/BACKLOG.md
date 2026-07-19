@@ -57,10 +57,10 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-5.1 | **Admin API.** `/api/admin/users` (list, search, activate/deactivate), `/api/admin/tenant/{user_id}/…` read-only views (or: admin sets tenant context header consumed by `get_tenant_db`). | Todo | Tenant-context approach reuses all existing endpoints — prefer it. |
-| FB-5.2 | **Admin UI.** `pages/Admin/`: user list + "view as user" selector (banner: *viewing user X — read only*); reuses existing pages in tenant context. | Todo | |
-| FB-5.3 | **Platform stats.** signups, active users, module adoption (from `enabled_modules`), storage/rows per tenant. | Todo | |
-| FB-5.4 | 📚 **Tutorial: support tooling & impersonation.** `learning/05-admin-impersonation.md`: how real orgs do "view as", audit trails, least privilege. | Todo | |
+| FB-5.1 | **Admin API.** `/api/admin/users` (list, search, activate/deactivate), `/api/admin/tenant/{user_id}/…` read-only views (or: admin sets tenant context header consumed by `get_tenant_db`). | Done | Done — X-Tenant-Context header consumed in get_current_user (admin-only, fail-closed, read-only via require_write_access + legacy-tool guard); /api/admin/users list/search + activate/deactivate (self-guard). |
+| FB-5.2 | **Admin UI.** `pages/Admin/`: user list + "view as user" selector (banner: *viewing user X — read only*); reuses existing pages in tenant context. | Done | Done — `pages/Admin/AdminConsole.jsx` (stats cards, adoption, user table, View-as); sessionStorage context + interceptor header in api.js; sticky read-only banner in Layout; React Query cache cleared on context switch. |
+| FB-5.3 | **Platform stats.** signups, active users, module adoption (from `enabled_modules`), storage/rows per tenant. | Done | Done — /api/admin/stats: users/verified/active, module adoption, rows-per-tenant (via TenantMixin mapper inventory, explicit skip_tenant_filter), recent activity. |
+| FB-5.4 | 📚 **Tutorial: support tooling & impersonation.** `learning/05-admin-impersonation.md`: how real orgs do "view as", audit trails, least privilege. | Done | Done — `learning/05-admin-impersonation.md`. |
 
 ### E6 — Launch: data migration, landing page, deploy
 
@@ -142,3 +142,4 @@
 - 2026-07-19 **FB-3.4..3.6** Done — Signup/Onboarding/VerifyEmail/Settings pages, module-aware nav + 24 guarded routes. Frontend 69 passed, build clean.
 - 2026-07-19 **FB-3.7** In Progress — checklist authored; deploy-time items execute at E6. **FB-3.8** Done. Epic E3 code-complete (only the E6-gated review remains).
 - 2026-07-19 **FB-4.1..4.5** Done — Assets module as service-ready package; migration 048 rehearsed (downgrade bug caught in rehearsal); dashboard/analytics moved to the assets_summary() interface. Backend 271 passed, frontend 69 passed. **Epic E4 complete.**
+- 2026-07-19 **FB-5.1..5.4** Done — admin console: tenant-context support view (read-only, audited into the target's log, fail-closed header), user management, platform stats. 11 new tests; backend 282 passed. **Epic E5 complete.**

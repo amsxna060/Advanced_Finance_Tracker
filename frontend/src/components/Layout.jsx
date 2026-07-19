@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import ChatBot from "./ChatBot";
 import { hasModule } from "../lib/modules";
+import { getTenantContext, setTenantContext } from "../lib/api";
 
 const navItems = [
   {
@@ -222,6 +223,19 @@ const navItems = [
     ),
   },
   {
+    title: "Admin Console",
+    route: "/admin",
+    adminOnly: true,
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+      />
+    ),
+  },
+  {
     title: "Settings",
     route: "/settings",
     icon: (
@@ -262,8 +276,11 @@ export default function Layout({ children }) {
 
   // Module-aware navigation (FB-3.5): drop items whose module the user
   // hasn't enabled, then drop any section divider left with no items.
+  const supportContext = getTenantContext();
   const enabledItems = navItems.filter(
-    (item) => item.type === "divider" || hasModule(user, item.module)
+    (item) =>
+      item.type === "divider" ||
+      (hasModule(user, item.module) && (!item.adminOnly || user?.role === "admin"))
   );
   const visibleItems = enabledItems.filter((item, idx) => {
     if (item.type !== "divider") return true;
@@ -449,7 +466,26 @@ export default function Layout({ children }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          {supportContext && (
+            <div className="sticky top-0 z-40 bg-amber-500 text-white text-sm font-medium px-4 py-2 flex items-center justify-between shadow">
+              <span>
+                🔍 Support view: <b>{supportContext.username}</b>'s account (read-only)
+              </span>
+              <button
+                onClick={() => {
+                  setTenantContext(null);
+                  navigate("/admin");
+                  window.location.reload();
+                }}
+                className="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition text-xs font-semibold"
+              >
+                Exit support view
+              </button>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
 
       {/* AI Chatbot */}

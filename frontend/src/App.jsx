@@ -51,6 +51,7 @@ const Onboarding = lazy(() => import("./pages/Onboarding"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AssetList = lazy(() => import("./pages/Assets/AssetList"));
+const AdminConsole = lazy(() => import("./pages/Admin/AdminConsole"));
 
 
 // Minimal spinner shown while a lazy chunk loads
@@ -536,6 +537,18 @@ function App() {
                   <Layout>
                     <ActivityLogs />
                   </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <RequireAdmin>
+                    <Layout>
+                      <AdminConsole />
+                    </Layout>
+                  </RequireAdmin>
                 </ProtectedRoute>
               }
             />

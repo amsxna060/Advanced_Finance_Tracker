@@ -42,6 +42,45 @@ def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: 
     # scoped to this tenant; every new row is stamped with it. Household
     # guests (tenant_owner_id set) operate inside their owner's tenant.
     db.info["tenant_id"] = user.tenant_owner_id or user.id
+
+    # E5 support view: a PLATFORM admin may inspect another user's tenant by
+    # sending X-Tenant-Context: <user_id>. Strictly read-only (see
+    # require_write_access) and audited (see routers/admin.py middleware
+    # helper _log_admin_view). Non-admins sending the header get 403 — never
+    # silently ignored, an ignored security header is a footgun.
+    context_header = request.headers.get("X-Tenant-Context")
+    if context_header:
+        if user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tenant context is available to platform admins only",
+            )
+        try:
+            target_id = int(context_header)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid X-Tenant-Context")
+        target = db.get(User, target_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Tenant user not found")
+        db.info["tenant_id"] = target.tenant_owner_id or target.id
+        db.info["admin_tenant_context"] = True
+        # FB-2.3/E5: every support-view request is audited — actor is the
+        # admin, owner is the inspected tenant, so the user can see in their
+        # own activity log that (and when) support looked at their books.
+        from app.models.activity_log import ActivityLog
+        db.add(ActivityLog(
+            owner_id=db.info["tenant_id"],
+            user_id=user.id,
+            username=user.username,
+            action="admin_view",
+            module="admin",
+            entity_type="tenant",
+            entity_id=target.id,
+            entity_name=target.username,
+            description=f"Platform admin '{user.username}' viewed this account (support)",
+            request_info=f"{request.method} {request.url.path}",
+        ))
+        db.commit()
     return user
 
 
@@ -61,7 +100,10 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-def require_write_access(current_user: User = Depends(get_current_user)) -> User:
+def require_write_access(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
     """
     Dependency for any endpoint that mutates domain data.
 
@@ -75,6 +117,13 @@ def require_write_access(current_user: User = Depends(get_current_user)) -> User
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Read-only credentials: write operations are not permitted.",
+        )
+    if db.info.get("admin_tenant_context"):
+        # E5: the admin support view is strictly read-only — inspecting a
+        # user's books must never be able to change them.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant context is read-only: writes are not permitted while viewing another user's data.",
         )
     return current_user
 
