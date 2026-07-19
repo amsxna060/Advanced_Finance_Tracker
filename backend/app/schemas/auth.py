@@ -1,5 +1,6 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import List, Optional
 from datetime import datetime
 
 
@@ -16,6 +17,34 @@ class UserLogin(BaseModel):
     password: str
 
 
+class SignupRequest(BaseModel):
+    """Public self-service signup (FB-3.3). No role field — the server
+    always assigns 'viewer' (a normal, self-owned tenant)."""
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    full_name: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one letter and one digit")
+        return v
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class ModulesUpdate(BaseModel):
+    modules: List[str]
+
+
 class UserOut(BaseModel):
     id: int
     username: str
@@ -24,6 +53,10 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+    email_verified: bool = False
+    # Effective entitlements (resolved server-side; None only on legacy
+    # serialization paths that don't compute it).
+    enabled_modules: Optional[List[str]] = None
 
     class Config:
         from_attributes = True

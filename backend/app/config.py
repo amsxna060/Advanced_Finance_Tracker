@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    # ── Public signup (E3) ────────────────────────────────────────────────
+    # Master switch: keep False in production until the FB-3.7 security
+    # review is Done; True is fine for local development and tests.
+    SIGNUP_ENABLED: bool = True
+    # When True, unverified accounts cannot log in. Off in dev so the flow
+    # works without an SMTP setup; turn on in production.
+    REQUIRE_EMAIL_VERIFICATION: bool = False
+    # "console" logs emails (dev/tests) · "smtp" sends via the SMTP_* vars.
+    EMAIL_BACKEND: str = "console"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAIL_FROM: str = "FinancerBuddy <no-reply@financerbuddy.com>"
+    # Base URL used to build links inside emails (verify page, etc.).
+    FRONTEND_URL: str = "http://localhost:5173"
+
     # ── Validators ────────────────────────────────────────────────────────
 
     @field_validator("CORS_ORIGINS")

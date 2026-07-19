@@ -15,11 +15,11 @@ from typing import List, Literal, Optional
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_module
 from app.models.user import User
 from app.services.chatbot_tools import TOOL_FUNCTIONS, TOOL_DECLARATIONS
 
-router = APIRouter(prefix="/api/chat", tags=["chatbot"])
+router = APIRouter(prefix="/api/chat", tags=["chatbot"], dependencies=[Depends(require_module("chatbot"))])
 limiter = Limiter(key_func=get_remote_address)
 
 # ── Lazy-load the Gemini client ──────────────────────────────────────

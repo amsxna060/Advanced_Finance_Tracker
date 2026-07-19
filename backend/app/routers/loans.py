@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.user import User
 from app.models.loan import Loan, LoanPayment, LoanCapitalizationEvent
 from app.models.contact import Contact
@@ -24,7 +24,7 @@ from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_le
 from app.services.loan_void import void_loan_payment, reallocate_payments_from
 from app.models.cash_account import AccountTransaction
 
-router = APIRouter(prefix="/api/loans", tags=["loans"])
+router = APIRouter(prefix="/api/loans", tags=["loans"], dependencies=[Depends(require_module("loans"))])
 
 
 @router.get("", response_model=List[LoanOut])

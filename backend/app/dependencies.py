@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.config import settings
 from app.models.user import User
+from app.modules import MODULE_REGISTRY, effective_modules
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -76,3 +77,39 @@ def require_write_access(current_user: User = Depends(get_current_user)) -> User
             detail="Read-only credentials: write operations are not permitted.",
         )
     return current_user
+
+
+def resolve_tenant_owner(user: User, db: Session) -> User:
+    """The user whose account settings (modules, plan) govern this session:
+    household guests defer to their owner, everyone else to themselves."""
+    if user.tenant_owner_id:
+        owner = db.get(User, user.tenant_owner_id)
+        if owner is not None:
+            return owner
+    return user
+
+
+def require_module(module_key: str):
+    """Router-level entitlement gate (FB-3.2).
+
+    Usage: APIRouter(..., dependencies=[Depends(require_module("loans"))]).
+    403 "module_disabled" when the tenant owner hasn't enabled the module.
+    This is UX/API hygiene, not a security boundary — tenancy (app/tenancy.py)
+    is what isolates data; this just keeps disabled features consistently off.
+    """
+    if module_key not in MODULE_REGISTRY:
+        raise ValueError(f"require_module: unknown module key {module_key!r}")
+
+    def _dep(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        owner = resolve_tenant_owner(current_user, db)
+        if module_key not in effective_modules(owner.enabled_modules):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="module_disabled",
+            )
+        return current_user
+
+    return _dep

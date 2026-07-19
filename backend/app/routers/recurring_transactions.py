@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.user import User
 from app.models.recurring_transaction import RecurringTransaction, RecurringType, RecurringFrequency
 
-router = APIRouter(prefix="/api/recurring-transactions", tags=["recurring-transactions"])
+router = APIRouter(prefix="/api/recurring-transactions", tags=["recurring-transactions"], dependencies=[Depends(require_module("forecast"))])
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────

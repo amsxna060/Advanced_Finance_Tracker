@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import ChatBot from "./ChatBot";
+import { hasModule } from "../lib/modules";
 
 const navItems = [
   {
@@ -31,6 +32,7 @@ const navItems = [
   {
     title: "Loans",
     route: "/loans",
+    module: "loans",
     icon: (
       <path
         strokeLinecap="round"
@@ -43,6 +45,7 @@ const navItems = [
   {
     title: "Properties",
     route: "/properties",
+    module: "property",
     icon: (
       <path
         strokeLinecap="round"
@@ -55,6 +58,7 @@ const navItems = [
   {
     title: "Partnerships",
     route: "/partnerships",
+    module: "partnerships",
     icon: (
       <path
         strokeLinecap="round"
@@ -79,6 +83,7 @@ const navItems = [
   {
     title: "Beesi",
     route: "/beesi",
+    module: "beesi",
     icon: (
       <path
         strokeLinecap="round"
@@ -116,6 +121,7 @@ const navItems = [
   {
     title: "Forecast & Liquidity",
     route: "/forecast",
+    module: "forecast",
     icon: (
       <path
         strokeLinecap="round"
@@ -128,6 +134,7 @@ const navItems = [
   {
     title: "Expense Analytics",
     route: "/expense-analytics",
+    module: "expense_analytics",
     icon: (
       <path
         strokeLinecap="round"
@@ -140,6 +147,7 @@ const navItems = [
   {
     title: "Reconciliation",
     route: "/reconciliation",
+    module: "reconciliation",
     icon: (
       <path
         strokeLinecap="round"
@@ -152,6 +160,7 @@ const navItems = [
   {
     title: "Property Analytics",
     route: "/analytics/property",
+    module: "property",
     icon: (
       <path
         strokeLinecap="round"
@@ -176,6 +185,7 @@ const navItems = [
   {
     title: "Loan Analytics",
     route: "/analytics/loans",
+    module: "loans",
     icon: (
       <path
         strokeLinecap="round"
@@ -195,6 +205,18 @@ const navItems = [
         strokeLinejoin="round"
         strokeWidth={1.5}
         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    ),
+  },
+  {
+    title: "Settings",
+    route: "/settings",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"
       />
     ),
   },
@@ -224,6 +246,17 @@ export default function Layout({ children }) {
     if (route === "/dashboard") return location.pathname === "/dashboard";
     return location.pathname.startsWith(route);
   };
+
+  // Module-aware navigation (FB-3.5): drop items whose module the user
+  // hasn't enabled, then drop any section divider left with no items.
+  const enabledItems = navItems.filter(
+    (item) => item.type === "divider" || hasModule(user, item.module)
+  );
+  const visibleItems = enabledItems.filter((item, idx) => {
+    if (item.type !== "divider") return true;
+    const next = enabledItems[idx + 1];
+    return next && next.type !== "divider";
+  });
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -258,7 +291,7 @@ export default function Layout({ children }) {
 
       {/* Nav items */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-thin">
-        {navItems.map((item, idx) => {
+        {visibleItems.map((item, idx) => {
           if (item.type === "divider") {
             return (
               <div key={idx} className="pt-4 pb-2 px-3">

@@ -7,7 +7,7 @@ from sqlalchemy import or_, func, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.contact import Contact
 
 # Average number of days in a month (used for duration calculations)
@@ -32,7 +32,7 @@ from app.services.auto_ledger import auto_ledger, reverse_all_ledger
 from app.models.cash_account import AccountTransaction
 from app.config import settings
 
-router = APIRouter(prefix="/api/properties", tags=["properties"])
+router = APIRouter(prefix="/api/properties", tags=["properties"], dependencies=[Depends(require_module("property"))])
 
 INFLOW_TXN_TYPES = {"received_from_buyer", "sale_proceeds", "refund"}
 OUTFLOW_TXN_TYPES = {

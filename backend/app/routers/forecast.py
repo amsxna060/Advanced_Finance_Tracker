@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_module
 from app.models.user import User
 from app.models.forecast_override import ForecastOverride
 from app.schemas.forecast import (
@@ -33,7 +33,7 @@ from app.schemas.forecast import (
 )
 from app.services.forecast_engine import build_forecast, current_period_key
 
-router = APIRouter(prefix="/api/forecast", tags=["forecast"])
+router = APIRouter(prefix="/api/forecast", tags=["forecast"], dependencies=[Depends(require_module("forecast"))])
 
 _PRESETS = {"15d": 15, "30d": 30, "60d": 60, "90d": 90}
 

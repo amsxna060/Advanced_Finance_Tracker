@@ -34,14 +34,14 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-3.1 | **Module registry.** `backend/app/modules.py`: `MODULE_REGISTRY` (key, label, description, core?, depends_on, questionnaire mapping). `users.enabled_modules` JSONB + migration; validation against registry; exposed in `/api/auth/me`. | Todo | ADR-2. Core set always present. |
-| FB-3.2 | **`require_module` dependency.** Router-level guard → 403 `{"detail": "module_disabled"}` if module not enabled. Applied to every optional-module router. | Todo | |
-| FB-3.3 | **Public signup API.** `POST /api/auth/signup` (email, password, full name): password policy, unique email, rate-limited stricter than login, creates `role="viewer"`-equivalent normal user with default modules, sends verification email. `POST /api/auth/verify-email`. Existing admin-gated `/register` stays for platform use. | Todo | Email: start with SMTP (Gmail app password) behind an `EmailService` interface; swap to SES in Phase 3. |
-| FB-3.4 | **Signup + questionnaire UI.** `pages/Signup.jsx` (linked from Login), then a 4-5 question onboarding wizard mapping answers → module set (skippable → default). Calls `PUT /api/users/me/modules`. | Todo | |
-| FB-3.5 | **Module-aware navigation & routes.** Tag each `navItems` entry in `Layout.jsx` with a module key; filter by `user.enabled_modules`; wrap optional routes in `App.jsx` with a `RequireModule` guard (redirect to dashboard + hint). | Todo | Nav + routes read the same registry mirror (`src/lib/modules.js`). |
-| FB-3.6 | **Settings page — manage modules.** User can enable/disable optional modules later; disabling hides, never deletes data. | Todo | |
-| FB-3.7 | **Security review before opening signup.** Checklist story: rate limits, captcha decision, password policy, verification required for login?, CORS, cookie flags, dependency audit (`pip-audit`/`npm audit`). | Todo | Do NOT expose signup on prod before this is Done. |
-| FB-3.8 | 📚 **Tutorial: feature flags & entitlements.** `learning/03-entitlements.md`: flags vs entitlements, registry pattern, server-enforced vs UI-only gating. | Todo | |
+| FB-3.1 | **Module registry.** `backend/app/modules.py`: `MODULE_REGISTRY` (key, label, description, core?, depends_on, questionnaire mapping). `users.enabled_modules` JSONB + migration; validation against registry; exposed in `/api/auth/me`. | Done | Done — `app/modules.py` (6 core + 10 optional), `users.enabled_modules` JSON (NULL = all, grandfathered) + migration 047, effective modules in `/me`. |
+| FB-3.2 | **`require_module` dependency.** Router-level guard → 403 `{"detail": "module_disabled"}` if module not enabled. Applied to every optional-module router. | Done | Done — `require_module()` factory; 10 optional routers gated at APIRouter level (one line each); guests resolve owner's modules. Analytics stays ungated (mixed router, tenancy protects data). |
+| FB-3.3 | **Public signup API.** `POST /api/auth/signup` (email, password, full name): password policy, unique email, rate-limited stricter than login, creates `role="viewer"`-equivalent normal user with default modules, sends verification email. `POST /api/auth/verify-email`. Existing admin-gated `/register` stays for platform use. | Done | Done — `/signup` (viewer-only, policy, 10/h limit, SIGNUP_ENABLED switch), JWT email-verify (48h, typed), `/resend-verification` (constant response), `REQUIRE_EMAIL_VERIFICATION` toggle, `email_service.py` console/smtp backends. 18 integration tests. |
+| FB-3.4 | **Signup + questionnaire UI.** `pages/Signup.jsx` (linked from Login), then a 4-5 question onboarding wizard mapping answers → module set (skippable → default). Calls `PUT /api/users/me/modules`. | Done | Done — `pages/Signup.jsx` (+ Login link), `pages/Onboarding.jsx` 5-question wizard (skippable), `pages/VerifyEmail.jsx`. |
+| FB-3.5 | **Module-aware navigation & routes.** Tag each `navItems` entry in `Layout.jsx` with a module key; filter by `user.enabled_modules`; wrap optional routes in `App.jsx` with a `RequireModule` guard (redirect to dashboard + hint). | Done | Done — module-tagged `navItems` + filtering with empty-divider cleanup in Layout; `RequireModule` guard on 24 routes in App.jsx; `src/lib/modules.js` mirror. |
+| FB-3.6 | **Settings page — manage modules.** User can enable/disable optional modules later; disabling hides, never deletes data. | Done | Done — `pages/Settings/Settings.jsx` with toggles; owner-only (guests read-only); disabling hides, never deletes. |
+| FB-3.7 | **Security review before opening signup.** Checklist story: rate limits, captcha decision, password policy, verification required for login?, CORS, cookie flags, dependency audit (`pip-audit`/`npm audit`). | In Progress | Checklist written: `docs/saas-migration/SECURITY_REVIEW_SIGNUP.md`. Build-time items ✅; deploy-time items execute during E6 (prod stays SIGNUP_ENABLED=false until APPROVED). |
+| FB-3.8 | 📚 **Tutorial: feature flags & entitlements.** `learning/03-entitlements.md`: flags vs entitlements, registry pattern, server-enforced vs UI-only gating. | Done | Done — `learning/03-entitlements.md`. |
 
 ### E4 — Assets module (new, built with service-ready boundaries)
 
@@ -138,3 +138,6 @@
 - 2026-07-19 **FB-2.1, FB-2.3** Done — ownership-based writes; isolation suite re-run as plain users; actor-vs-household attribution tested. Backend 240 passed.
 - 2026-07-19 **FB-2.2** Done — RequireAdmin route guard; frontend 61 tests passed.
 - 2026-07-19 **FB-2.4** Done — tutorial written. **Epic E2 complete.**
+- 2026-07-19 **FB-3.1..3.3** Done — registry, router gating, public signup + verification. Backend 258 passed.
+- 2026-07-19 **FB-3.4..3.6** Done — Signup/Onboarding/VerifyEmail/Settings pages, module-aware nav + 24 guarded routes. Frontend 69 passed, build clean.
+- 2026-07-19 **FB-3.7** In Progress — checklist authored; deploy-time items execute at E6. **FB-3.8** Done. Epic E3 code-complete (only the E6-gated review remains).

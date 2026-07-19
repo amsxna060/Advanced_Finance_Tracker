@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.user import User
 from app.models.loan import Loan
 from app.models.collateral import Collateral
@@ -14,7 +14,7 @@ from app.schemas.collateral import CollateralCreate, CollateralUpdate, Collatera
 from app.services.gold_price import fetch_live_gold_rate_per_gram_inr, calculate_gold_value
 from app.config import settings
 
-router = APIRouter(prefix="/api", tags=["collaterals"])
+router = APIRouter(prefix="/api", tags=["collaterals"], dependencies=[Depends(require_module("loans"))])
 
 
 @router.get("/loans/{loan_id}/collaterals", response_model=List[CollateralOut])

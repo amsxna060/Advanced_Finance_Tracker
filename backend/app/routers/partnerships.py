@@ -7,7 +7,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.contact import Contact
 from app.models.obligation import MoneyObligation
 from app.models.property_deal import PropertyDeal
@@ -35,7 +35,7 @@ from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_le
 from app.models.cash_account import AccountTransaction, CashAccount
 from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot, PlotBuyer
 
-router = APIRouter(prefix="/api/partnerships", tags=["partnerships"])
+router = APIRouter(prefix="/api/partnerships", tags=["partnerships"], dependencies=[Depends(require_module("partnerships"))])
 
 # New transaction types
 OUTFLOW_TYPES = {

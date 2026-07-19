@@ -13,11 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.user import User
 
-router = APIRouter(prefix="/api/unencumbered-assets", tags=["unencumbered-assets"])
+router = APIRouter(prefix="/api/unencumbered-assets", tags=["unencumbered-assets"], dependencies=[Depends(require_module("assets"))])
 
 VALID_CATEGORIES = {
     "real_estate", "gold", "vehicle", "equipment",

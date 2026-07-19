@@ -24,13 +24,13 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_write_access
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import AccountTransaction
 from app.models.user import User
 from app.services.auto_ledger import reverse_all_ledger, reverse_ledger_by_source
 
-router = APIRouter(prefix="/api/beesi", tags=["beesi"])
+router = APIRouter(prefix="/api/beesi", tags=["beesi"], dependencies=[Depends(require_module("beesi"))])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
