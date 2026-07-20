@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyWithRetry as lazy } from "./lib/lazyWithRetry";
 import {
   BrowserRouter as Router,
   Routes,
@@ -9,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./contexts/AuthContext";
 import { useAuth } from "./hooks/useAuth";
 import ProtectedRoute from "./components/ProtectedRoute";
+import ErrorBoundary from "./components/ErrorBoundary";
 import RequireAdmin from "./components/RequireAdmin";
 import RequireModule from "./components/RequireModule";
 import Layout from "./components/Layout";
@@ -91,6 +93,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <Router>
         <AuthProvider>
+          <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -581,6 +584,7 @@ function App() {
             <Route path="/terms" element={<Terms />} />
           </Routes>
           </Suspense>
+          </ErrorBoundary>
         </AuthProvider>
       </Router>
     </QueryClientProvider>
