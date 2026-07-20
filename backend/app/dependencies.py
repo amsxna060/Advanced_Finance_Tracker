@@ -43,11 +43,12 @@ def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: 
     # guests (tenant_owner_id set) operate inside their owner's tenant.
     db.info["tenant_id"] = user.tenant_owner_id or user.id
 
-    # E5 support view: a PLATFORM admin may inspect another user's tenant by
-    # sending X-Tenant-Context: <user_id>. Strictly read-only (see
-    # require_write_access) and audited (see routers/admin.py middleware
-    # helper _log_admin_view). Non-admins sending the header get 403 — never
-    # silently ignored, an ignored security header is a footgun.
+    # Admin support view: a PLATFORM admin inspects another user's account by
+    # sending X-Tenant-Context: <user_id>. Read-only by DEFAULT; the admin can
+    # opt into editing that account by also sending X-Tenant-Edit: 1 (the
+    # "edit mode" toggle in the admin portal). Both are audited into the
+    # target user's own activity log so every access is traceable.
+    # Non-admins sending the header get 403 — never silently ignored.
     context_header = request.headers.get("X-Tenant-Context")
     if context_header:
         if user.role != "admin":
@@ -63,25 +64,49 @@ def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: 
         if target is None:
             raise HTTPException(status_code=404, detail="Tenant user not found")
         db.info["tenant_id"] = target.tenant_owner_id or target.id
-        db.info["admin_tenant_context"] = True
-        # FB-2.3/E5: every support-view request is audited — actor is the
-        # admin, owner is the inspected tenant, so the user can see in their
-        # own activity log that (and when) support looked at their books.
-        from app.models.activity_log import ActivityLog
-        db.add(ActivityLog(
-            owner_id=db.info["tenant_id"],
-            user_id=user.id,
-            username=user.username,
-            action="admin_view",
-            module="admin",
-            entity_type="tenant",
-            entity_id=target.id,
-            entity_name=target.username,
-            description=f"Platform admin '{user.username}' viewed this account (support)",
-            request_info=f"{request.method} {request.url.path}",
-        ))
-        db.commit()
+        edit_mode = request.headers.get("X-Tenant-Edit", "").lower() in ("1", "true", "yes")
+        db.info["admin_context_mode"] = "edit" if edit_mode else "view"
+        # Attribution: the acting admin is recorded on every change made in
+        # this context (see services/activity_logger.py). A one-shot "opened
+        # account" entry is written per read so support access is logged
+        # without spamming the trail on every request-within-a-page.
+        if request.method in ("GET", "HEAD"):
+            _log_admin_open(db, actor=user, target=target, edit_mode=edit_mode, request=request)
     return user
+
+
+def _log_admin_open(db, *, actor, target, edit_mode, request) -> None:
+    """Write one 'admin opened your account' entry — deduped to at most one
+    per admin+target+day+mode so the target's log stays readable."""
+    from datetime import datetime, timezone
+    from app.models.activity_log import ActivityLog
+
+    owner_id = target.tenant_owner_id or target.id
+    today = datetime.now(timezone.utc).date().isoformat()
+    marker = f"{actor.id}:{owner_id}:{today}:{'edit' if edit_mode else 'view'}"
+    exists = (
+        db.query(ActivityLog)
+        .execution_options(skip_tenant_filter=True)
+        .filter(ActivityLog.action == "admin_view",
+                ActivityLog.entity_name == marker)
+        .first()
+    )
+    if exists:
+        return
+    mode_label = "with EDIT access" if edit_mode else "(read-only)"
+    db.add(ActivityLog(
+        owner_id=owner_id,
+        user_id=actor.id,
+        username=actor.username,
+        action="admin_view",
+        module="admin",
+        entity_type="tenant",
+        entity_id=target.id,
+        entity_name=marker,
+        description=f"Support admin '{actor.username}' opened this account {mode_label}",
+        request_info=f"{request.method} {request.url.path}",
+    ))
+    db.commit()
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -118,12 +143,13 @@ def require_write_access(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Read-only credentials: write operations are not permitted.",
         )
-    if db.info.get("admin_tenant_context"):
-        # E5: the admin support view is strictly read-only — inspecting a
-        # user's books must never be able to change them.
+    if db.info.get("admin_context_mode") == "view":
+        # Admin is inspecting a user's account WITHOUT edit mode on — reads
+        # only. Turning on the "Edit mode" toggle (X-Tenant-Edit: 1) lifts
+        # this and lets the admin fix the user's data (audited as support).
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tenant context is read-only: writes are not permitted while viewing another user's data.",
+            detail="Turn on Edit mode to make changes to this user's data.",
         )
     return current_user
 

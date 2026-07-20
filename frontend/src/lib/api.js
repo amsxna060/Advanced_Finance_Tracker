@@ -20,9 +20,12 @@ export function getAccessToken() {
 // tab and never leaks into a normal browsing session.
 const TENANT_CONTEXT_KEY = "admin_tenant_context";
 
-export function setTenantContext(user) {
+export function setTenantContext(user, edit = false) {
   if (user) {
-    sessionStorage.setItem(TENANT_CONTEXT_KEY, JSON.stringify({ id: user.id, username: user.username }));
+    sessionStorage.setItem(
+      TENANT_CONTEXT_KEY,
+      JSON.stringify({ id: user.id, username: user.username, edit: !!edit }),
+    );
   } else {
     sessionStorage.removeItem(TENANT_CONTEXT_KEY);
   }
@@ -36,6 +39,12 @@ export function getTenantContext() {
   } catch {
     return null;
   }
+}
+
+/** Toggle edit mode on the active support view (admin only). */
+export function setTenantEditMode(edit) {
+  const ctx = getTenantContext();
+  if (ctx) setTenantContext({ id: ctx.id, username: ctx.username }, edit);
 }
 
 // H-SEC-2: Read CSRF token from the csrf_token cookie (set by GET /api/auth/csrf-token).
@@ -63,10 +72,12 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    // E5: admin support view — scope every request to the inspected tenant
+    // E5: admin support view — scope every request to the inspected tenant.
+    // Edit mode adds X-Tenant-Edit so the backend permits writes (audited).
     const ctx = getTenantContext();
     if (ctx?.id) {
       config.headers["X-Tenant-Context"] = String(ctx.id);
+      if (ctx.edit) config.headers["X-Tenant-Edit"] = "1";
     }
     // H-SEC-2: Include CSRF token header on state-changing requests to /api/admin/*
     const method = (config.method || "").toUpperCase();

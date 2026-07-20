@@ -209,6 +209,12 @@ def _build_row(session, action, obj, changes):
         description += f" — {_fmt_amount(amount)}"
 
     info = session.info
+    # When a platform admin edits a user's data via the support view (edit
+    # mode), make that unmistakable in the account owner's own log so it's
+    # never confused with their own action.
+    if info.get("admin_context_mode") == "edit":
+        description += f" · by support admin '{info.get('audit_username') or 'admin'}'"
+
     return {
         # Rows are written via a Core insert (after_flush), which bypasses the
         # ORM tenant stamping in app/tenancy.py — set the tenant explicitly.

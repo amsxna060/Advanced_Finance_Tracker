@@ -40,8 +40,10 @@ export default function AdminConsole() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
   });
 
+  const [activityFor, setActivityFor] = useState(null);
+
   function viewAs(user) {
-    setTenantContext(user);
+    setTenantContext(user, false); // always start read-only; toggle edit in-app
     qc.clear(); // drop every cached query — they belong to the previous tenant
     navigate("/dashboard");
   }
@@ -155,6 +157,12 @@ export default function AdminConsole() {
                     )}
                   </td>
                   <td className="px-3 py-3 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => setActivityFor(u)}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      Activity
+                    </button>
                     {!u.tenant_owner_id && u.role !== "admin" && (
                       <button
                         onClick={() => viewAs(u)}
@@ -181,6 +189,87 @@ export default function AdminConsole() {
           </table>
         </div>
       </section>
+
+      {activityFor && (
+        <ActivityDrawer user={activityFor} onClose={() => setActivityFor(null)} />
+      )}
+    </div>
+  );
+}
+
+const ACTION_STYLE = {
+  create: "bg-emerald-50 text-emerald-700",
+  update: "bg-amber-50 text-amber-700",
+  delete: "bg-rose-50 text-rose-700",
+  void: "bg-rose-50 text-rose-700",
+  alert: "bg-orange-50 text-orange-700",
+  admin_view: "bg-violet-50 text-violet-700",
+  login: "bg-slate-100 text-slate-500",
+  logout: "bg-slate-100 text-slate-500",
+};
+
+function ActivityDrawer({ user, onClose }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-user-activity", user.id],
+    queryFn: () => api.get(`/api/admin/users/${user.id}/activity`).then((r) => r.data),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+      <div
+        className="w-full max-w-xl bg-white h-full overflow-y-auto shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Activity — {user.username}</h3>
+            <p className="text-xs text-slate-400">Newest first · who did what, when</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition">✕</button>
+        </div>
+
+        {isLoading && <div className="p-8 text-center text-sm text-slate-400">Loading…</div>}
+
+        {data && data.entries.length === 0 && (
+          <div className="p-8 text-center text-sm text-slate-400">No activity yet.</div>
+        )}
+
+        <ul className="divide-y divide-slate-50">
+          {data?.entries.map((e) => (
+            <li key={e.id} className="px-5 py-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${ACTION_STYLE[e.action] || "bg-slate-100 text-slate-500"}`}>
+                  {e.action}
+                </span>
+                <span className="text-[11px] text-slate-400">{e.module}</span>
+                {e.by_admin && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700">
+                    by admin
+                  </span>
+                )}
+                <span className="ml-auto text-[11px] text-slate-400">
+                  {e.when ? new Date(e.when).toLocaleString("en-IN") : ""}
+                </span>
+              </div>
+              <p className="text-sm text-slate-700 mt-1">{e.what}</p>
+              {e.changes && Object.keys(e.changes).length > 0 && (
+                <div className="mt-1.5 text-xs text-slate-500 space-y-0.5">
+                  {Object.entries(e.changes).slice(0, 6).map(([field, ch]) => (
+                    <div key={field}>
+                      <span className="font-medium">{field}:</span>{" "}
+                      <span className="text-rose-500 line-through">{String(ch?.old ?? "—")}</span>{" → "}
+                      <span className="text-emerald-600">{String(ch?.new ?? "—")}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-300 mt-1">
+                {e.who}{e.request ? ` · ${e.request}` : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

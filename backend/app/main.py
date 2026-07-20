@@ -152,23 +152,10 @@ async def enforce_readonly(request: Request, call_next):
                         status_code=403,
                         content={"detail": "Read-only credentials: write operations are not permitted."},
                     )
-                # E6: the platform admin is read-only end to end (owner
-                # request) — support can inspect, never mutate. Auth flows
-                # (login/logout/refresh/csrf) must still POST.
-                # Gated on PLATFORM_ADMIN_USERNAME so the rule only activates
-                # once the cut-over is configured — before that, the legacy
-                # admin account (amolsaxena060) keeps working unchanged.
-                if (
-                    settings.PLATFORM_ADMIN_READ_ONLY
-                    and settings.PLATFORM_ADMIN_USERNAME
-                    and payload.get("role") == "admin"
-                    and payload.get("type") == "access"
-                    and not request.url.path.startswith("/api/auth/")
-                ):
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Platform admin is read-only: write operations are not permitted."},
-                    )
+                # NOTE: the platform admin is NOT globally read-only. An admin
+                # freely manages their own tenant, and when inspecting another
+                # user's account the read-only vs edit-mode decision is made
+                # per request in dependencies.py (X-Tenant-Edit toggle).
             except JWTError:
                 pass  # invalid token — let the route handler return 401 as normal
     return await call_next(request)
@@ -297,17 +284,10 @@ def startup():
     finally:
         db.close()
 
-    # E6 cut-over provisioning (env-driven, idempotent) — see
-    # services/provisioning.py for the full story.
-    db = next(get_db())
-    try:
-        from app.services.provisioning import provision_platform_admin
-        provision_platform_admin(db)
-    except Exception as e:
-        logger.error("Platform admin provisioning failed: %s", e)
-        db.rollback()
-    finally:
-        db.close()
+    # Admin accounts are managed explicitly (no credentials in .env):
+    #   python -m scripts.manage_admin create-admin   # interactive
+    #   python -m scripts.manage_admin set-role <username> <role>
+    # See scripts/manage_admin.py.
 
     # Start background scheduler for recurring transactions.
     # E7: with REDIS_URL set, Celery beat owns this schedule instead —

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import ChatBot from "./ChatBot";
 import { hasModule } from "../lib/modules";
-import { getTenantContext, setTenantContext } from "../lib/api";
+import { getTenantContext, setTenantContext, setTenantEditMode } from "../lib/api";
 
 const navItems = [
   {
@@ -468,20 +468,35 @@ export default function Layout({ children }) {
         {/* Page content */}
         <main className="flex-1">
           {supportContext && (
-            <div className="sticky top-0 z-40 bg-amber-500 text-white text-sm font-medium px-4 py-2 flex items-center justify-between shadow">
+            <div className={`sticky top-0 z-40 text-white text-sm font-medium px-4 py-2 flex items-center justify-between gap-3 shadow ${
+              supportContext.edit ? "bg-rose-600" : "bg-amber-500"
+            }`}>
               <span>
-                🔍 Support view: <b>{supportContext.username}</b>'s account (read-only)
+                {supportContext.edit ? "✏️ EDITING" : "🔍 Support view:"}{" "}
+                <b>{supportContext.username}</b>'s account
+                {supportContext.edit ? " — changes are logged as admin" : " (read-only)"}
               </span>
-              <button
-                onClick={() => {
-                  setTenantContext(null);
-                  navigate("/admin");
-                  window.location.reload();
-                }}
-                className="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition text-xs font-semibold"
-              >
-                Exit support view
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setTenantEditMode(!supportContext.edit);
+                    window.location.reload();
+                  }}
+                  className="px-3 py-1 rounded-lg bg-white/25 hover:bg-white/35 transition text-xs font-semibold"
+                >
+                  {supportContext.edit ? "Switch to read-only" : "Turn on Edit mode"}
+                </button>
+                <button
+                  onClick={() => {
+                    setTenantContext(null);
+                    navigate("/admin");
+                    window.location.reload();
+                  }}
+                  className="px-3 py-1 rounded-lg bg-white/25 hover:bg-white/35 transition text-xs font-semibold"
+                >
+                  Exit
+                </button>
+              </div>
             </div>
           )}
           {children}

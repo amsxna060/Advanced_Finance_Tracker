@@ -40,9 +40,9 @@ def _tenant(db: Session, current_user: User) -> int:
     """Tenant scope for the bulk raw-SQL statements below. Raw SQL bypasses
     the automatic filter in app/tenancy.py, so these destructive operations
     must scope themselves explicitly to the caller's own tenant."""
-    if db.info.get("admin_tenant_context"):
-        # E5: never run destructive legacy tools while inspecting another
-        # user's tenant — the support view is read-only everywhere.
+    if db.info.get("admin_context_mode"):
+        # Never run these destructive legacy bulk tools while operating inside
+        # another user's account (view OR edit mode) — too blunt for support.
         from fastapi import HTTPException
         raise HTTPException(
             status_code=403,
@@ -298,5 +298,47 @@ def platform_stats(
             .order_by(_ActivityLog.id.desc())
             .limit(20)
             .all()
+        ],
+    }
+
+
+@router.get("/users/{user_id}/activity")
+def user_activity(
+    user_id: int,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Full, human-readable activity trail for one user's account — who did
+    what, when, and (for support edits) that it was the admin. Ordered newest
+    first for easy trace-back."""
+    target = db.get(_User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    owner_id = target.tenant_owner_id or target.id
+    rows = (
+        db.query(_ActivityLog)
+        .execution_options(skip_tenant_filter=True)
+        .filter(_ActivityLog.owner_id == owner_id)
+        .order_by(_ActivityLog.id.desc())
+        .limit(min(limit, 500))
+        .all()
+    )
+    return {
+        "user": {"id": target.id, "username": target.username},
+        "entries": [
+            {
+                "id": a.id,
+                "when": a.created_at.isoformat() if a.created_at else None,
+                "who": a.username,                 # actor (may be the admin on support edits)
+                "by_admin": bool(a.description and "support admin" in a.description),
+                "action": a.action,                # create | update | delete | void | alert | admin_view | login…
+                "module": a.module,                # loans | expenses | accounts …
+                "what": a.description,             # plain-English one-liner
+                "amount": float(a.amount) if a.amount is not None else None,
+                "changes": a.changes,              # {field: {old, new}} for updates
+                "request": a.request_info,         # the HTTP call, for deep trace-back
+            }
+            for a in rows
         ],
     }

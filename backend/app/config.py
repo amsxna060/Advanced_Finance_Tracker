@@ -50,12 +50,12 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # ── Public signup (E3) ────────────────────────────────────────────────
-    # Master switch. DEFAULT FALSE so a production deploy that hasn't set the
-    # var cannot accidentally open signup. Dev/tests set SIGNUP_ENABLED=true
-    # explicitly (.env / tests/conftest.py).
-    SIGNUP_ENABLED: bool = False
-    # When True, unverified accounts cannot log in. Off in dev so the flow
-    # works without an SMTP setup; turn on in production.
+    # Master switch — public signup is ON. Set SIGNUP_ENABLED=false in .env
+    # to close it (e.g. during maintenance).
+    SIGNUP_ENABLED: bool = True
+    # Email verification is intentionally OFF for now (OTP/email flow is on
+    # hold): new users can sign up and use the app immediately. Turn on once
+    # SMTP is configured.
     REQUIRE_EMAIL_VERIFICATION: bool = False
     # "console" logs emails (dev/tests) · "smtp" sends via the SMTP_* vars.
     EMAIL_BACKEND: str = "console"
@@ -67,19 +67,9 @@ class Settings(BaseSettings):
     # Base URL used to build links inside emails (verify page, etc.).
     FRONTEND_URL: str = "http://localhost:5173"
 
-    # ── Platform admin provisioning (E6, env-driven — no SSH scripts) ─────
-    # When PLATFORM_ADMIN_USERNAME is set, startup creates-or-updates that
-    # account as the platform admin. With PLATFORM_ADMIN_READ_ONLY (default)
-    # the admin role is blocked from ALL writes at the HTTP level — support
-    # can look (tenant context view), never touch.
-    PLATFORM_ADMIN_USERNAME: str = ""
-    PLATFORM_ADMIN_EMAIL: str = ""
-    PLATFORM_ADMIN_PASSWORD: str = ""
-    PLATFORM_ADMIN_READ_ONLY: bool = True
-    # One-shot cut-over switch: when provisioning runs, demote every OTHER
-    # role=admin account to a normal user (role=viewer, keeps all data and
-    # all modules). This is how amolsaxena060 becomes a regular user.
-    DEMOTE_OTHER_ADMINS: bool = False
+    # Admin accounts are managed with scripts/manage_admin.py, never via env
+    # (no credentials in .env). The admin support view is read-only by
+    # default with a per-request edit toggle (see app/dependencies.py).
 
     # ── Async backbone (E7). Empty REDIS_URL = no Redis: Celery tasks run
     # eagerly in-process and APScheduler keeps handling recurring items —

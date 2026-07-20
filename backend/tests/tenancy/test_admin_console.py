@@ -23,7 +23,8 @@ class TestTenantContextView:
         assert resp.status_code == 200
         assert [c["name"] for c in resp.json()] == ["Alice Borrower"]
 
-    def test_context_is_read_only(self, client, seeded_a, tenant_a, auth_headers):
+    def test_context_read_only_by_default(self, client, seeded_a, tenant_a, auth_headers):
+        # No X-Tenant-Edit → writes blocked, prompt to turn on edit mode
         resp = client.post(
             "/api/contacts",
             headers={**auth_headers, "X-Tenant-Context": str(tenant_a.id)},
@@ -31,7 +32,31 @@ class TestTenantContextView:
                   "relationship_type": "borrower"},
         )
         assert resp.status_code == 403
-        assert "read-only" in resp.json()["detail"].lower()
+        assert "edit mode" in resp.json()["detail"].lower()
+
+    def test_edit_mode_allows_writes_into_target_tenant(self, client, db, seeded_a,
+                                                        tenant_a, admin_user, auth_headers):
+        ctx = {"X-Tenant-Context": str(tenant_a.id), "X-Tenant-Edit": "1"}
+        resp = client.post("/api/contacts", headers={**auth_headers, **ctx},
+                           json={"name": "Fixed by support",
+                                 "contact_type": "individual",
+                                 "relationship_type": "borrower"})
+        assert resp.status_code == 200, resp.text
+        # the new row belongs to the USER's tenant, not the admin's
+        assert resp.json()["id"]
+        listed = client.get("/api/contacts", headers={**auth_headers, **ctx}).json()
+        assert "Fixed by support" in [c["name"] for c in listed]
+
+        # …and the edit is audited into the user's log, marked as support
+        from app.models.activity_log import ActivityLog
+        row = (db.query(ActivityLog).execution_options(skip_tenant_filter=True)
+               .filter(ActivityLog.owner_id == tenant_a.id,
+                       ActivityLog.action == "create",
+                       ActivityLog.entity_type == "contacts")
+               .order_by(ActivityLog.id.desc()).first())
+        assert row is not None
+        assert row.user_id == admin_user.id
+        assert "support admin" in row.description
 
     def test_context_rejected_for_non_admin(self, client, tenant_a, headers_b):
         resp = client.get("/api/contacts",
