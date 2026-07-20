@@ -14,9 +14,10 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class Beesi(Base):
+class Beesi(Base, TenantMixin):
     __tablename__ = "beesis"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -50,7 +51,7 @@ class Beesi(Base):
     withdrawals = relationship("BeesiWithdrawal", back_populates="beesi", order_by="BeesiWithdrawal.month_number")
 
 
-class BeesiInstallment(Base):
+class BeesiInstallment(Base, TenantMixin):
     """One monthly payment record for a Beesi."""
     __tablename__ = "beesi_installments"
 
@@ -71,7 +72,7 @@ class BeesiInstallment(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class BeesiWithdrawal(Base):
+class BeesiWithdrawal(Base, TenantMixin):
     """Record for when I (or a month is logged as) claimed the pot."""
     __tablename__ = "beesi_withdrawals"
 

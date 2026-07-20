@@ -24,13 +24,13 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.beesi import Beesi, BeesiInstallment, BeesiWithdrawal
 from app.models.cash_account import AccountTransaction
 from app.models.user import User
 from app.services.auto_ledger import reverse_all_ledger, reverse_ledger_by_source
 
-router = APIRouter(prefix="/api/beesi", tags=["beesi"])
+router = APIRouter(prefix="/api/beesi", tags=["beesi"], dependencies=[Depends(require_module("beesi"))])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,7 +285,7 @@ def list_beesis(
 def create_beesi(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     required = ["title", "pot_size", "member_count", "tenure_months", "base_installment", "start_date"]
     for field in required:
@@ -370,7 +370,7 @@ def update_beesi(
     beesi_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     beesi = _get_or_404(beesi_id, db)
 
@@ -399,7 +399,7 @@ def update_beesi(
 def delete_beesi(
     beesi_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     beesi = _get_or_404(beesi_id, db)
     # Clean up all linked AccountTransaction entries
@@ -445,7 +445,7 @@ def add_installment(
     beesi_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """
     Log a monthly installment payment.
@@ -567,7 +567,7 @@ def delete_installment(
     beesi_id: int,
     inst_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     inst = db.query(BeesiInstallment).filter(
         BeesiInstallment.id == inst_id,
@@ -599,7 +599,7 @@ def delete_withdrawal(
     beesi_id: int,
     withdrawal_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     w = db.query(BeesiWithdrawal).filter(
         BeesiWithdrawal.id == withdrawal_id,
@@ -635,7 +635,7 @@ def add_withdrawal(
     beesi_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """
     Record claiming the pot.

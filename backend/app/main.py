@@ -27,11 +27,16 @@ from app.routers import auth, contacts, loans, collateral, property_deals, partn
 from app.routers import beesi, accounts, analytics, obligations, category_limits, categories, admin, chatbot, forecast
 from app.routers import recurring_transactions as recurring_router
 from app.routers import unencumbered_assets as unencumbered_router
+from app.modules_pkg.assets.router import router as assets_router
 from app.routers import activity_logs as activity_logs_router
 
 # Registers the SQLAlchemy flush listeners that write the activity/audit log
 # for every ORM create/update/delete (see services/activity_logger.py).
 import app.services.activity_logger  # noqa: F401
+
+# Registers the Session listeners that enforce tenant isolation: automatic
+# owner_id filtering on every ORM query + owner stamping on insert.
+import app.tenancy  # noqa: F401
 
 # Scheduler
 from app.services.scheduler import start_scheduler, stop_scheduler
@@ -147,6 +152,23 @@ async def enforce_readonly(request: Request, call_next):
                         status_code=403,
                         content={"detail": "Read-only credentials: write operations are not permitted."},
                     )
+                # E6: the platform admin is read-only end to end (owner
+                # request) — support can inspect, never mutate. Auth flows
+                # (login/logout/refresh/csrf) must still POST.
+                # Gated on PLATFORM_ADMIN_USERNAME so the rule only activates
+                # once the cut-over is configured — before that, the legacy
+                # admin account (amolsaxena060) keeps working unchanged.
+                if (
+                    settings.PLATFORM_ADMIN_READ_ONLY
+                    and settings.PLATFORM_ADMIN_USERNAME
+                    and payload.get("role") == "admin"
+                    and payload.get("type") == "access"
+                    and not request.url.path.startswith("/api/auth/")
+                ):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Platform admin is read-only: write operations are not permitted."},
+                    )
             except JWTError:
                 pass  # invalid token — let the route handler return 401 as normal
     return await call_next(request)
@@ -171,7 +193,8 @@ app.include_router(admin.router)
 app.include_router(chatbot.router)
 app.include_router(forecast.router)
 app.include_router(recurring_router.router)
-app.include_router(unencumbered_router.router)
+app.include_router(unencumbered_router.router)  # legacy — superseded by /api/assets (E4)
+app.include_router(assets_router)
 app.include_router(activity_logs_router.router)
 
 # L-SEC-7: increase bcrypt rounds from default (12) to 13 for better brute-force resistance
@@ -274,12 +297,30 @@ def startup():
     finally:
         db.close()
 
-    # Start background scheduler for recurring transactions
+    # E6 cut-over provisioning (env-driven, idempotent) — see
+    # services/provisioning.py for the full story.
+    db = next(get_db())
     try:
-        start_scheduler()
-        logger.info("Background scheduler started")
+        from app.services.provisioning import provision_platform_admin
+        provision_platform_admin(db)
     except Exception as e:
-        logger.error("Scheduler failed to start: %s", e)
+        logger.error("Platform admin provisioning failed: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+    # Start background scheduler for recurring transactions.
+    # E7: with REDIS_URL set, Celery beat owns this schedule instead —
+    # running both would double-post (the advisory lock prevents same-moment
+    # races, not two runners at different times).
+    if settings.REDIS_URL:
+        logger.info("REDIS_URL set — APScheduler disabled, Celery beat handles recurring jobs")
+    else:
+        try:
+            start_scheduler()
+            logger.info("Background scheduler started (no Redis — eager task mode)")
+        except Exception as e:
+            logger.error("Scheduler failed to start: %s", e)
 
 
 @app.get("/")

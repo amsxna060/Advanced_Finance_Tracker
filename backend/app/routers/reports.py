@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_module
 from app.models.user import User
 from app.models.loan import Loan, LoanPayment
 from app.models.property_deal import PropertyDeal, PropertyTransaction
@@ -28,7 +28,7 @@ from app.routers.dashboard import (
     INFLOW_PARTNERSHIP_TXN_TYPES,
 )
 
-router = APIRouter(prefix="/api/reports", tags=["reports"])
+router = APIRouter(prefix="/api/reports", tags=["reports"], dependencies=[Depends(require_module("reports"))])
 
 # H-REP-2: do NOT create module-level singletons — they hold mutable state
 # (open file handles, in-progress workbooks) that would be shared across

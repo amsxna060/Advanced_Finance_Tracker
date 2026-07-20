@@ -14,9 +14,14 @@ from app.database import get_db
 from app.config import settings
 from app.models.user import User
 from app.models.refresh_token import RefreshTokenBlacklist
-from app.schemas.auth import UserCreate, UserLogin, UserOut, TokenResponse, RefreshTokenRequest, TokenRefresh
-from app.dependencies import get_current_user, require_admin
+from app.schemas.auth import (
+    UserCreate, UserLogin, UserOut, TokenResponse, RefreshTokenRequest, TokenRefresh,
+    SignupRequest, VerifyEmailRequest, ResendVerificationRequest, ModulesUpdate,
+)
+from app.dependencies import get_current_user, require_admin, resolve_tenant_owner
+from app.modules import DEFAULT_SIGNUP_MODULES, effective_modules, validate_module_keys
 from app.services.activity_logger import log_auth_event
+from app.services.email_service import send_verification_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 # L-SEC-7 (FIX): use bcrypt rounds=13 to match the seed-admin context in main.py
@@ -59,6 +64,14 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     if not user.is_active:
         raise _invalid
 
+    # FB-3.3: public-signup accounts must verify their email first when the
+    # deployment requires it (off in development; on in production).
+    if settings.REQUIRE_EMAIL_VERIFICATION and not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="email_not_verified",
+        )
+
     access_token = create_access_token(user.id, role=user.role)
     refresh_token = create_refresh_token(user.id)
 
@@ -74,6 +87,15 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         path="/api/auth",
     )
+
+    # Re-stamp the session's tenant context to the user who just proved their
+    # identity. The login endpoint has no get_current_user dependency, so a
+    # session reused across users (tests, future pooling) would otherwise
+    # carry a stale tenant — and app/tenancy.py would rightly refuse to write
+    # this user's login log into another tenant.
+    db.info["tenant_id"] = user.tenant_owner_id or user.id
+    db.info["audit_user_id"] = user.id
+    db.info["audit_username"] = user.username
 
     log_auth_event(db, user, "login", request)
 
@@ -146,8 +168,41 @@ def refresh(request: Request, response: Response, body: Optional[RefreshTokenReq
 
 
 @router.get("/me", response_model=UserOut)
-def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
+def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    out = UserOut.model_validate(current_user)
+    # Entitlements are resolved from the tenant OWNER (household guests see
+    # the owner's feature set) and expanded to the effective list.
+    owner = resolve_tenant_owner(current_user, db)
+    out.enabled_modules = effective_modules(owner.enabled_modules)
+    return out
+
+
+@router.put("/me/modules", response_model=UserOut)
+def update_my_modules(
+    body: ModulesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set the caller's enabled modules (questionnaire / Settings page).
+
+    Only the tenant owner may change the household's modules; core modules
+    are force-included by validation. Disabling a module hides it — no data
+    is ever deleted.
+    """
+    if current_user.tenant_owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the account owner can change enabled modules",
+        )
+    try:
+        current_user.enabled_modules = validate_module_keys(body.modules)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    db.commit()
+    db.refresh(current_user)
+    out = UserOut.model_validate(current_user)
+    out.enabled_modules = effective_modules(current_user.enabled_modules)
+    return out
 
 
 @router.get("/csrf-token")
@@ -199,6 +254,89 @@ def _create_user(
     db.commit()
     db.refresh(new_user)
     return new_user
+
+
+def _create_email_verify_token(user_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(hours=48)
+    return jwt.encode(
+        {"sub": str(user_id), "exp": expire, "type": "email_verify"},
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+
+@router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/hour")
+def signup(request: Request, payload: SignupRequest, db: Session = Depends(get_db)):
+    """Public self-service signup (FB-3.3).
+
+    Always creates a normal self-owned user (role=viewer) with the default
+    module set; the onboarding questionnaire then tailors modules via
+    PUT /me/modules. Stricter rate limit than login (abuse surface).
+    """
+    if not settings.SIGNUP_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Signup is currently disabled",
+        )
+    user = _create_user(
+        username=payload.username,
+        password=payload.password,
+        email=payload.email,
+        full_name=payload.full_name,
+        role="viewer",
+        db=db,
+    )
+    user.enabled_modules = DEFAULT_SIGNUP_MODULES
+    # E8: the event commits atomically with the signup (transactional outbox)
+    from app.events import emit_event, flush_events
+    emit_event(db, "user.signed_up", {
+        "user_id": user.id, "email": user.email,
+        "username": user.username, "full_name": user.full_name,
+    }, owner_id=user.id)
+    db.commit()
+    db.refresh(user)
+
+    # Best-effort: a mail failure must not fail the signup — the user can
+    # request a resend from the login screen. (E7: delivered via task.)
+    send_verification_email(user.email, _create_email_verify_token(user.id))
+    flush_events(db)   # welcome email handler runs here (or via worker)
+
+    out = UserOut.model_validate(user)
+    out.enabled_modules = effective_modules(user.enabled_modules)
+    return out
+
+
+@router.post("/verify-email")
+def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
+    """Confirm an email address from the token sent at signup."""
+    try:
+        decoded = jwt.decode(payload.token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verification link expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification link")
+    if decoded.get("type") != "email_verify":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification link")
+
+    user = db.query(User).filter(User.id == int(decoded["sub"])).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification link")
+    if not user.email_verified:
+        user.email_verified = True
+        db.commit()
+    return {"message": "Email verified — you can log in now"}
+
+
+@router.post("/resend-verification")
+@limiter.limit("5/hour")
+def resend_verification(request: Request, payload: ResendVerificationRequest, db: Session = Depends(get_db)):
+    """Re-send the verification email. Always returns success (no account
+    enumeration): the response never reveals whether the address exists."""
+    user = db.query(User).filter(User.email == payload.email).first()
+    if user is not None and not user.email_verified:
+        send_verification_email(user.email, _create_email_verify_token(user.id))
+    return {"message": "If that address has an unverified account, a new link has been sent"}
 
 
 @router.post("/register", response_model=UserOut)

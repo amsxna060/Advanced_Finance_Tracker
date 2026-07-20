@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.user import User
 from app.models.recurring_transaction import RecurringTransaction, RecurringType, RecurringFrequency
 
-router = APIRouter(prefix="/api/recurring-transactions", tags=["recurring-transactions"])
+router = APIRouter(prefix="/api/recurring-transactions", tags=["recurring-transactions"], dependencies=[Depends(require_module("forecast"))])
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ def create_recurring(
     body: RecurringTransactionIn,
     db: Session = Depends(get_db),
     # C-AUTHZ-2: only admins may create recurring transactions (scheduler posts them to accounts)
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     # H-AUTHZ-3: validate that the provided account_id actually belongs to current_user
     if body.account_id is not None:
@@ -107,7 +107,7 @@ def update_recurring(
     body: RecurringTransactionPatch,
     db: Session = Depends(get_db),
     # C-AUTHZ-2: only admins may modify recurring transactions
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     item = db.query(RecurringTransaction).filter(
         RecurringTransaction.id == item_id,
@@ -129,7 +129,7 @@ def delete_recurring(
     item_id: int,
     db: Session = Depends(get_db),
     # C-AUTHZ-2: only admins may delete recurring transactions
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     item = db.query(RecurringTransaction).filter(
         RecurringTransaction.id == item_id,

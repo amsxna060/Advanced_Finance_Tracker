@@ -7,7 +7,7 @@ from sqlalchemy import or_, func, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.contact import Contact
 
 # Average number of days in a month (used for duration calculations)
@@ -32,7 +32,7 @@ from app.services.auto_ledger import auto_ledger, reverse_all_ledger
 from app.models.cash_account import AccountTransaction
 from app.config import settings
 
-router = APIRouter(prefix="/api/properties", tags=["properties"])
+router = APIRouter(prefix="/api/properties", tags=["properties"], dependencies=[Depends(require_module("property"))])
 
 INFLOW_TXN_TYPES = {"received_from_buyer", "sale_proceeds", "refund"}
 OUTFLOW_TXN_TYPES = {
@@ -82,9 +82,12 @@ def _ensure_contact_exists(contact_id: Optional[int], db: Session, field_name: s
         Contact.id == contact_id,
         Contact.is_deleted == False,
     )
-    # H-AUTHZ-4: optionally scope contact lookup to the requesting user
+    # H-AUTHZ-4: optionally scope contact lookup to the requesting user's
+    # tenant. (Redundant with the automatic filter in app/tenancy.py, kept as
+    # an explicit belt-and-suspenders check. Was Contact.created_by — a column
+    # that never existed; fixed as FB-1.5.)
     if user_id is not None:
-        q = q.filter(Contact.created_by == user_id)
+        q = q.filter(Contact.owner_id == user_id)
     contact = q.first()
     if not contact:
         raise HTTPException(status_code=404, detail=f"{field_name} contact not found")
@@ -273,8 +276,9 @@ def portfolio_stats(
             ON  pt.partnership_id = p.id
         WHERE pd.is_deleted = FALSE
           AND pd.is_legacy  = FALSE
+          AND pd.owner_id   = :owner
         GROUP BY pd.id, pm.id
-    """)).fetchall()
+    """), {"owner": db.info.get("tenant_id") or current_user.id}).fetchall()
 
     my_capital = Decimal("0")
     my_liability = Decimal("0")
@@ -348,7 +352,7 @@ def get_properties(
 def create_property(
     property_data: PropertyDealCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _ensure_contact_exists(property_data.seller_contact_id, db, "Seller")
     _ensure_contact_exists(property_data.buyer_contact_id, db, "Buyer")
@@ -518,7 +522,7 @@ def update_property(
     property_id: int,
     property_data: PropertyDealUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     property_deal = _get_property_or_404(property_id, db)
     update_data = property_data.model_dump(exclude_unset=True)
@@ -550,7 +554,7 @@ def update_property(
 def delete_property(
     property_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     property_deal = _get_property_or_404(property_id, db)
     # Clean up all linked AccountTransaction entries
@@ -638,7 +642,7 @@ def create_site_plot(
     property_id: int,
     plot_data: SitePlotCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     data = plot_data.model_dump()
@@ -658,7 +662,7 @@ def update_site_plot(
     plot_id: int,
     plot_data: SitePlotCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     plot = db.query(SitePlot).filter(
@@ -685,7 +689,7 @@ def delete_site_plot(
     property_id: int,
     plot_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     plot = db.query(SitePlot).filter(
@@ -718,7 +722,7 @@ def create_plot_buyer(
     property_id: int,
     buyer_data: PlotBuyerCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     data = buyer_data.model_dump()
@@ -738,7 +742,7 @@ def update_plot_buyer(
     buyer_id: int,
     buyer_data: PlotBuyerUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     buyer = db.query(PlotBuyer).filter(
@@ -765,7 +769,7 @@ def delete_plot_buyer(
     property_id: int,
     buyer_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _get_property_or_404(property_id, db)
     buyer = db.query(PlotBuyer).filter(

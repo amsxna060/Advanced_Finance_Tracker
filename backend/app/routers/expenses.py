@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.expense import Expense
 from app.models.user import User
 from app.schemas.expense import ExpenseCreate, ExpenseOut, ExpenseUpdate
@@ -409,7 +409,7 @@ def suggest_expense_category(
 def create_expense(
     expense_data: ExpenseCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     # C-DI-3: verify the polymorphic linked_id resolves to a real record
     _validate_linked_id(expense_data.linked_type, expense_data.linked_id, db)
@@ -427,6 +427,16 @@ def create_expense(
 
     db.add(expense)
     db.flush()
+
+    # E8: domain event, committed atomically with the expense. The
+    # category-limit alert handler consumes it (see app/events.py).
+    from app.events import emit_event
+    emit_event(db, "expense.created", {
+        "expense_id": expense.id,
+        "category": expense.category,
+        "amount": float(expense.amount),
+        "expense_date": expense.expense_date.isoformat(),
+    })
 
     # Auto-ledger: debit account for expense
     if expense.account_id:
@@ -448,6 +458,10 @@ def create_expense(
     db.commit()
     db.refresh(expense)
 
+    # E8: deliver the committed event (inline without Redis, worker with)
+    from app.events import flush_events
+    flush_events(db)
+
     # Learn from this save for future suggestions.
     # Wrapped in try/except: the expense is already committed above, so a learning
     # failure (UniqueConstraint race, schema mismatch, etc.) must not surface as a
@@ -468,7 +482,7 @@ def update_expense(
     expense_id: int,
     expense_data: ExpenseUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     expense = _get_expense_or_404(expense_id, db)
     # C-DI-3: verify polymorphic linked_id if either field is being updated
@@ -528,7 +542,7 @@ def update_expense(
 def delete_expense(
     expense_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     expense = _get_expense_or_404(expense_id, db)
     # Reverse linked ledger entry

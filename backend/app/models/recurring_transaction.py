@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, Foreign
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
 class RecurringType(str, enum.Enum):
@@ -16,7 +17,7 @@ class RecurringFrequency(str, enum.Enum):
     yearly = "yearly"
 
 
-class RecurringTransaction(Base):
+class RecurringTransaction(Base, TenantMixin):
     __tablename__ = "recurring_transactions"
 
     id = Column(Integer, primary_key=True, index=True)

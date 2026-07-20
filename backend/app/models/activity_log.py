@@ -13,13 +13,18 @@ deletes rows (the audit service skips its own table to avoid recursion).
 from sqlalchemy import Column, Integer, String, Text, DateTime, Numeric, JSON, Index
 from sqlalchemy.sql import func
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class ActivityLog(Base):
+class ActivityLog(Base, TenantMixin):
     __tablename__ = "activity_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    # Tenant whose data the event touched. Overrides TenantMixin's NOT NULL:
+    # background/system events (scheduler, seed) have no tenant.
+    owner_id = Column(Integer, index=True)
 
     # Who did it. username is denormalized so the log stays readable even if
     # the user row is later deactivated/removed. NULL user = background job.

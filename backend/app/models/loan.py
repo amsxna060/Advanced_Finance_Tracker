@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
 class LoanPriority(str, enum.Enum):
@@ -11,7 +12,7 @@ class LoanPriority(str, enum.Enum):
     low = "low"
 
 
-class Loan(Base):
+class Loan(Base, TenantMixin):
     __tablename__ = "loans"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -79,7 +80,7 @@ class Loan(Base):
     collaterals = relationship("Collateral", back_populates="loan")
 
 
-class LoanPayment(Base):
+class LoanPayment(Base, TenantMixin):
     __tablename__ = "loan_payments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -107,7 +108,7 @@ class LoanPayment(Base):
     account = relationship("CashAccount", foreign_keys=[account_id])
 
 
-class LoanCapitalizationEvent(Base):
+class LoanCapitalizationEvent(Base, TenantMixin):
     __tablename__ = "loan_capitalization_events"
 
     id = Column(Integer, primary_key=True, index=True)

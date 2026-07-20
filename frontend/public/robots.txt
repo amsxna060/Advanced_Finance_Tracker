@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /$
+Allow: /signup
+Allow: /privacy
+Allow: /terms
+Disallow: /dashboard
+Disallow: /login
+Disallow: /admin
+Disallow: /api/
+
+Sitemap: https://financerbuddy.com/sitemap.xml

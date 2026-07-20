@@ -60,7 +60,8 @@ _REGISTRY = {
     m.ObligationSettlement: ("obligations", "obligation settlement"),
     m.RecurringTransaction: ("forecast", "recurring transaction"),
     m.ForecastOverride: ("forecast", "forecast override"),
-    m.UnencumberedAsset: ("assets", "asset"),
+    m.UnencumberedAsset: ("assets", "asset (legacy)"),
+    m.Asset: ("assets", "asset"),
     m.User: ("auth", "user"),
 }
 
@@ -80,7 +81,7 @@ for _name, _entry in (("SitePlot", ("properties", "site plot")),
 
 # Never logged: the log itself (recursion), token blacklist (noise, hashes),
 # ML learning rows (system noise, not user actions).
-_SKIP = (ActivityLog, m.RefreshTokenBlacklist, m.CategoryLearning)
+_SKIP = (ActivityLog, m.RefreshTokenBlacklist, m.CategoryLearning, m.OutboxEvent)
 
 # Fields never recorded in snapshots/diffs.
 _EXCLUDED_FIELDS = {"password_hash", "token_hash", "created_at", "updated_at"}
@@ -209,6 +210,9 @@ def _build_row(session, action, obj, changes):
 
     info = session.info
     return {
+        # Rows are written via a Core insert (after_flush), which bypasses the
+        # ORM tenant stamping in app/tenancy.py — set the tenant explicitly.
+        "owner_id": info.get("tenant_id") or info.get("audit_user_id"),
         "user_id": info.get("audit_user_id"),
         "username": info.get("audit_username") or "system",
         "action": action,
@@ -275,6 +279,7 @@ def log_auth_event(db, user, action, request=None):
     """Explicit auth events (login/logout) — these don't touch ORM rows."""
     try:
         db.add(ActivityLog(
+            owner_id=user.tenant_owner_id or user.id,
             user_id=user.id,
             username=user.username,
             action=action,

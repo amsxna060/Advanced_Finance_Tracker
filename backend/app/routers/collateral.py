@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.user import User
 from app.models.loan import Loan
 from app.models.collateral import Collateral
@@ -14,7 +14,7 @@ from app.schemas.collateral import CollateralCreate, CollateralUpdate, Collatera
 from app.services.gold_price import fetch_live_gold_rate_per_gram_inr, calculate_gold_value
 from app.config import settings
 
-router = APIRouter(prefix="/api", tags=["collaterals"])
+router = APIRouter(prefix="/api", tags=["collaterals"], dependencies=[Depends(require_module("loans"))])
 
 
 @router.get("/loans/{loan_id}/collaterals", response_model=List[CollateralOut])
@@ -37,7 +37,7 @@ async def create_collateral(
     loan_id: int,
     collateral_data: CollateralCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Create a new collateral for a loan"""
     # async endpoint (awaits the gold API) — DB work goes to the threadpool so
@@ -96,7 +96,7 @@ async def update_collateral(
     collateral_id: int,
     collateral_data: CollateralUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Update a collateral"""
     collateral = await run_in_threadpool(
@@ -140,7 +140,7 @@ async def update_collateral(
 def delete_collateral(
     collateral_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Delete a collateral"""
     collateral = db.query(Collateral).filter(Collateral.id == collateral_id).first()

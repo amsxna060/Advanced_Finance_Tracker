@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import ChatBot from "./ChatBot";
+import { hasModule } from "../lib/modules";
+import { getTenantContext, setTenantContext } from "../lib/api";
 
 const navItems = [
   {
@@ -31,6 +33,7 @@ const navItems = [
   {
     title: "Loans",
     route: "/loans",
+    module: "loans",
     icon: (
       <path
         strokeLinecap="round"
@@ -43,6 +46,7 @@ const navItems = [
   {
     title: "Properties",
     route: "/properties",
+    module: "property",
     icon: (
       <path
         strokeLinecap="round"
@@ -55,6 +59,7 @@ const navItems = [
   {
     title: "Partnerships",
     route: "/partnerships",
+    module: "partnerships",
     icon: (
       <path
         strokeLinecap="round"
@@ -79,6 +84,7 @@ const navItems = [
   {
     title: "Beesi",
     route: "/beesi",
+    module: "beesi",
     icon: (
       <path
         strokeLinecap="round"
@@ -112,10 +118,24 @@ const navItems = [
       />
     ),
   },
+  {
+    title: "Assets",
+    route: "/assets",
+    module: "assets",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+      />
+    ),
+  },
   { type: "divider", title: "Analytics" },
   {
     title: "Forecast & Liquidity",
     route: "/forecast",
+    module: "forecast",
     icon: (
       <path
         strokeLinecap="round"
@@ -128,6 +148,7 @@ const navItems = [
   {
     title: "Expense Analytics",
     route: "/expense-analytics",
+    module: "expense_analytics",
     icon: (
       <path
         strokeLinecap="round"
@@ -140,6 +161,7 @@ const navItems = [
   {
     title: "Reconciliation",
     route: "/reconciliation",
+    module: "reconciliation",
     icon: (
       <path
         strokeLinecap="round"
@@ -152,6 +174,7 @@ const navItems = [
   {
     title: "Property Analytics",
     route: "/analytics/property",
+    module: "property",
     icon: (
       <path
         strokeLinecap="round"
@@ -176,6 +199,7 @@ const navItems = [
   {
     title: "Loan Analytics",
     route: "/analytics/loans",
+    module: "loans",
     icon: (
       <path
         strokeLinecap="round"
@@ -195,6 +219,31 @@ const navItems = [
         strokeLinejoin="round"
         strokeWidth={1.5}
         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    ),
+  },
+  {
+    title: "Admin Console",
+    route: "/admin",
+    adminOnly: true,
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+      />
+    ),
+  },
+  {
+    title: "Settings",
+    route: "/settings",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"
       />
     ),
   },
@@ -224,6 +273,20 @@ export default function Layout({ children }) {
     if (route === "/dashboard") return location.pathname === "/dashboard";
     return location.pathname.startsWith(route);
   };
+
+  // Module-aware navigation (FB-3.5): drop items whose module the user
+  // hasn't enabled, then drop any section divider left with no items.
+  const supportContext = getTenantContext();
+  const enabledItems = navItems.filter(
+    (item) =>
+      item.type === "divider" ||
+      (hasModule(user, item.module) && (!item.adminOnly || user?.role === "admin"))
+  );
+  const visibleItems = enabledItems.filter((item, idx) => {
+    if (item.type !== "divider") return true;
+    const next = enabledItems[idx + 1];
+    return next && next.type !== "divider";
+  });
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -258,7 +321,7 @@ export default function Layout({ children }) {
 
       {/* Nav items */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-thin">
-        {navItems.map((item, idx) => {
+        {visibleItems.map((item, idx) => {
           if (item.type === "divider") {
             return (
               <div key={idx} className="pt-4 pb-2 px-3">
@@ -403,7 +466,26 @@ export default function Layout({ children }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          {supportContext && (
+            <div className="sticky top-0 z-40 bg-amber-500 text-white text-sm font-medium px-4 py-2 flex items-center justify-between shadow">
+              <span>
+                🔍 Support view: <b>{supportContext.username}</b>'s account (read-only)
+              </span>
+              <button
+                onClick={() => {
+                  setTenantContext(null);
+                  navigate("/admin");
+                  window.location.reload();
+                }}
+                className="px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition text-xs font-semibold"
+              >
+                Exit support view
+              </button>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
 
       {/* AI Chatbot */}

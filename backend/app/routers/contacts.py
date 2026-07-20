@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from dateutil.relativedelta import relativedelta
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.user import User
 from app.models.contact import Contact
 from app.models.loan import Loan, LoanPayment
@@ -295,7 +295,7 @@ def get_contacts(
 def create_contact(
     contact_data: ContactCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Create a new contact"""
     # Check duplicate: name + phone (when phone provided), else name + city
@@ -729,7 +729,7 @@ def update_contact(
     contact_id: int,
     contact_data: ContactUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Update a contact"""
     contact = db.query(Contact).filter(
@@ -754,7 +754,7 @@ def update_contact(
 def delete_contact(
     contact_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_write_access)
 ):
     """Soft delete a contact"""
     contact = db.query(Contact).filter(

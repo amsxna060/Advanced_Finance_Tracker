@@ -7,7 +7,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.contact import Contact
 from app.models.obligation import MoneyObligation
 from app.models.property_deal import PropertyDeal
@@ -35,7 +35,7 @@ from app.services.auto_ledger import auto_ledger, reverse_all_ledger, reverse_le
 from app.models.cash_account import AccountTransaction, CashAccount
 from app.models.property_deal import PropertyDeal, PropertyTransaction, SitePlot, PlotBuyer
 
-router = APIRouter(prefix="/api/partnerships", tags=["partnerships"])
+router = APIRouter(prefix="/api/partnerships", tags=["partnerships"], dependencies=[Depends(require_module("partnerships"))])
 
 # New transaction types
 OUTFLOW_TYPES = {
@@ -400,7 +400,7 @@ def get_partnerships(
 def create_partnership(
     partnership_data: PartnershipCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     _ensure_property_exists(partnership_data.linked_property_deal_id, db)
     partnership = Partnership(
@@ -472,7 +472,7 @@ def update_partnership(
     partnership_id: int,
     partnership_data: PartnershipUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
     update_data = partnership_data.model_dump(exclude_unset=True)
@@ -491,7 +491,7 @@ def update_partnership(
 def delete_partnership(
     partnership_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
     # Clean up all linked AccountTransaction entries
@@ -514,7 +514,7 @@ def add_partnership_member(
     partnership_id: int,
     member_data: PartnershipMemberCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
 
@@ -555,7 +555,7 @@ def update_partnership_member(
     member_id: int,
     member_data: PartnershipMemberUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
 
@@ -598,7 +598,7 @@ def delete_partnership_member(
     partnership_id: int,
     member_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
     member = db.query(PartnershipMember).filter(
@@ -669,7 +669,7 @@ def create_partnership_transaction(
     partnership_id: int,
     transaction_data: PartnershipTransactionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
 
@@ -881,7 +881,7 @@ def delete_partnership_transaction(
     partnership_id: int,
     txn_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Void a partnership transaction and reverse all linked effects."""
     partnership = _get_partnership_or_404(partnership_id, db)
@@ -986,7 +986,7 @@ def update_partnership_transaction(
     txn_id: int,
     transaction_data: PartnershipTransactionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Update a partnership transaction with full ledger + member sync."""
     partnership = _get_partnership_or_404(partnership_id, db)
@@ -1415,7 +1415,7 @@ def settle_partnership(
     partnership_id: int,
     request: PartnershipSettleRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     partnership = _get_partnership_or_404(partnership_id, db)
 
@@ -1542,7 +1542,7 @@ def create_buyer_for_partnership(
     partnership_id: int,
     buyer_data: CreateBuyerRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Create a Contact + PlotBuyer (or SitePlot buyer) linked to the partnership's property."""
     partnership = _get_partnership_or_404(partnership_id, db)
@@ -1681,7 +1681,7 @@ def add_plot_to_partnership(
     partnership_id: int,
     plot_data: AddPlotRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Create a PlotBuyer or SitePlot subdivision WITHOUT a buyer assigned."""
     partnership = _get_partnership_or_404(partnership_id, db)
@@ -1769,7 +1769,7 @@ def assign_buyer_to_plot(
     partnership_id: int,
     data: AssignBuyerRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Assign a buyer contact to an existing PlotBuyer or SitePlot.
     Either provide an existing contact_id or name+phone for quick-create with dedup check.
@@ -1977,7 +1977,7 @@ def delete_site_plot(
     partnership_id: int,
     plot_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Delete a site plot subdivision and all its associated transactions, then re-sync."""
     partnership = db.query(Partnership).filter(
@@ -2015,7 +2015,7 @@ def delete_plot_buyer(
     partnership_id: int,
     buyer_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Delete a plot buyer subdivision and all its associated transactions, then re-sync."""
     partnership = db.query(Partnership).filter(

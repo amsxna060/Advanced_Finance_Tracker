@@ -7,7 +7,10 @@ import {
 } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./contexts/AuthContext";
+import { useAuth } from "./hooks/useAuth";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RequireAdmin from "./components/RequireAdmin";
+import RequireModule from "./components/RequireModule";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 
@@ -44,6 +47,15 @@ const AccountDetail = lazy(() => import("./pages/Accounts/AccountDetail"));
 const ObligationList = lazy(() => import("./pages/Obligations/ObligationList"));
 const ActivityLogs = lazy(() => import("./pages/Logs/ActivityLogs"));
 const AdminMigration = lazy(() => import("./pages/Admin/AdminMigration"));
+const Signup = lazy(() => import("./pages/Signup"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const Settings = lazy(() => import("./pages/Settings/Settings"));
+const AssetList = lazy(() => import("./pages/Assets/AssetList"));
+const AdminConsole = lazy(() => import("./pages/Admin/AdminConsole"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Privacy = lazy(() => import("./pages/Legal").then((m) => ({ default: m.Privacy })));
+const Terms = lazy(() => import("./pages/Legal").then((m) => ({ default: m.Terms })));
 
 
 // Minimal spinner shown while a lazy chunk loads
@@ -53,6 +65,14 @@ function PageLoader() {
       <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent" />
     </div>
   );
+}
+
+// "/" shows the public landing page to visitors and the dashboard to
+// logged-in users (FB-6.2).
+function HomeGate() {
+  const { user, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  return user ? <Navigate to="/dashboard" replace /> : <Landing />;
 }
 
 const queryClient = new QueryClient({
@@ -74,6 +94,26 @@ function App() {
           <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route
+              path="/onboarding"
+              element={
+                <ProtectedRoute>
+                  <Onboarding />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/dashboard"
               element={
@@ -128,9 +168,11 @@ function App() {
               path="/loans"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="loans">
                   <Layout>
                     <LoanList />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -138,9 +180,11 @@ function App() {
               path="/loans/new"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="loans">
                   <Layout>
                     <LoanForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -148,9 +192,11 @@ function App() {
               path="/loans/:id/edit"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="loans">
                   <Layout>
                     <LoanForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -158,9 +204,11 @@ function App() {
               path="/loans/:id/statement"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="loans">
                   <Layout>
                     <LoanStatement />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -168,9 +216,11 @@ function App() {
               path="/loans/:id"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="loans">
                   <Layout>
                     <LoanDetail />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -178,9 +228,11 @@ function App() {
               path="/properties"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="property">
                   <Layout>
                     <PropertyList />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -188,9 +240,11 @@ function App() {
               path="/properties/new"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="property">
                   <Layout>
                     <PropertyForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -198,9 +252,11 @@ function App() {
               path="/properties/:id/edit"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="property">
                   <Layout>
                     <PropertyForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -208,9 +264,11 @@ function App() {
               path="/properties/:id"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="property">
                   <Layout>
                     <PropertyDetail />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -218,9 +276,11 @@ function App() {
               path="/properties/:id/simulator"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="property">
                   <Layout>
                     <SimulatorPage />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -228,9 +288,11 @@ function App() {
               path="/partnerships"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="partnerships">
                   <Layout>
                     <PartnershipList />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -238,9 +300,11 @@ function App() {
               path="/partnerships/new"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="partnerships">
                   <Layout>
                     <PartnershipForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -248,9 +312,11 @@ function App() {
               path="/partnerships/:id/edit"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="partnerships">
                   <Layout>
                     <PartnershipForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -258,9 +324,11 @@ function App() {
               path="/partnerships/:id"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="partnerships">
                   <Layout>
                     <PartnershipDetail />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -278,9 +346,11 @@ function App() {
               path="/reports"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="reports">
                   <Layout>
                     <Reports />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -292,9 +362,11 @@ function App() {
               path="/forecast"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="forecast">
                   <Layout>
                     <Forecast />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -302,9 +374,11 @@ function App() {
               path="/expense-analytics"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="expense_analytics">
                   <Layout>
                     <ExpenseAnalytics />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -312,9 +386,11 @@ function App() {
               path="/reconciliation"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="reconciliation">
                   <Layout>
                     <Reconciliation />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -332,9 +408,11 @@ function App() {
               path="/analytics/property"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="property">
                   <Layout>
                     <PropertyAnalytics />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -342,15 +420,25 @@ function App() {
               path="/analytics/loans"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="loans">
                   <Layout>
                     <LoanAnalytics />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
             <Route
               path="/assets"
-              element={<Navigate to="/net-worth" replace />}
+              element={
+                <ProtectedRoute>
+                  <RequireModule module="assets">
+                    <Layout>
+                      <AssetList />
+                    </Layout>
+                  </RequireModule>
+                </ProtectedRoute>
+              }
             />
             <Route
               path="/money-flow"
@@ -360,9 +448,11 @@ function App() {
               path="/beesi"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="beesi">
                   <Layout>
                     <BeesiList />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -370,9 +460,11 @@ function App() {
               path="/beesi/new"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="beesi">
                   <Layout>
                     <BeesiForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -380,9 +472,11 @@ function App() {
               path="/beesi/:id/edit"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="beesi">
                   <Layout>
                     <BeesiForm />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -390,9 +484,11 @@ function App() {
               path="/beesi/:id"
               element={
                 <ProtectedRoute>
+                  <RequireModule module="beesi">
                   <Layout>
                     <BeesiDetail />
                   </Layout>
+                  </RequireModule>
                 </ProtectedRoute>
               }
             />
@@ -457,16 +553,32 @@ function App() {
               }
             />
             <Route
-              path="/admin/migration"
+              path="/admin"
               element={
                 <ProtectedRoute>
-                  <Layout>
-                    <AdminMigration />
-                  </Layout>
+                  <RequireAdmin>
+                    <Layout>
+                      <AdminConsole />
+                    </Layout>
+                  </RequireAdmin>
                 </ProtectedRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route
+              path="/admin/migration"
+              element={
+                <ProtectedRoute>
+                  <RequireAdmin>
+                    <Layout>
+                      <AdminMigration />
+                    </Layout>
+                  </RequireAdmin>
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/" element={<HomeGate />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
           </Routes>
           </Suspense>
         </AuthProvider>

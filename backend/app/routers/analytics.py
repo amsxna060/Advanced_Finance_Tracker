@@ -291,8 +291,10 @@ def analytics_overview(
             top_contacts.append({"id": cid, "name": _names[cid], "outstanding": float(amt)})
 
     # ── NET WORTH ────────────────────────────────────────────────────────
-    # Unencumbered assets (standalone owned assets not linked to any deal)
-    _total_unencumbered = _D(
+    # Standalone assets via the assets module interface (E4 boundary);
+    # legacy unencumbered sum kept only for pre-migration-048 databases.
+    from app.modules_pkg.assets.service import assets_summary
+    _total_unencumbered = assets_summary(db)["total"] + _D(
         db.query(sa_func.coalesce(sa_func.sum(UnencumberedAsset.estimated_value), 0))
         .filter(UnencumberedAsset.is_deleted == False)
         .scalar()
@@ -900,13 +902,21 @@ def analytics_assets(
         })
     pledged_items.sort(key=lambda x: x["estimated_value"], reverse=True)
 
-    # ── UNENCUMBERED ASSETS (standalone owned assets, no loan linkage) ───────
-    unencumbered_rows = db.query(UnencumberedAsset).filter(
+    # ── STANDALONE ASSETS — via the assets module interface (E4 boundary) ──
+    # Item shape keeps the legacy keys (title/category/estimated_value) so
+    # the NetWorth frontend section works unchanged. Legacy unencumbered
+    # rows are included only on pre-migration-048 databases.
+    from app.modules_pkg.assets.service import assets_summary
+    _s = assets_summary(db)
+    total_unencumbered = _s["total"]
+    unencumbered_items = [
+        {"id": i["id"], "title": i["name"], "category": i["asset_type"],
+         "estimated_value": i["current_value"]}
+        for i in _s["items"]
+    ]
+    for u in db.query(UnencumberedAsset).filter(
         UnencumberedAsset.is_deleted == False
-    ).order_by(UnencumberedAsset.estimated_value.desc()).all()
-    unencumbered_items = []
-    total_unencumbered = Decimal("0")
-    for u in unencumbered_rows:
+    ).order_by(UnencumberedAsset.estimated_value.desc()).all():
         val = _D(u.estimated_value)
         total_unencumbered += val
         unencumbered_items.append({

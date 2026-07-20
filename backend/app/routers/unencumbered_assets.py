@@ -13,11 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access, require_module
 from app.models.unencumbered_asset import UnencumberedAsset
 from app.models.user import User
 
-router = APIRouter(prefix="/api/unencumbered-assets", tags=["unencumbered-assets"])
+router = APIRouter(prefix="/api/unencumbered-assets", tags=["unencumbered-assets"], dependencies=[Depends(require_module("assets"))])
 
 VALID_CATEGORIES = {
     "real_estate", "gold", "vehicle", "equipment",
@@ -72,7 +72,7 @@ def list_assets(
 def create_asset(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     if not payload.get("title"):
         raise HTTPException(status_code=422, detail="title is required")
@@ -110,7 +110,7 @@ def update_asset(
     asset_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     asset = db.query(UnencumberedAsset).filter(
         UnencumberedAsset.id == asset_id,
@@ -148,7 +148,7 @@ def update_asset(
 def delete_asset(
     asset_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     asset = db.query(UnencumberedAsset).filter(
         UnencumberedAsset.id == asset_id,

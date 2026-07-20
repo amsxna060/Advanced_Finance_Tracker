@@ -19,9 +19,10 @@ from sqlalchemy import (
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class ForecastOverride(Base):
+class ForecastOverride(Base, TenantMixin):
     __tablename__ = "forecast_overrides"
 
     id = Column(Integer, primary_key=True, index=True)

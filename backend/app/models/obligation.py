@@ -8,9 +8,10 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, Date, F
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class MoneyObligation(Base):
+class MoneyObligation(Base, TenantMixin):
     __tablename__ = "money_obligations"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -53,7 +54,7 @@ class MoneyObligation(Base):
     settlements = relationship("ObligationSettlement", back_populates="obligation")
 
 
-class ObligationSettlement(Base):
+class ObligationSettlement(Base, TenantMixin):
     __tablename__ = "obligation_settlements"
 
     id = Column(Integer, primary_key=True, index=True)

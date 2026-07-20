@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_write_access
 from app.models.cash_account import AccountTransaction, CashAccount
 from app.models.user import User
 
@@ -128,7 +128,7 @@ def list_accounts(
 def create_account(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     if not payload.get("name"):
         raise HTTPException(status_code=422, detail="Account name is required")
@@ -171,7 +171,7 @@ def update_account(
     account_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     account = db.query(CashAccount).filter(
         CashAccount.id == account_id, CashAccount.is_deleted == False
@@ -207,7 +207,7 @@ def update_account(
 def delete_account(
     account_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     account = db.query(CashAccount).filter(
         CashAccount.id == account_id, CashAccount.is_deleted == False
@@ -257,7 +257,7 @@ def add_transaction(
     account_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     account = db.query(CashAccount).filter(
         CashAccount.id == account_id, CashAccount.is_deleted == False
@@ -313,7 +313,7 @@ def add_transaction(
 def transfer_between_accounts(
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     from_id = payload.get("from_account_id")
     to_id = payload.get("to_account_id")
@@ -402,7 +402,7 @@ def void_transaction(
     txn_id: int,
     force: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_write_access),
 ):
     """Soft-void a transaction with two-way sync back to the source record.
 

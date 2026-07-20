@@ -1,9 +1,10 @@
 from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime
 from sqlalchemy.sql import func
 from app.database import Base
+from app.models.mixins import TenantMixin
 
 
-class Contact(Base):
+class Contact(Base, TenantMixin):
     __tablename__ = "contacts"
 
     id = Column(Integer, primary_key=True, index=True)
