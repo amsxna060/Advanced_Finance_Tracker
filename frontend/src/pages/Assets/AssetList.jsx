@@ -234,7 +234,31 @@ export default function AssetList() {
     queryFn: () => api.get("/api/assets").then((r) => r.data),
   });
 
+  // Live gold rate — refreshed on the server every few hours; shown here so
+  // gold wealth reads like a live ticker.
+  const { data: goldRate } = useQuery({
+    queryKey: ["gold-rate"],
+    queryFn: () => api.get("/api/assets/gold-rate").then((r) => r.data.rate_per_gram_24k),
+    staleTime: 10 * 60 * 1000,
+  });
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ["assets"] });
+  const [refreshingAll, setRefreshingAll] = useState(false);
+
+  async function refreshAllGold() {
+    setRefreshingAll(true);
+    try {
+      const r = await api.post("/api/assets/refresh-gold");
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["gold-rate"] });
+      setToast({ kind: "ok", text: `Revalued ${r.data.updated} gold holding(s) at ₹${Number(r.data.rate_per_gram_24k).toLocaleString("en-IN")}/g` });
+    } catch (err) {
+      setToast({ kind: "err", text: err?.response?.data?.detail || "Gold rate unavailable" });
+    } finally {
+      setRefreshingAll(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  }
 
   const createMutation = useMutation({
     mutationFn: (p) => api.post("/api/assets", p), onSuccess: invalidate,
@@ -296,10 +320,24 @@ export default function AssetList() {
                 {assets.length} asset{assets.length === 1 ? "" : "s"} · Total {fmt(total)}
               </p>
             </div>
-            <button onClick={() => setModal({ mode: "add" })}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-sm">
-              + Add Asset
-            </button>
+            <div className="flex items-center gap-2">
+              {goldRate != null && (
+                <div className="text-right mr-1">
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400">Gold 24k</p>
+                  <p className="text-sm font-semibold text-amber-600">₹{Number(goldRate).toLocaleString("en-IN", { maximumFractionDigits: 0 })}/g</p>
+                </div>
+              )}
+              {assets.some((a) => a.asset_type === "gold" && a.quantity && a.gold_carat) && (
+                <button onClick={refreshAllGold} disabled={refreshingAll}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-800 rounded-xl text-xs font-semibold hover:bg-amber-200 transition disabled:opacity-50">
+                  {refreshingAll ? "Updating…" : "⟳ Refresh gold"}
+                </button>
+              )}
+              <button onClick={() => setModal({ mode: "add" })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-sm">
+                + Add Asset
+              </button>
+            </div>
           </div>
 
           {toast && (

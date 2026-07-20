@@ -33,8 +33,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30   # was 15 — now matches .env.example
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     CORS_ORIGINS: str = "http://localhost:5173"
-    GOLD_API_URL: str = "https://goldpricez.com/api/rates/currency/inr/measure/gram"
+    # Gold valuation sources (free, no API key). Overridable if you switch
+    # to a paid provider later. See services/gold_price.py.
+    GOLD_PRICE_URL: str = "https://api.gold-api.com/price/XAU"   # USD per troy ounce
+    FX_RATE_URL: str = "https://open.er-api.com/v6/latest/USD"   # USD→INR
     GOLD_CACHE_TTL_SECONDS: int = 3600
+    # Auto-revalue gold assets & collateral on a schedule (default: on).
+    # Also flippable at runtime from the admin portal (platform_settings).
+    GOLD_AUTO_REFRESH_ENABLED: bool = True
+    GOLD_AUTO_REFRESH_HOURS: int = 3
     # Interest-only loans: how many future months of interest a borrower may
     # prepay before any excess is treated as a principal reduction. Protects
     # principal from being touched when a borrower simply pays next month's

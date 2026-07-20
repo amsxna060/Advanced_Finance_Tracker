@@ -64,9 +64,10 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     if not user.is_active:
         raise _invalid
 
-    # FB-3.3: public-signup accounts must verify their email first when the
-    # deployment requires it (off in development; on in production).
-    if settings.REQUIRE_EMAIL_VERIFICATION and not user.email_verified:
+    # Email verification requirement is a runtime setting (admin portal),
+    # falling back to the .env default.
+    from app.services.settings_store import get_setting
+    if get_setting(db, "require_email_verification") and not user.email_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="email_not_verified",
@@ -274,7 +275,10 @@ def signup(request: Request, payload: SignupRequest, db: Session = Depends(get_d
     module set; the onboarding questionnaire then tailors modules via
     PUT /me/modules. Stricter rate limit than login (abuse surface).
     """
-    if not settings.SIGNUP_ENABLED:
+    # Signup open/closed is a runtime setting (admin portal), falling back to
+    # the .env default — flip it without a redeploy.
+    from app.services.settings_store import get_setting
+    if not get_setting(db, "signup_enabled"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Signup is currently disabled",

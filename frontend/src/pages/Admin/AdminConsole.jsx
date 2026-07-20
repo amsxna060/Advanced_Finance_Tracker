@@ -24,6 +24,16 @@ export default function AdminConsole() {
   const [search, setSearch] = useState("");
   const activeContext = getTenantContext();
 
+  const { data: settings = [] } = useQuery({
+    queryKey: ["admin-settings"],
+    queryFn: () => api.get("/api/admin/settings").then((r) => r.data),
+  });
+
+  const settingMutation = useMutation({
+    mutationFn: ({ key, value }) => api.put(`/api/admin/settings/${key}`, { value }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-settings"] }),
+  });
+
   const { data: users = [] } = useQuery({
     queryKey: ["admin-users", search],
     queryFn: () => api.get("/api/admin/users", { params: { search } }).then((r) => r.data),
@@ -97,6 +107,41 @@ export default function AdminConsole() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Platform settings (no redeploy needed) ── */}
+      {settings.length > 0 && (
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="text-sm font-semibold text-slate-800">Platform Settings</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Flip these live — changes apply within seconds, no redeploy.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-50">
+            {settings.filter((s) => s.type === "bool").map((s) => (
+              <li key={s.key} className="flex items-center justify-between px-5 py-3.5">
+                <div className="pr-4">
+                  <p className="text-sm font-medium text-slate-800">{s.label}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{s.help}</p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={!!s.value}
+                  disabled={settingMutation.isPending}
+                  onClick={() => settingMutation.mutate({ key: s.key, value: !s.value })}
+                  className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                    s.value ? "bg-indigo-500" : "bg-slate-300"
+                  } ${settingMutation.isPending ? "opacity-50" : ""}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    s.value ? "translate-x-[22px]" : "translate-x-0.5"
+                  }`} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* ── Users ── */}

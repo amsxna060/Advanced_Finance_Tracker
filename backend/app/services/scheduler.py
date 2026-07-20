@@ -132,11 +132,53 @@ def process_recurring_transactions():
         db.close()
 
 
+def run_gold_revaluation():
+    """Revalue every tenant's gold from the live rate (skips when the runtime
+    toggle is off). Guarded by the same advisory lock so only one worker runs
+    it. Sync wrapper around the async revaluation service."""
+    import asyncio
+    from app.database import SessionLocal
+    from app.services.settings_store import get_setting
+    from app.services.gold_revaluation import revalue_all_gold
+
+    db = SessionLocal()
+    try:
+        locked = db.execute(
+            __import__("sqlalchemy").text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": _ADVISORY_LOCK_KEY + 1},
+        ).scalar()
+        if not locked:
+            return
+        if not get_setting(db, "gold_auto_refresh_enabled"):
+            return
+        asyncio.run(revalue_all_gold(db))
+    except Exception as exc:
+        db.rollback()
+        print(f"[scheduler] ERROR in run_gold_revaluation: {exc}")
+    finally:
+        try:
+            db.execute(
+                __import__("sqlalchemy").text("SELECT pg_advisory_unlock(:key)"),
+                {"key": _ADVISORY_LOCK_KEY + 1},
+            )
+            db.commit()
+        except Exception:
+            pass
+        db.close()
+
+
 def start_scheduler():
+    from app.config import settings as _settings
     scheduler.add_job(
         process_recurring_transactions,
         trigger=CronTrigger(hour=0, minute=5),
         id="recurring_transactions",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_gold_revaluation,
+        trigger="interval", hours=max(1, _settings.GOLD_AUTO_REFRESH_HOURS),
+        id="gold_revaluation",
         replace_existing=True,
     )
     scheduler.start()

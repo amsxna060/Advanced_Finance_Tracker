@@ -21,6 +21,7 @@ from app.models.activity_log import ActivityLog
 # the activity logger and create_all see them like any other model.
 from app.modules_pkg.assets.models import Asset
 from app.models.outbox_event import OutboxEvent
+from app.models.platform_setting import PlatformSetting
 
 __all__ = [
     "User",
@@ -53,4 +54,5 @@ __all__ = [
     "ActivityLog",
     "Asset",
     "OutboxEvent",
+    "PlatformSetting",
 ]

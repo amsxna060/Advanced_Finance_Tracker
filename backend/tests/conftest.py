@@ -88,6 +88,17 @@ def disable_rate_limiter():
 # DB fixture — each test gets a transaction that is rolled back on teardown
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _clear_settings_cache():
+    """The runtime-settings store keeps a small in-process cache that is NOT
+    part of the DB transaction — clear it between tests so a DB override set
+    in one test can't leak into another."""
+    from app.services import settings_store
+    settings_store._CACHE.clear()
+    yield
+    settings_store._CACHE.clear()
+
+
 @pytest.fixture(scope="function")
 def db():
     """

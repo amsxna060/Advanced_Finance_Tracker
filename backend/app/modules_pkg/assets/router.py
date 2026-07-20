@@ -38,6 +38,26 @@ def _out(asset: Asset) -> AssetOut:
     return out
 
 
+@router.get("/gold-rate")
+async def gold_rate(current_user: User = Depends(get_current_user)):
+    """Current live 24k gold rate (₹/gram) — lets the UI show live wealth."""
+    from app.services.gold_price import fetch_live_gold_rate_per_gram_inr
+    rate = await fetch_live_gold_rate_per_gram_inr()
+    return {"rate_per_gram_24k": float(rate) if rate is not None else None}
+
+
+@router.post("/refresh-gold")
+async def refresh_my_gold(db: Session = Depends(get_db),
+                          current_user: User = Depends(require_write_access)):
+    """Revalue ALL of the caller's gold — assets and loan collateral — from
+    the live rate in one shot."""
+    from app.services.gold_revaluation import revalue_tenant_gold
+    result = await revalue_tenant_gold(db)
+    if not result["ok"]:
+        raise HTTPException(status_code=503, detail="Live gold rate unavailable — try again later")
+    return result
+
+
 @router.get("", response_model=List[AssetOut])
 def list_assets(db: Session = Depends(get_db),
                 current_user: User = Depends(get_current_user)):

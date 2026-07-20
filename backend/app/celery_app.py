@@ -57,6 +57,11 @@ celery_app.conf.update(
             "task": "app.tasks.dispatch_outbox",
             "schedule": 60.0,
         },
+        # Periodic gold revaluation (assets + collateral) from the live rate.
+        "revalue-gold": {
+            "task": "app.tasks.revalue_gold",
+            "schedule": crontab(minute=0, hour=f"*/{max(1, settings.GOLD_AUTO_REFRESH_HOURS)}"),
+        },
     },
 )
 

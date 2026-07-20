@@ -302,6 +302,53 @@ def platform_stats(
     }
 
 
+@router.get("/settings")
+def get_platform_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Runtime-editable operational switches (signup, email verification,
+    gold auto-refresh). Change them here — no redeploy, no .env, no SSH."""
+    from app.services.settings_store import all_settings
+    return all_settings(db)
+
+
+@router.put("/settings/{key}")
+def update_platform_setting(
+    key: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    from app.services.settings_store import set_setting
+    if "value" not in payload:
+        raise HTTPException(status_code=422, detail="Body must include 'value'")
+    try:
+        new_value = set_setting(db, key, payload["value"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    logger.warning("AUDIT setting '%s' set to %r by admin=%s", key, new_value, current_user.id)
+    return {"key": key, "value": new_value}
+
+
+@router.get("/gold-rate")
+async def admin_gold_rate(current_user: User = Depends(require_admin)):
+    """Current live 24k gold rate (₹/gram), for the admin dashboard."""
+    from app.services.gold_price import fetch_live_gold_rate_per_gram_inr
+    rate = await fetch_live_gold_rate_per_gram_inr()
+    return {"rate_per_gram_24k": float(rate) if rate is not None else None}
+
+
+@router.post("/gold-rate/refresh-all")
+async def admin_refresh_all_gold(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Force an immediate revaluation of every user's gold assets & collateral."""
+    from app.services.gold_revaluation import revalue_all_gold
+    return await revalue_all_gold(db)
+
+
 @router.get("/users/{user_id}/activity")
 def user_activity(
     user_id: int,

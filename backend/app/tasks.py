@@ -44,3 +44,19 @@ def dispatch_outbox(limit: int = 100) -> int:
         return dispatch_pending(db, limit=limit)
     finally:
         db.close()
+
+
+@celery_app.task(name="app.tasks.revalue_gold")
+def revalue_gold() -> dict:
+    import asyncio
+    from app.database import SessionLocal
+    from app.services.settings_store import get_setting
+    from app.services.gold_revaluation import revalue_all_gold
+
+    db = SessionLocal()
+    try:
+        if not get_setting(db, "gold_auto_refresh_enabled"):
+            return {"ok": False, "reason": "disabled"}
+        return asyncio.run(revalue_all_gold(db))
+    finally:
+        db.close()

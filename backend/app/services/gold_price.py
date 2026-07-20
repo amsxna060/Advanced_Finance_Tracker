@@ -1,71 +1,76 @@
+"""Live gold rate (INR per gram, 24k) from free, no-API-key sources.
+
+The old goldpricez.com endpoint needs a paid key. We instead combine two
+free, keyless public APIs:
+  - gold-api.com  → gold spot price in USD per troy ounce (XAU)
+  - open.er-api.com → USD→INR exchange rate
+
+  INR_per_gram_24k = (USD_per_ounce * USD_INR) / 31.1035
+
+Both source URLs are overridable via settings (GOLD_PRICE_URL / FX_RATE_URL)
+if you later switch to a paid provider. Result is cached in-process for
+GOLD_CACHE_TTL_SECONDS. calculate_gold_value() applies the carat purity.
+"""
 import asyncio
-import httpx
 import logging
 import threading
+from datetime import datetime
 from decimal import Decimal
-from datetime import datetime, timedelta
 from typing import Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
-# M-FIN-28: protect the in-process cache with a threading lock so concurrent
-# asyncio tasks / threads don't get a torn read or double-fetch.
+_GRAMS_PER_TROY_OUNCE = Decimal("31.1034768")
+
 _cache_lock = threading.Lock()
-_gold_rate_cache = {
-    "rate": None,
-    "fetched_at": None,
-}
+_gold_rate_cache = {"rate": None, "fetched_at": None}
+
+
+async def _get_json(client: httpx.AsyncClient, url: str) -> dict:
+    resp = await client.get(url)
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def fetch_live_gold_rate_per_gram_inr(cache_ttl_seconds: int = 3600) -> Optional[Decimal]:
-    """
-    Fetch live gold rate per gram in INR.
-    M-FIN-27: URL is read from settings.GOLD_API_URL instead of being hardcoded.
-    M-FIN-28: cache is protected by a threading.Lock.
-    M-INT-6: retries up to 3 times with exponential backoff on transient errors.
-    Returns None if the API is unavailable after retries.
-    Caches result for cache_ttl_seconds (default 1 hour).
-    """
+    """Return live 24k gold rate in INR/gram, or None if sources are down.
+    Cached for cache_ttl_seconds. Retries transient failures 3x with backoff."""
     from app.config import settings
 
-    # Check cache under lock
     with _cache_lock:
         if _gold_rate_cache["rate"] is not None and _gold_rate_cache["fetched_at"] is not None:
-            cache_age = (datetime.now() - _gold_rate_cache["fetched_at"]).total_seconds()
-            if cache_age < cache_ttl_seconds:
+            if (datetime.now() - _gold_rate_cache["fetched_at"]).total_seconds() < cache_ttl_seconds:
                 return _gold_rate_cache["rate"]
 
-    # M-INT-6: retry with exponential backoff (1s, 2s, 4s)
-    last_exc: Exception = None
-    for attempt, delay in enumerate([0, 1, 2]):
+    last_exc: Optional[Exception] = None
+    for delay in (0, 1, 2):
         if delay:
             await asyncio.sleep(delay)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(settings.GOLD_API_URL)
-                response.raise_for_status()
-                data = response.json()
+                gold = await _get_json(client, settings.GOLD_PRICE_URL)
+                usd_per_oz = Decimal(str(gold["price"]))          # gold-api.com: {"price": <usd/oz>}
 
-                price = data.get("price")
-                if price:
-                    rate = Decimal(str(price))
-                    with _cache_lock:
-                        _gold_rate_cache["rate"] = rate
-                        _gold_rate_cache["fetched_at"] = datetime.now()
-                    return rate
+                fx = await _get_json(client, settings.FX_RATE_URL)
+                usd_inr = Decimal(str(fx["rates"]["INR"]))         # open.er-api.com: {"rates": {"INR": ...}}
+
+            rate = (usd_per_oz * usd_inr / _GRAMS_PER_TROY_OUNCE).quantize(Decimal("0.01"))
+            with _cache_lock:
+                _gold_rate_cache["rate"] = rate
+                _gold_rate_cache["fetched_at"] = datetime.now()
+            logger.info("Gold rate refreshed: ₹%s/gram (24k)", rate)
+            return rate
         except Exception as exc:
             last_exc = exc
-            logger.warning("Gold API attempt %d failed: %s", attempt + 1, exc)
+            logger.warning("Gold rate fetch failed: %s", exc)
 
-    logger.error("Gold API unavailable after 3 attempts: %s", last_exc)
+    logger.error("Gold rate unavailable after retries: %s", last_exc)
     return None
 
 
-def calculate_gold_value(carat: int, weight_grams: Decimal, price_per_gram: Decimal) -> Decimal:
-    """
-    Calculate gold value based on carat, weight, and price per gram.
-    Formula: (carat / 24) * weight_grams * price_per_gram
-    """
-    purity_factor = Decimal(str(carat)) / Decimal("24")
-    value = purity_factor * weight_grams * price_per_gram
-    return value.quantize(Decimal("0.01"))
+def calculate_gold_value(carat: int, weight_grams: Decimal, price_per_gram_24k: Decimal) -> Decimal:
+    """Value of a gold holding: (carat/24) * grams * 24k-rate."""
+    purity = Decimal(str(carat)) / Decimal("24")
+    return (purity * Decimal(str(weight_grams)) * Decimal(str(price_per_gram_24k))).quantize(Decimal("0.01"))
