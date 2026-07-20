@@ -288,12 +288,19 @@ def signup(request: Request, payload: SignupRequest, db: Session = Depends(get_d
         db=db,
     )
     user.enabled_modules = DEFAULT_SIGNUP_MODULES
+    # E8: the event commits atomically with the signup (transactional outbox)
+    from app.events import emit_event, flush_events
+    emit_event(db, "user.signed_up", {
+        "user_id": user.id, "email": user.email,
+        "username": user.username, "full_name": user.full_name,
+    }, owner_id=user.id)
     db.commit()
     db.refresh(user)
 
     # Best-effort: a mail failure must not fail the signup — the user can
-    # request a resend from the login screen.
+    # request a resend from the login screen. (E7: delivered via task.)
     send_verification_email(user.email, _create_email_verify_token(user.id))
+    flush_events(db)   # welcome email handler runs here (or via worker)
 
     out = UserOut.model_validate(user)
     out.enabled_modules = effective_modules(user.enabled_modules)

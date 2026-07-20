@@ -15,6 +15,7 @@ os.environ.setdefault("GEMINI_API_KEY", "")
 os.environ.setdefault("SEED_ADMIN_USERNAME", "admin")
 os.environ.setdefault("SEED_ADMIN_PASSWORD", "admin123")
 os.environ.setdefault("SEED_ADMIN_EMAIL", "admin@test.local")
+os.environ.setdefault("SIGNUP_ENABLED", "true")  # default flipped to False for prod safety
 
 from unittest.mock import patch
 

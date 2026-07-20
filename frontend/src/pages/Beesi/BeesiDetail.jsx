@@ -11,7 +11,10 @@ export default function BeesiDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  // E2/E6 authz model: every user writes their own data; only readonly
+  // guest credentials are view-only. ("isAdmin" name kept to avoid a
+  // wide rename in this page.)
+  const isAdmin = user?.role !== "readonly";
 
   const [showInstallmentForm, setShowInstallmentForm] = useState(false);
   const [showWithdrawForm, setShowWithdrawForm] = useState(false);

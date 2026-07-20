@@ -48,8 +48,11 @@ def _send_smtp(to: str, subject: str, body: str) -> bool:
 
 
 def send_verification_email(to: str, token: str) -> bool:
+    """E7: delivery goes through the Celery task — off the request thread
+    when Redis is configured, inline otherwise (eager mode)."""
+    from app.tasks import send_email as send_email_task
     link = f"{settings.FRONTEND_URL}/verify-email?token={token}"
-    return send_email(
+    send_email_task.delay(
         to,
         "Verify your FinancerBuddy email",
         "Welcome to FinancerBuddy!\n\n"
@@ -57,3 +60,4 @@ def send_verification_email(to: str, token: str) -> bool:
         "The link is valid for 48 hours. If you didn't create this account, "
         "you can ignore this message.",
     )
+    return True

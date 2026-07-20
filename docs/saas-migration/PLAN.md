@@ -57,6 +57,15 @@ Phase 3 — Service extraction (strangler)        (the microservices)
   API gateway routing, SQS/SNS integration, WhatsApp-bot Lambda
 ```
 
+> **DECISION 2026-07-20 (owner): Phase 3 is DROPPED.** No service split, no
+> SQS/Kafka in prod, no WhatsApp bot for now. Rationale: single operator,
+> modest load — deployment independence isn't worth the operational cost on
+> free-tier infra. The app stays ONE deployable unit; the modular boundaries
+> built in Phase 1 (e.g. modules_pkg/assets) remain as code hygiene and keep
+> the option open. Phase 2 is right-sized accordingly: Celery/Redis with a
+> no-Redis fallback, and in-app events only (outbox pattern for learning +
+> notifications — no external brokers).
+
 Why this order works:
 - Phase 1 is the actual product change users see; it's shippable alone.
 - Tenancy done in the monolith is enforced in **one place**; done after a split it must be re-solved per service.

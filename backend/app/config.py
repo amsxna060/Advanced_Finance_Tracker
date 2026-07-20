@@ -50,9 +50,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # ── Public signup (E3) ────────────────────────────────────────────────
-    # Master switch: keep False in production until the FB-3.7 security
-    # review is Done; True is fine for local development and tests.
-    SIGNUP_ENABLED: bool = True
+    # Master switch. DEFAULT FALSE so a production deploy that hasn't set the
+    # var cannot accidentally open signup. Dev/tests set SIGNUP_ENABLED=true
+    # explicitly (.env / tests/conftest.py).
+    SIGNUP_ENABLED: bool = False
     # When True, unverified accounts cannot log in. Off in dev so the flow
     # works without an SMTP setup; turn on in production.
     REQUIRE_EMAIL_VERIFICATION: bool = False
@@ -65,6 +66,25 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "FinancerBuddy <no-reply@financerbuddy.com>"
     # Base URL used to build links inside emails (verify page, etc.).
     FRONTEND_URL: str = "http://localhost:5173"
+
+    # ── Platform admin provisioning (E6, env-driven — no SSH scripts) ─────
+    # When PLATFORM_ADMIN_USERNAME is set, startup creates-or-updates that
+    # account as the platform admin. With PLATFORM_ADMIN_READ_ONLY (default)
+    # the admin role is blocked from ALL writes at the HTTP level — support
+    # can look (tenant context view), never touch.
+    PLATFORM_ADMIN_USERNAME: str = ""
+    PLATFORM_ADMIN_EMAIL: str = ""
+    PLATFORM_ADMIN_PASSWORD: str = ""
+    PLATFORM_ADMIN_READ_ONLY: bool = True
+    # One-shot cut-over switch: when provisioning runs, demote every OTHER
+    # role=admin account to a normal user (role=viewer, keeps all data and
+    # all modules). This is how amolsaxena060 becomes a regular user.
+    DEMOTE_OTHER_ADMINS: bool = False
+
+    # ── Async backbone (E7). Empty REDIS_URL = no Redis: Celery tasks run
+    # eagerly in-process and APScheduler keeps handling recurring items —
+    # the app behaves exactly as before, so deploys don't require Redis. ──
+    REDIS_URL: str = ""
 
     # ── Validators ────────────────────────────────────────────────────────
 

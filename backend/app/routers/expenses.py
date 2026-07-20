@@ -428,6 +428,16 @@ def create_expense(
     db.add(expense)
     db.flush()
 
+    # E8: domain event, committed atomically with the expense. The
+    # category-limit alert handler consumes it (see app/events.py).
+    from app.events import emit_event
+    emit_event(db, "expense.created", {
+        "expense_id": expense.id,
+        "category": expense.category,
+        "amount": float(expense.amount),
+        "expense_date": expense.expense_date.isoformat(),
+    })
+
     # Auto-ledger: debit account for expense
     if expense.account_id:
         auto_ledger(
@@ -447,6 +457,10 @@ def create_expense(
 
     db.commit()
     db.refresh(expense)
+
+    # E8: deliver the committed event (inline without Redis, worker with)
+    from app.events import flush_events
+    flush_events(db)
 
     # Learn from this save for future suggestions.
     # Wrapped in try/except: the expense is already committed above, so a learning

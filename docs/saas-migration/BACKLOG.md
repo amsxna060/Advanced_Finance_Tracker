@@ -79,50 +79,54 @@
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-7.1 | **Infra.** Redis container (docker) on VM + local compose; `celery_app.py`; worker + beat systemd units; healthcheck. | Todo | Memory-budget check first (VM headroom). |
-| FB-7.2 | **Move APScheduler → Celery beat.** `process_recurring_transactions` becomes an idempotent Celery task (keep advisory-lock/row-lock guards); remove APScheduler from app startup. | Todo | `services/scheduler.py` retires. |
-| FB-7.3 | **Async report generation.** `/api/reports` PDF/Excel become tasks: request → task id → poll/download. First user-visible async flow. | Todo | reportlab/openpyxl already there. |
-| FB-7.4 | **Retries, idempotency, DLQ.** Task error handling policy: retry with backoff, idempotency keys, dead-letter queue + admin visibility. | Todo | |
-| FB-7.5 | 📚 **Tutorial: Celery in production.** `learning/07-celery.md`: broker vs backend, prefetch, acks_late, idempotency, beat vs cron, monitoring (flower). | Todo | |
+| FB-7.1 | **Infra.** Redis container (docker) on VM + local compose; `celery_app.py`; worker + beat systemd units; healthcheck. | Done | Done — broker-optional design: `app/celery_app.py` (REDIS_URL empty → task_always_eager, app unchanged; set → real broker). docker-compose `--profile async` adds redis/worker/beat for local dev. Broker mode verified live (real worker executed a task over Redis). |
+| FB-7.2 | **Move APScheduler → Celery beat.** `process_recurring_transactions` becomes an idempotent Celery task (keep advisory-lock/row-lock guards); remove APScheduler from app startup. | Done | Done — beat owns the daily job when Redis is set (main.py skips APScheduler to avoid double-posting); without Redis APScheduler continues. Task body reuses the advisory-lock-guarded idempotent job. |
+| FB-7.3 | **Async report generation.** `/api/reports` PDF/Excel become tasks: request → task id → poll/download. First user-visible async flow. | Descoped | Decision: reports stay synchronous — generation is ~1s at this data size; enqueue+poll would make UX worse. Revisit only if report time grows. |
+| FB-7.4 | **Retries, idempotency, DLQ.** Task error handling policy: retry with backoff, idempotency keys, dead-letter queue + admin visibility. | Done | Done — acks_late + prefetch 1 (at-least-once), email retries w/ backoff (broker mode only), eager errors never propagate into requests; outbox rows park after MAX_ATTEMPTS=5 with last_error (SQL-inspectable DLQ). |
+| FB-7.5 | 📚 **Tutorial: Celery in production.** `learning/07-celery.md`: broker vs backend, prefetch, acks_late, idempotency, beat vs cron, monitoring (flower). | Done | Done — `learning/07-celery.md`. |
 
-### E8 — Domain events + outbox
+### E8 — Domain events + outbox *(trimmed 2026-07-20: in-app only — no SNS/SQS/Kafka; relay dispatches to in-process handlers via Celery)*
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-8.1 | **Event schema + outbox table.** `outbox_events` (id, tenant, type, payload, created, published); `emit_event()` writes in-transaction. Define first events: `ExpenseCreated/Updated/Deleted`, `LoanPaymentRecorded`, `AssetValued`, `UserSignedUp`. | Todo | The transactional-outbox pattern — core learning. |
-| FB-8.2 | **Relay + first consumers.** Celery task relays outbox → Redis stream (later SNS); consumers: welcome email on `UserSignedUp`, category-limit alert on `ExpenseCreated`. | Todo | |
-| FB-8.3 | **auto_ledger via events (design spike).** Design doc: can `AccountTransaction` creation become an `ExpenseCreated` consumer without breaking same-transaction consistency expectations? Decide sync-vs-async per module. | Todo | Honest spike — this is the hardest seam; outcome may be "stay synchronous for loans". |
-| FB-8.4 | 📚 **Tutorial: event-driven architecture.** `learning/08-events-outbox.md`: events vs commands, outbox, at-least-once delivery, eventual consistency trade-offs. | Todo | |
+| FB-8.1 | **Event schema + outbox table.** `outbox_events` (id, tenant, type, payload, created, published); `emit_event()` writes in-transaction. Define first events: `ExpenseCreated/Updated/Deleted`, `LoanPaymentRecorded`, `AssetValued`, `UserSignedUp`. | Done | Done — `outbox_events` (migration 049) + `app/events.py` emit_event/flush_events; event commits atomically with the change (rollback kills both — tested). |
+| FB-8.2 | **Relay + first consumers.** Celery task relays outbox → Redis stream (later SNS); consumers: welcome email on `UserSignedUp`, category-limit alert on `ExpenseCreated`. | Done | Done — relay: inline in eager mode (request session — keeps test isolation), dispatch_outbox task + 60s beat sweep in broker mode. Consumers: user.signed_up → welcome email; expense.created → category-limit alert (idempotent per category+month). |
+| FB-8.3 | **auto_ledger via events (design spike).** Design doc: can `AccountTransaction` creation become an `ExpenseCreated` consumer without breaking same-transaction consistency expectations? Decide sync-vs-async per module. | Done | Resolved: ledger stays SYNCHRONOUS. Account balances must be read-your-write consistent; eventual consistency is wrong for financial state here. Recorded in learning/08. |
+| FB-8.4 | 📚 **Tutorial: event-driven architecture.** `learning/08-events-outbox.md`: events vs commands, outbox, at-least-once delivery, eventual consistency trade-offs. | Done | Done — `learning/08-events-outbox.md`. |
 
 ---
 
-## Phase 3 — Service extraction & cloud
+## Phase 3 — Service extraction & cloud — **DROPPED (2026-07-20)**
+
+> Owner decision: stay a single deployable app. E9–E11 stories are retired,
+> not deleted, in case priorities change. The learning goals (messaging,
+> Kafka-vs-queues) can be pursued later as local labs without prod scope.
 
 ### E9 — Extract Assets service
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-9.1 | **Standalone FastAPI app** from `assets` package: own container, own Postgres schema `assets`, verifies the same JWTs (shared `SECRET_KEY` → plan move to RS256 keypair), own alembic. | Todo | |
-| FB-9.2 | **nginx path routing** `/api/assets/* → assets container`; frontend unchanged. Monolith's `assets_summary()` becomes an HTTP call (with timeout + fallback). | Todo | |
-| FB-9.3 | **Independent CI/CD.** `deploy.yml` matrix: change detection per service; assets deploys alone. | Todo | |
-| FB-9.4 | 📚 **Tutorial: strangler-fig extraction.** `learning/09-service-extraction.md`. | Todo | |
+| FB-9.1 | **Standalone FastAPI app** from `assets` package: own container, own Postgres schema `assets`, verifies the same JWTs (shared `SECRET_KEY` → plan move to RS256 keypair), own alembic. | Dropped | |
+| FB-9.2 | **nginx path routing** `/api/assets/* → assets container`; frontend unchanged. Monolith's `assets_summary()` becomes an HTTP call (with timeout + fallback). | Dropped | |
+| FB-9.3 | **Independent CI/CD.** `deploy.yml` matrix: change detection per service; assets deploys alone. | Dropped | |
+| FB-9.4 | 📚 **Tutorial: strangler-fig extraction.** `learning/09-service-extraction.md`. | Dropped | |
 
 ### E10 — Extract Expense service + AWS messaging
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-10.1 | **Expense service** (expenses + categories + categorizer + learning): own app/schema; emits events; ledger sync via consumer in monolith (per FB-8.3 decision). | Todo | |
-| FB-10.2 | **SNS→SQS between services** (AWS free tier): outbox relay publishes to SNS topic; SQS queue per consumer; IAM least-privilege; localstack for local dev. | Todo | |
-| FB-10.3 | **Kafka lab (local only).** docker-compose Kafka; re-implement one event flow on Kafka; write comparison (Kafka vs SQS/SNS vs Redis streams) — when each is the right call. | Todo | Deliberately not deployed to prod. |
-| FB-10.4 | 📚 **Tutorial: SQS/SNS + Kafka compared.** `learning/10-messaging.md`. | Todo | |
+| FB-10.1 | **Expense service** (expenses + categories + categorizer + learning): own app/schema; emits events; ledger sync via consumer in monolith (per FB-8.3 decision). | Dropped | |
+| FB-10.2 | **SNS→SQS between services** (AWS free tier): outbox relay publishes to SNS topic; SQS queue per consumer; IAM least-privilege; localstack for local dev. | Dropped | |
+| FB-10.3 | **Kafka lab (local only).** docker-compose Kafka; re-implement one event flow on Kafka; write comparison (Kafka vs SQS/SNS vs Redis streams) — when each is the right call. | Dropped | Deliberately not deployed to prod. |
+| FB-10.4 | 📚 **Tutorial: SQS/SNS + Kafka compared.** `learning/10-messaging.md`. | Dropped | |
 
 ### E11 — WhatsApp bot (the payoff)
 
 | ID | Story | Status | Notes |
 |----|-------|--------|-------|
-| FB-11.1 | **Bot auth.** Service-token / API-key auth path in Expense service; per-user phone-number linking flow. | Todo | |
-| FB-11.2 | **Lambda webhook.** AWS Lambda + API Gateway receiving WhatsApp (Meta Cloud API or Twilio sandbox) messages → parse "spent 250 on lunch" → Expense API; reply with confirmation + running total. | Todo | Serverless learning story. |
-| FB-11.3 | 📚 **Tutorial: serverless integration.** `learning/11-lambda-whatsapp.md`. | Todo | |
+| FB-11.1 | **Bot auth.** Service-token / API-key auth path in Expense service; per-user phone-number linking flow. | Dropped | |
+| FB-11.2 | **Lambda webhook.** AWS Lambda + API Gateway receiving WhatsApp (Meta Cloud API or Twilio sandbox) messages → parse "spent 250 on lunch" → Expense API; reply with confirmation + running total. | Dropped | Serverless learning story. |
+| FB-11.3 | 📚 **Tutorial: serverless integration.** `learning/11-lambda-whatsapp.md`. | Dropped | |
 
 ---
 
@@ -144,3 +148,6 @@
 - 2026-07-19 **FB-4.1..4.5** Done — Assets module as service-ready package; migration 048 rehearsed (downgrade bug caught in rehearsal); dashboard/analytics moved to the assets_summary() interface. Backend 271 passed, frontend 69 passed. **Epic E4 complete.**
 - 2026-07-19 **FB-5.1..5.4** Done — admin console: tenant-context support view (read-only, audited into the target's log, fail-closed header), user management, platform stats. 11 new tests; backend 282 passed. **Epic E5 complete.**
 - 2026-07-19 **FB-6.1, 6.2, 6.4** Done; **FB-6.3** Ready (runbook; deploy is user-triggered). **Phase 1 code-complete** — remaining before public launch: execute DEPLOY_RUNBOOK.md + SECURITY_REVIEW_SIGNUP.md on the VM, then merge to main.
+- 2026-07-20 **Phase 3 DROPPED** (owner decision — single app stays); E8 trimmed to in-app events.
+- 2026-07-20 **Read-only platform admin + env-driven cut-over** (no data move needed: amolsaxena060 already owns everything via 046 backfill). 9 new tests.
+- 2026-07-20 **E7 + E8 complete** — broker-optional Celery (eager fallback, live broker rehearsal ✓), transactional outbox + welcome-email & limit-alert handlers. 8 new tests. **Phase 2 complete. Runbook rev 2 ready — deploy = merge to main after Step-0 backup.**

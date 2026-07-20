@@ -81,7 +81,7 @@ for _name, _entry in (("SitePlot", ("properties", "site plot")),
 
 # Never logged: the log itself (recursion), token blacklist (noise, hashes),
 # ML learning rows (system noise, not user actions).
-_SKIP = (ActivityLog, m.RefreshTokenBlacklist, m.CategoryLearning)
+_SKIP = (ActivityLog, m.RefreshTokenBlacklist, m.CategoryLearning, m.OutboxEvent)
 
 # Fields never recorded in snapshots/diffs.
 _EXCLUDED_FIELDS = {"password_hash", "token_hash", "created_at", "updated_at"}

@@ -20,6 +20,7 @@ from app.models.activity_log import ActivityLog
 # Package-by-feature modules (E4+): re-exported here so Base.metadata,
 # the activity logger and create_all see them like any other model.
 from app.modules_pkg.assets.models import Asset
+from app.models.outbox_event import OutboxEvent
 
 __all__ = [
     "User",
@@ -51,4 +52,5 @@ __all__ = [
     "UnencumberedAsset",
     "ActivityLog",
     "Asset",
+    "OutboxEvent",
 ]

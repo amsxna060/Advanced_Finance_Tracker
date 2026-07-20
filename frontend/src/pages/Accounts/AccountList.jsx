@@ -78,7 +78,10 @@ const today = () => new Date().toISOString().slice(0, 10);
 export default function AccountList() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  // E2/E6 authz model: every user writes their own data; only readonly
+  // guest credentials are view-only. ("isAdmin" name kept to avoid a
+  // wide rename in this page.)
+  const isAdmin = user?.role !== "readonly";
   const queryClient = useQueryClient();
 
   const [showTransfer, setShowTransfer] = useState(false);

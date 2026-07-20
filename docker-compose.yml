@@ -56,5 +56,46 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
+  # ── E7 async backbone (OPTIONAL for local dev) ─────────────────────────
+  # Without these (and with REDIS_URL unset) the app runs tasks eagerly
+  # in-process — identical behaviour, no extra services. Start them with:
+  #   docker compose --profile async up
+  # and set REDIS_URL=redis://redis:6379/0 in .env for the backend.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: ["async"]
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    profiles: ["async"]
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./backend:/app
+
+  beat:
+    build: ./backend
+    restart: unless-stopped
+    profiles: ["async"]
+    command: celery -A app.celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./backend:/app
+
 volumes:
   postgres_data:
