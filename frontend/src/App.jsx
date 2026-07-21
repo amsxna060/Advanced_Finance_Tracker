@@ -9,6 +9,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./contexts/AuthContext";
 import { useAuth } from "./hooks/useAuth";
+import { useVersionCheck } from "./hooks/useVersionCheck";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 import RequireAdmin from "./components/RequireAdmin";
@@ -89,6 +90,7 @@ const queryClient = new QueryClient({
 });
 
 function App() {
+  useVersionCheck(); // auto-reload when a new version is deployed
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
