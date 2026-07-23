@@ -170,7 +170,7 @@ export default function ContactDetail() {
             >
               Export Statement
             </Button>
-            {user?.role === "admin" && (
+            {user?.role !== "readonly" && (
               <>
                 <Button
                   variant="white"

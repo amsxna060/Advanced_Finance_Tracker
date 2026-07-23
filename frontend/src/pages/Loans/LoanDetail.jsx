@@ -357,7 +357,7 @@ function LoanDetail() {
         backTo="/loans"
         actions={
           <>
-            {user?.role === "admin" && loan.status === "active" && (
+            {user?.role !== "readonly" && loan.status === "active" && (
               <Button
                 variant="white"
                 icon={Edit}
@@ -588,7 +588,7 @@ function LoanDetail() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">
                           Notes
                         </th>
-                        {user?.role === "admin" && (
+                        {user?.role !== "readonly" && (
                           <th className="px-4 py-3"></th>
                         )}
                       </tr>
@@ -631,7 +631,7 @@ function LoanDetail() {
                           <td className="px-4 py-3 text-sm text-slate-500">
                             {payment.notes || "-"}
                           </td>
-                          {user?.role === "admin" && (
+                          {user?.role !== "readonly" && (
                             <td className="px-4 py-3 text-sm">
                               <button
                                 onClick={() => handleDeletePayment(payment.id)}
@@ -663,7 +663,7 @@ function LoanDetail() {
                 <h2 className="text-base font-bold text-slate-800">
                   Collaterals
                 </h2>
-                {user?.role === "admin" && (
+                {user?.role !== "readonly" && (
                   <button
                     onClick={() => setShowCollateralModal(true)}
                     className="px-3.5 py-1.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm shadow-indigo-500/20 active:scale-[0.97]"
@@ -722,7 +722,7 @@ function LoanDetail() {
                               {formatCurrency(collateral.estimated_value)}
                             </div>
                           </div>
-                          {user?.role === "admin" && (
+                          {user?.role !== "readonly" && (
                             <button
                               onClick={() =>
                                 handleDeleteCollateral(collateral.id)
@@ -934,7 +934,7 @@ function LoanDetail() {
                 >
                   <span>👤</span> View Contact
                 </button>
-                {user?.role === "admin" && loan.status === "active" && (
+                {user?.role !== "readonly" && loan.status === "active" && (
                   <button
                     onClick={handleMarkClosed}
                     disabled={markClosedMutation.isPending}
@@ -965,7 +965,7 @@ function LoanDetail() {
                     >Dismiss</button>
                   </div>
                 )}
-                {user?.role === "admin" && (
+                {user?.role !== "readonly" && (
                   <button
                     onClick={handleDeleteLoan}
                     disabled={deleteLoanMutation.isPending}

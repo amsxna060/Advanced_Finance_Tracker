@@ -588,7 +588,7 @@ function ExpenseList() {
         subtitle="Track and manage all your expenses"
         backTo="/dashboard"
         actions={
-          user?.role === "admin" && (
+          user?.role !== "readonly" && (
             <div className="flex gap-2">
               <Button variant="white" onClick={() => setShowBudgetModal(true)}>
                 🎯 Set Budget
@@ -823,7 +823,7 @@ function ExpenseList() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
-                        {user?.role === "admin" && (
+                        {user?.role !== "readonly" && (
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => openEditModal(expense)}

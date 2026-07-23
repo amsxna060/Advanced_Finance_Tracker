@@ -78,7 +78,7 @@ export default function ContactList() {
         title="Contacts"
         subtitle={`${allContacts.length} total contacts in your network`}
         actions={
-          user?.role === "admin" && (
+          user?.role !== "readonly" && (
             <Button
               variant="white"
               icon={Plus}
@@ -221,7 +221,7 @@ export default function ContactList() {
                 : "Get started by adding your first contact"
             }
             action={
-              user?.role === "admin" && (
+              user?.role !== "readonly" && (
                 <Button icon={Plus} onClick={() => navigate("/contacts/new")}>
                   Add Contact
                 </Button>
